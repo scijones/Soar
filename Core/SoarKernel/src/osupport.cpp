@@ -264,7 +264,7 @@ Bool is_state_id(agent* thisAgent, Symbol *sym,Symbol *match_state)
    add_to_os_tc_if_id() instead -- in case people use constant-symbols 
    (instead of objects) for states or operators */
 
-void calculate_support_for_instantiation_preferences (agent* thisAgent, instantiation *inst) {
+void calculate_support_for_instantiation_preferences (agent* thisAgent, instantiation *inst, instantiation *original_inst) {
 	preference *pref;
 	wme *w;
 	condition *c;
@@ -280,8 +280,6 @@ void calculate_support_for_instantiation_preferences (agent* thisAgent, instanti
 	wme       *lowest_goal_wme;
 
 	/* RCHONG: end 10.11 */
-
-
 
 	/* REW: begin 09.15.96 */
 	if (thisAgent->soar_verbose_flag == TRUE) {
@@ -303,21 +301,29 @@ void calculate_support_for_instantiation_preferences (agent* thisAgent, instanti
 		*/
 
 		operator_proposal = FALSE;
-		for (act = inst->prod->action_list; act != NIL ; act = act->next) {
-			if ((act->type == MAKE_ACTION)  &&
-				(rhs_value_is_symbol(act->attr))) {
+		instantiation *non_variabilized_inst = original_inst ? original_inst : inst;
+
+		if (non_variabilized_inst->rete_wme) {
+			for (act = non_variabilized_inst->prod->action_list; act != NIL ; act = act->next) {
+				if ((act->type == MAKE_ACTION)  &&
+						(rhs_value_is_symbol(act->attr))) {
 					if ((strcmp(rhs_value_to_string (thisAgent, act->attr, action_attr, 50),
-						"operator") == NIL) &&
-						(act->preference_type == ACCEPTABLE_PREFERENCE_TYPE)) {
-							/* REW: 09.30.96.  Bug fix (next line was
-							operator_proposal == TRUE;) */
+							"operator") == NIL) &&
+							(act->preference_type == ACCEPTABLE_PREFERENCE_TYPE)) {
+						if (rhs_value_is_symbol(act->attr) &&
+								get_symbol_from_rete_loc( rhs_value_to_reteloc_levels_up( act->id ),
+										rhs_value_to_reteloc_field_num( act->id ),
+										non_variabilized_inst->rete_token,
+										non_variabilized_inst->rete_wme )->id.isa_goal)
+						{
 							operator_proposal = TRUE;
 							o_support = FALSE;
 							break;
+						}
 					}
+				}
 			}
-		}
-
+	}
 
 		if (operator_proposal == FALSE) {
 

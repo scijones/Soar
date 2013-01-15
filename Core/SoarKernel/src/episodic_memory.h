@@ -69,6 +69,11 @@ enum epmem_variable_key
 #define EPMEM_RIT_STATE_NODE						0
 #define EPMEM_RIT_STATE_EDGE						1
 
+// provides a distinct prefix to be used by all
+// tables for two reasons:
+// - distinguish from other modules
+// - distinguish between smem versions
+#define EPMEM_SCHEMA_VERSION 2.0
 
 //////////////////////////////////////////////////////////
 // EpMem Typedefs
@@ -180,6 +185,7 @@ class epmem_stat_container: public soar_module::stat_container
 		epmem_db_lib_version_stat* db_lib_version;
 		epmem_mem_usage_stat *mem_usage;
 		epmem_mem_high_stat *mem_high;
+		soar_module::integer_stat *ncbr;
 		soar_module::integer_stat *cbr;
 		soar_module::integer_stat *nexts;
 		soar_module::integer_stat *prevs;
@@ -321,6 +327,16 @@ class epmem_common_statement_container: public soar_module::sqlite_statement_con
 
 		soar_module::sqlite_statement *hash_get;
 		soar_module::sqlite_statement *hash_add;
+//		soar_module::sqlite_statement *hash_rev_int;
+//        soar_module::sqlite_statement *hash_rev_float;
+//        soar_module::sqlite_statement *hash_rev_str;
+//        soar_module::sqlite_statement *hash_get_int;
+//        soar_module::sqlite_statement *hash_get_float;
+//        soar_module::sqlite_statement *hash_get_str;
+//        soar_module::sqlite_statement *hash_add_type;
+//        soar_module::sqlite_statement *hash_add_int;
+//        soar_module::sqlite_statement *hash_add_float;
+//        soar_module::sqlite_statement *hash_add_str;
 
 		epmem_common_statement_container( agent *new_agent );
 };
@@ -328,6 +344,7 @@ class epmem_common_statement_container: public soar_module::sqlite_statement_con
 class epmem_graph_statement_container: public soar_module::sqlite_statement_container
 {
 	public:
+//		soar_module::sqlite_statement *add_node;
 		soar_module::sqlite_statement *add_time;
 
 		//
