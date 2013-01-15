@@ -272,6 +272,10 @@ epmem_stat_container::epmem_stat_container( agent *new_agent ): soar_module::sta
 	mem_high = new epmem_mem_high_stat( my_agent, "mem-high", 0, new soar_module::predicate<int64_t>() );
 	add( mem_high );
 
+	// non-cue-based-retrievals
+	ncbr = new soar_module::integer_stat( "retrievals", 0, new soar_module::f_predicate<int64_t>() );
+	add( ncbr );
+
 	// cue-based-retrievals
 	cbr = new soar_module::integer_stat( "queries", 0, new soar_module::f_predicate<int64_t>() );
 	add( cbr );
@@ -533,14 +537,27 @@ epmem_common_statement_container::epmem_common_statement_container( agent *new_a
 	add_structure( "CREATE TABLE IF NOT EXISTS vars (id INTEGER PRIMARY KEY,value NONE)" );
 	add_structure( "CREATE TABLE IF NOT EXISTS rit_left_nodes (min INTEGER, max INTEGER)" );
 	add_structure( "CREATE TABLE IF NOT EXISTS rit_right_nodes (node INTEGER)" );
+
 	add_structure( "CREATE TABLE IF NOT EXISTS temporal_symbol_hash (id INTEGER PRIMARY KEY, sym_const NONE, sym_type INTEGER)" );
 	add_structure( "CREATE UNIQUE INDEX IF NOT EXISTS temporal_symbol_hash_const_type ON temporal_symbol_hash (sym_type,sym_const)" );
 
+//	add_structure( "CREATE TABLE IF NOT EXISTS symbols_type (id INTEGER PRIMARY KEY, sym_type INTEGER)" );
+//	add_structure( "CREATE TABLE IF NOT EXISTS symbols_int (id INTEGER PRIMARY KEY, sym_const INTEGER)" );
+//	add_structure( "CREATE UNIQUE INDEX IF NOT EXISTS symbols_int_const ON symbols_int (sym_const)" );
+//	add_structure( "CREATE TABLE IF NOT EXISTS symbols_float (id INTEGER PRIMARY KEY, sym_const REAL)" );
+//	add_structure( "CREATE UNIQUE INDEX IF NOT EXISTS symbols_float_const ON symbols_float (sym_const)" );
+//	add_structure( "CREATE TABLE IF NOT EXISTS symbols_str (id INTEGER PRIMARY KEY, sym_const TEXT)" );
+//	add_structure( "CREATE UNIQUE INDEX IF NOT EXISTS symbols_str_const ON symbols_str (sym_const)" );
+
 	// workaround for tree: type 1 = IDENTIFIER_SYMBOL_TYPE
 	add_structure( "INSERT OR IGNORE INTO temporal_symbol_hash (id,sym_const,sym_type) VALUES (0,NULL,1)" );
+//	add_structure( "INSERT OR IGNORE INTO symbols_type (id,sym_type) VALUES (0,SYM_CONSTANT_SYMBOL_TYPE)" );
+//	add_structure( "INSERT OR IGNORE INTO symbols_str_const (id,sym_const) VALUES (0,NULL)" );
 
 	// workaround for acceptable preference wmes: id 1 = "operator+"
 	add_structure( "INSERT OR IGNORE INTO temporal_symbol_hash (id,sym_const,sym_type) VALUES (1,'operator*',2)" );
+//	add_structure( "INSERT OR IGNORE INTO symbols_type (id,sym_type) VALUES (1,SYM_CONSTANT_SYMBOL_TYPE)" );
+//	add_structure( "INSERT OR IGNORE INTO symbols_str_const (id,sym_const) VALUES (1,'operator*')" );
 
 	//
 
@@ -582,6 +599,37 @@ epmem_common_statement_container::epmem_common_statement_container( agent *new_a
 
 	hash_add = new soar_module::sqlite_statement( new_db, "INSERT INTO temporal_symbol_hash (sym_type,sym_const) VALUES (?,?)" );
 	add( hash_add );
+
+//	hash_rev_int = new soar_module::sqlite_statement( new_db, "SELECT sym_const FROM symbols_int WHERE id=?" );
+//	add( hash_rev_int );
+//
+//	hash_rev_float = new soar_module::sqlite_statement( new_db, "SELECT sym_const FROM symbols_float WHERE id=?" );
+//	add( hash_rev_float );
+//
+//	hash_rev_str = new soar_module::sqlite_statement( new_db, "SELECT sym_const FROM symbols_str WHERE id=?" );
+//	add( hash_rev_str );
+//
+//	hash_get_int = new soar_module::sqlite_statement( new_db, "SELECT id FROM symbols_int WHERE sym_const=?" );
+//	add( hash_get_int );
+//
+//	hash_get_float = new soar_module::sqlite_statement( new_db, "SELECT id FROM symbols_float WHERE sym_const=?" );
+//	add( hash_get_float );
+//
+//	hash_get_str = new soar_module::sqlite_statement( new_db, "SELECT id FROM symbols_str WHERE sym_const=?" );
+//	add( hash_get_str );
+//
+//	hash_add_type = new soar_module::sqlite_statement( new_db, "INSERT INTO symbols_type (sym_type) VALUES (?)" );
+//	add( hash_add_type );
+//
+//	hash_add_int = new soar_module::sqlite_statement( new_db, "INSERT INTO symbols_int (id,sym_const) VALUES (?,?)" );
+//	add( hash_add_int );
+//
+//	hash_add_float = new soar_module::sqlite_statement( new_db, "INSERT INTO symbols_float (id,sym_const) VALUES (?,?)" );
+//	add( hash_add_float );
+//
+//	hash_add_str = new soar_module::sqlite_statement( new_db, "INSERT INTO symbols_str (id,sym_const) VALUES (?,?)" );
+//	add( hash_add_str );
+
 }
 
 epmem_graph_statement_container::epmem_graph_statement_container( agent *new_agent ): soar_module::sqlite_statement_container( new_agent->epmem_db )
@@ -5368,6 +5416,9 @@ void epmem_respond_to_cmd( agent *my_agent )
 				if ( path == 1 )
 				{
 					epmem_install_memory( my_agent, state, retrieve, meta_wmes, retrieval_wmes );
+
+					// add one to the ncbr stat
+					my_agent->epmem_stats->ncbr->set_value( my_agent->epmem_stats->ncbr->get_value() + 1 );
 				}
 				// previous or next
 				else if ( path == 2 )
