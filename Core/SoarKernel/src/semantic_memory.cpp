@@ -3022,7 +3022,7 @@ void smem_init_db( agent *my_agent )
 							}
 
 						} else {
-							version_error_message.assign("...Error: Cannot read version number from file-based semantic memory database.\n")
+							version_error_message.assign("...Error: Cannot read version number from file-based semantic memory database.\n");
 
 							if (smem_version_one(my_agent)) {
 								version_error_message.assign("...Version of semantic memory database is old.\n"
