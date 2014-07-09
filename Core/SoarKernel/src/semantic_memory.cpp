@@ -195,56 +195,54 @@ void smem_path_param::set_value( const char *new_value )
 		 * another before dedicating that time.
 		 *
 		   -scijones 2014*/
-		value->assign( new_value );
+	value->assign( new_value );
 
-		const char *db_path;
-		db_path = my_agent->smem_params->path->get_value();
-		my_agent->smem_db->connect( db_path );
+	const char *db_path;
+	db_path = my_agent->smem_params->path->get_value();
+	my_agent->smem_db->connect( db_path );
 
-		if ( my_agent->smem_db->get_status() == soar_module::problem )
+	if ( my_agent->smem_db->get_status() == soar_module::problem )
+	{
+		print_trace(my_agent, 0, "SMem| Database Error: %s\n", my_agent->smem_db->get_errmsg() );
+	}
+	else
+	{
+		// temporary queries for one-time init actions
+		soar_module::sqlite_statement *temp_q = NULL;
+
+		// If the database is on file, make sure the database contents use the current schema
+		// If it does not, switch to memory-based database
+
+		if (strcmp(db_path, ":memory:")) // Only worry about database version if writing to disk
 		{
-			print_trace(my_agent, 0, "SMem| Database Error: %s\n", my_agent->smem_db->get_errmsg() );
-		}
-		else
-		{
-			// temporary queries for one-time init actions
-			soar_module::sqlite_statement *temp_q = NULL;
-
-			// If the database is on file, make sure the database contents use the current schema
-			// If it does not, switch to memory-based database
-
-			if (strcmp(db_path, ":memory:")) // Only worry about database version if writing to disk
+			bool sql_is_new;
+			std::string schema_version;
+			if (my_agent->smem_db->sql_is_new_db(sql_is_new))
 			{
-				bool sql_is_new;
-				std::string schema_version;
-				if (my_agent->smem_db->sql_is_new_db(sql_is_new))
-				{
-					if (sql_is_new)
-					{}
-					else
-					{	// Check if table exists already
-						temp_q = new soar_module::sqlite_statement( my_agent->smem_db, "CREATE TABLE IF NOT EXISTS versions (system TEXT PRIMARY KEY,version_number TEXT)" );
-						temp_q->prepare();
-						if ( temp_q->get_status() == soar_module::ready )
+				if (!sql_is_new)
+				{	// Check if table exists already
+					temp_q = new soar_module::sqlite_statement( my_agent->smem_db, "CREATE TABLE IF NOT EXISTS versions (system TEXT PRIMARY KEY,version_number TEXT)" );
+					temp_q->prepare();
+					if ( temp_q->get_status() == soar_module::ready )
+					{
+						if (!my_agent->smem_db->sql_simple_get_string("SELECT version_number FROM versions WHERE system = 'smem_schema'", schema_version ))
 						{
-							if (my_agent->smem_db->sql_simple_get_string("SELECT version_number FROM versions WHERE system = 'smem_schema'", schema_version ))
-							{} else {
-								if (smem_version_one(my_agent)) {
-									print(my_agent,"...You have selected a database with an old version.\n"
-											"...If you proceed, the database will be converted to a\n"
-											"...new version when the database is initialized.\n"
-											"...Conversion can take a large amount of time with large databases.\n");
-								}
+							if (smem_version_one(my_agent)) {
+								print(my_agent,"...You have selected a database with an old version.\n"
+										"...If you proceed, the database will be converted to a\n"
+										"...new version when the database is initialized.\n"
+										"...Conversion can take a large amount of time with large databases.\n");
 							}
 						}
 					}
 				}
 			}
-
-			delete temp_q;
-			temp_q = NULL;
 		}
-		my_agent->smem_db->disconnect();
+
+		delete temp_q;
+		temp_q = NULL;
+	}
+	my_agent->smem_db->disconnect();
 }
 
 //
