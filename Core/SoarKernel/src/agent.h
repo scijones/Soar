@@ -51,19 +51,14 @@ typedef struct rhs_function_struct rhs_function;
 // select types
 typedef struct select_info_struct select_info;
 
-#ifdef __cplusplus
-//extern "C"
-//{
-#endif
-
 /* RBD Need more comments here, or should this stuff be here at all? */
 
 #define UPDATE_LINKS_NORMALLY 0
 #define UPDATE_DISCONNECTED_IDS_LIST 1
 #define JUST_UPDATE_COUNT 2
 
-typedef char Bool;
-typedef union symbol_union Symbol;
+
+typedef struct symbol_struct Symbol;
 typedef struct hash_table_struct hash_table;
 typedef struct wme_struct wme;
 typedef struct memory_pool_struct memory_pool;
@@ -76,7 +71,7 @@ typedef struct backtrace_struct backtrace_str;
 typedef struct explain_chunk_struct explain_chunk_str;
 typedef struct io_wme_struct io_wme;
 typedef struct multi_attributes_struct multi_attribute;
-
+class AgentOutput_Info;
 class debug_param_container;
 
 // following def's moved here from old interface.h file  KJC nov 05
@@ -259,7 +254,7 @@ typedef struct agent_struct {
   lexer_source_file * current_file; /* file we're currently reading */
   int                 current_char; /* holds current input character */
   struct lexeme_info  lexeme;       /* holds current lexeme */
-  Bool                print_prompt_flag;
+  bool               print_prompt_flag;
 
   /* ---------------- Predefined Symbols -------------------------
      Certain symbols are used so frequently that we create them at
@@ -377,13 +372,13 @@ typedef struct agent_struct {
   struct hash_table_struct * float_constant_hash_table;
   struct hash_table_struct * identifier_hash_table;
   struct hash_table_struct * int_constant_hash_table;
-  struct hash_table_struct * sym_constant_hash_table;
+  struct hash_table_struct * str_constant_hash_table;
   struct hash_table_struct * variable_hash_table;
 
   memory_pool         float_constant_pool;
   memory_pool         identifier_pool;
   memory_pool         int_constant_pool;
-  memory_pool         sym_constant_pool;
+  memory_pool         str_constant_pool;
   memory_pool         variable_pool;
 
   /* ----------------------- Top-level stuff -------------------------- */
@@ -403,22 +398,22 @@ typedef struct agent_struct {
   /* --- stuff for "input-period" command --- */
   /* --- in Soar8, input runs once at beginning of D cycle, no matter what */
   int                 input_period;      /* AGR REW1 */
-  Bool                input_cycle_flag;  /* AGR REW1 */
+  bool               input_cycle_flag;  /* AGR REW1 */
 
   /* --- current top level phase --- */
   enum top_level_phase current_phase;
 
-  /* --- to interrupt at the end of the current phase, set stop_soar to TRUE
+  /* --- to interrupt at the end of the current phase, set stop_soar to true
      and reason_for_stopping to some appropriate string --- */
-  Bool                stop_soar;
+  bool               stop_soar;
   const char          * reason_for_stopping;
 
-  /* --- the RHS action (halt) sets this TRUE --- */
-  Bool                system_halted;
+  /* --- the RHS action (halt) sets this true --- */
+  bool               system_halted;
 
   /* --- stuff for max-chunks (which is a sysparam) --- */
   uint64_t       chunks_this_d_cycle; /* # chunks built this DC */
-  Bool		     max_chunks_reached;
+  bool		     max_chunks_reached;
 
   /* --- list of productions whose firings are being traced --- */
   ::list            * productions_being_traced;
@@ -615,13 +610,13 @@ kernel time and total_cpu_time greater than the derived total CPU time. REW */
    /* Keep track of real time steps for constant real-time per decision */
    /* used only if #def'd REAL_TIME_BEHAVIOR */
    struct timeval	*real_time_tracker;
-   Bool			     real_time_idling;
+   bool			     real_time_idling;
 
    /* RMJ */
    /* Keep track of duration of attentional lapses */
    /* Used only if #def'd ATTENTION_LAPSE in */
    struct timeval	*attention_lapse_tracker;
-   Bool			     attention_lapsing;
+   bool			     attention_lapsing;
 
 
   /* ----------------------- Chunker stuff -------------------------- */
@@ -643,7 +638,7 @@ kernel time and total_cpu_time greater than the derived total CPU time. REW */
   tc_number           results_tc_number;
   tc_number           variablization_tc;
   preference        * extra_result_prefs_from_instantiation;
-  Bool                quiescence_t_flag;
+  bool               quiescence_t_flag;
   char                chunk_name_prefix[kChunkNamePrefixMaxLength];  /* kjh (B14) */
 
   /* ----------------------- Misc. top-level stuff -------------------------- */
@@ -675,7 +670,7 @@ kernel time and total_cpu_time greater than the derived total CPU time. REW */
   explain_chunk_str * explain_chunk_list;         /* AGR 564 */
   char                explain_chunk_name[256];    /* AGR 564 */
   /* made explain_flag EXPLAIN_SYSPARAM instead, KJC 7/96 */
-  /* Bool                explain_flag; */
+  /* bool               explain_flag; */
 
   /* ----------------------- Firer stuff -------------------------- */
 
@@ -727,17 +722,11 @@ kernel time and total_cpu_time greater than the derived total CPU time. REW */
   ::list            * promoted_ids;
   int                 link_update_mode;
 
-  /* ------------------ Printing utilities stuff --------------------- */
-
-  char                printed_output_string[MAX_LEXEME_LENGTH*2+10];
-  int                 printer_output_column;
-  int                 saved_printer_output_column;
-
   /* ----------------------- Trace Formats -------------------------- */
 
   struct trace_format_struct *(object_tf_for_anything[3]);
   struct hash_table_struct *(object_tr_ht[3]);
-  Bool                printing_stack_traces;
+  bool               printing_stack_traces;
   struct trace_format_struct *(stack_tf_for_anything[3]);
   struct hash_table_struct *(stack_tr_ht[3]);
   tc_number           tf_printing_tc;
@@ -763,7 +752,7 @@ kernel time and total_cpu_time greater than the derived total CPU time. REW */
   memory_pool         output_link_pool;
   tc_number           output_link_tc_num;
 
-  Bool                output_link_changed;
+  bool               output_link_changed;
 
   Symbol            * io_header;
   wme               * io_header_link;
@@ -803,15 +792,15 @@ kernel time and total_cpu_time greater than the derived total CPU time. REW */
 
   const char        * alternate_input_string;
   const char        * alternate_input_suffix;
-  Bool                alternate_input_exit; /* Soar-Bugs #54, TMH */
+  bool               alternate_input_exit; /* Soar-Bugs #54, TMH */
   expansion_node    * lex_alias;         /* AGR 568 */
-  Bool                load_errors_quit;  /* AGR 527c */
+  bool               load_errors_quit;  /* AGR 527c */
   dir_stack_struct  * top_dir_stack;   /* AGR 568 */
 
 
   /* RCHONG: begin 10.11 */
-  Bool       did_PE;
-  Bool       soar_verbose_flag;
+  bool      did_PE;
+  bool      soar_verbose_flag;
   int        FIRING_TYPE;
   Symbol     *PE_level;
 
@@ -852,11 +841,11 @@ kernel time and total_cpu_time greater than the derived total CPU time. REW */
   goal_stack_level next_change_level;
 
   /* delineate btwn Pref/WM(propose) and Pref/WM(apply) KJC 10.05.98 */
-  Bool       applyPhase;
+  bool      applyPhase;
 
   /* REW: begin 10.24.97 */
-  Bool       waitsnc;
-  Bool       waitsnc_detect;
+  bool      waitsnc;
+  bool      waitsnc_detect;
   /* REW: end   10.24.97 */
 
   /* JC ADDED: Need to store RHS functions here so that agent's don't step on each other */
@@ -900,7 +889,7 @@ kernel time and total_cpu_time greater than the derived total CPU time. REW */
 
   // debug parameters
   debug_param_container *debug_params;
-
+  AgentOutput_Info *output_settings;
   // epmem
   epmem_param_container *epmem_params;
   epmem_stat_container *epmem_stats;
@@ -1010,26 +999,6 @@ kernel time and total_cpu_time greater than the derived total CPU time. REW */
 
 void init_soar_agent(agent* thisAgent);
 
-#ifdef USE_MACROS
-
-#define allocate_cons(thisAgent, dest_cons_pointer) \
-  allocate_with_pool (thisAgent, &thisAgent->cons_cell_pool, (dest_cons_pointer))
-
-#define free_cons(thisAgent, c) free_with_pool (&thisAgent->cons_cell_pool, (c))
-
-#define push(thisAgent, item, list_header) { \
-  cons *push_cons_xy298; \
-  allocate_cons (thisAgent, &push_cons_xy298); \
-  push_cons_xy298->first = (item); \
-  push_cons_xy298->rest = (list_header); \
-  (list_header) = push_cons_xy298; }
-
-#else
-
-#ifdef __cplusplus
-//}
-#endif
-
 template <typename T>
 inline void allocate_cons(agent* thisAgent, T * dest_cons_pointer)
 {
@@ -1052,38 +1021,14 @@ inline void push(agent* thisAgent, P item, T * & list_header)
   (list_header) = push_cons_xy298;
 }
 
-#ifdef __cplusplus
-//extern "C"
-//{
-#endif
-
-#endif /* USE_MACROS */
-
-//extern char * soar_version_string;
-
-//extern agent * soar_agent;
 
 extern agent * create_soar_agent (char * name);
 extern void    destroy_soar_agent (agent* soar_agent);
 
-//void initialize_soar_agent(Kernel *thisKernel, agent* thisAgent);
-//
-/* Ideally, this should be in "lexer.h", but to avoid circular dependencies
-   among header files, I am forced to put it here. */
-#ifdef USE_MACROS
-#define reading_from_top_level(soar_agent) (!soar_agent->current_file->parent_file)
-#else
-
-inline Bool reading_from_top_level(agent* soarAgent)
+inline bool reading_from_top_level(agent* soarAgent)
 {
    return (!soarAgent->current_file->parent_file);
 }
-
-#endif /* USE_MACROS */
-
-#ifdef __cplusplus
-//}
-#endif
 
 #endif
 

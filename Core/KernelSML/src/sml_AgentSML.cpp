@@ -71,7 +71,7 @@ void AgentSML::InitListeners()
 void AgentSML::Init()
 {
 	// Temporary HACK.  This should be fixed in the kernel.
-	m_agent->stop_soar = FALSE;
+	m_agent->stop_soar = false;
 
 	ResetCaptureReplay();
 
@@ -394,14 +394,14 @@ void AgentSML::Interrupt(smlStopLocationFlags stopLoc)
 
   // These are immediate requests for interrupt, such as from RHS or application
   if ((sml_STOP_AFTER_SMALLEST_STEP == stopLoc) || (sml_STOP_AFTER_PHASE == stopLoc)) {
-	  m_agent->stop_soar = TRUE;
+	  m_agent->stop_soar = true;
 	  // If the agent is not running, we should set the runState flag now so agent won't run
 	  if (m_runState == sml_RUNSTATE_STOPPED)
 	  {
 		  m_runState = sml_RUNSTATE_INTERRUPTED;
 	  }
 	  // Running agents must test stopLoc & stop_soar in Step method to see if interrupted.
-	  // Because we set m_agent->stop_soar == TRUE above, any running agents should return to
+	  // Because we set m_agent->stop_soar == true above, any running agents should return to
 	  // gSKI at the end of the current phase, even if interleaving by larger steps.  KJC
   }
 }
@@ -527,10 +527,10 @@ smlRunResult AgentSML::Step(smlRunStepSize stepSize)
    {
 	   // if the agent halted because it is in an infinite loop of no-change impasses
 	   // interrupt the agents and allow the user to try to recover.
-	   if (m_agent->bottom_goal->id.level >=  m_agent->sysparams[MAX_GOAL_DEPTH])
+	   if (m_agent->bottom_goal->id->level >=  m_agent->sysparams[MAX_GOAL_DEPTH])
 	   {// the agent halted because it seems to be in an infinite loop, so throw interrupt
 		   m_pKernelSML->InterruptAllAgents(sml_STOP_AFTER_PHASE) ;
-		   m_agent->system_halted = FALSE; // hack! otherwise won't run again.
+		   m_agent->system_halted = false; // hack! otherwise won't run again.
 		   m_runState = sml_RUNSTATE_INTERRUPTED;
 		   retVal     = sml_RUN_INTERRUPTED;
 		   // Notify of the interrupt
@@ -788,7 +788,7 @@ void AgentSML::RegisterRHSFunction(RhsFunction* rhsFunction)
 {
 	// Tell Soar about it
 	add_rhs_function (m_agent,
-					make_sym_constant(m_agent, rhsFunction->GetName()),
+					make_str_constant(m_agent, rhsFunction->GetName()),
 					RhsFunction::RhsFunctionCallback,
 					rhsFunction->GetNumExpectedParameters(),
 					rhsFunction->IsValueReturned(),
@@ -805,7 +805,7 @@ void AgentSML::RemoveRHSFunction(RhsFunction* rhsFunction)
 
 	// Tell the kernel we are done listening.
 	//RPM 9/06: removed symbol ref so symbol is released properly
-	Symbol* tmp = make_sym_constant(m_agent, szName);
+	Symbol* tmp = make_str_constant(m_agent, szName);
 	remove_rhs_function(m_agent, tmp);
 	symbol_remove_ref (m_agent, tmp);
 }
@@ -817,7 +817,7 @@ char const* AgentSML::GetValueType(int type)
 	case VARIABLE_SYMBOL_TYPE: return sml_Names::kTypeVariable ;
 	case FLOAT_CONSTANT_SYMBOL_TYPE: return sml_Names::kTypeDouble ;
 	case INT_CONSTANT_SYMBOL_TYPE:	  return sml_Names::kTypeInt ;
-	case SYM_CONSTANT_SYMBOL_TYPE: return sml_Names::kTypeString ;
+	case STR_CONSTANT_SYMBOL_TYPE: return sml_Names::kTypeString ;
 	case IDENTIFIER_SYMBOL_TYPE: return sml_Names::kTypeID ;
 	default: return NULL ;
 	}
@@ -1020,8 +1020,8 @@ bool AgentSML::AddIdInputWME(char const* pID, char const* pAttribute, char const
 	// If pValueSymbol is a new id, then RecordIDMapping will create a map between the client and kernel id names.
 	// Otherwise, RecordIDMapping will add a ref count to client id name.
 	std::ostringstream buffer;
-	buffer << pValueSymbol->id.name_letter ;
-	buffer << pValueSymbol->id.name_number ;
+	buffer << pValueSymbol->id->name_letter ;
+	buffer << pValueSymbol->id->name_number ;
 	this->RecordIDMapping(pValue, buffer.str().c_str()) ;
 	//if (kDebugInput)
 	//{
@@ -1141,12 +1141,12 @@ bool AgentSML::RemoveInputWME(int64_t clientTimeTag)
 
 	CHECK_RET_FALSE(pWME) ;  //BADBAD: above check means this will never be triggered; one of the checks should go, but not sure which (can this function be legitimately called with a timetag for a wme that's already been removed?)
 
-	if ( pWME->value->common.symbol_type == IDENTIFIER_SYMBOL_TYPE ) {
+	if ( pWME->value->symbol_type == IDENTIFIER_SYMBOL_TYPE ) {
 		this->RemoveID( symbol_to_string( GetSoarAgent(), pWME->value, true, 0, 0 ) ) ;
 	}
 
 	RemoveWmeFromWmeMap( pWME );
-	Bool ok = remove_input_wme(m_agent, pWME) ;
+	bool ok = remove_input_wme(m_agent, pWME) ;
 
 	CHECK_RET_FALSE(ok) ;
 

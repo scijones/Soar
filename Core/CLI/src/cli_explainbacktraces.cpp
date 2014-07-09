@@ -22,7 +22,6 @@
 #include "agent.h"
 #include "print.h"
 #include "explain.h"
-#include "utilities.h"
 
 using namespace cli;
 using namespace sml;
@@ -70,9 +69,9 @@ bool ExplainChunks(agent* thisAgent, const char* pProduction, int mode)
 
                 /* First print out the production in "normal" form */
                 print(thisAgent, "(sp %s\n  ", chunk->name);
-                print_condition_list(thisAgent, chunk->conds, 2, FALSE);
+                print_condition_list(thisAgent, chunk->conds, 2, false);
                 print(thisAgent, "\n-->\n   ");
-                print_action_list(thisAgent, chunk->actions, 3, FALSE);
+                print_action_list(thisAgent, chunk->actions, 3, false);
                 print(thisAgent, ")\n\n");
 
                 /* Then list each condition and the associated "ground" WME */
@@ -113,14 +112,14 @@ bool CommandLineInterface::DoExplainBacktraces(const std::string* pProduction, c
     // quick sanity check
     if (condition < -1) return SetError("Condition number must be a non-negative integer.");
 
-    agent* agnt = m_pAgentSML->GetSoarAgent();
+    agent* thisAgent = m_pAgentSML->GetSoarAgent();
     if (!pProduction) {
         // no production means query, ignore other args
-        ExplainListChunks(agnt);
+        ExplainListChunks(thisAgent);
         return true;
     }
 
-    ExplainChunks(agnt, pProduction->c_str(), condition);
+    ExplainChunks(thisAgent, pProduction->c_str(), condition);
     return true;
 }
 

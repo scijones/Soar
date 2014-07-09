@@ -31,9 +31,10 @@
 #include "wmem.h"
 #include "io_soar.h"
 #include "rete.h"
-#include "gdatastructs.h"
+
+
 #include "xml.h"
-#include "utilities.h"
+#include "stats.h"
 
 #include <assert.h>
 #include <time.h>
@@ -43,6 +44,7 @@
 #include "episodic_memory.h"
 #include "semantic_memory.h"
 #include "svs_interface.h"
+#include "output_manager.h"
 
 /* REW: begin 08.20.97   these defined in consistency.c  */
 extern void determine_highest_active_production_level_in_stack_propose(agent* thisAgent);
@@ -75,7 +77,7 @@ int64_t lapse_duration;
 //void just_before_exit_soar (agent* thisAgent) {
 //  soar_invoke_callbacks(thisAgent,
 //			SYSTEM_TERMINATION_CALLBACK,
-//			(soar_call_data) TRUE);
+//			(soar_call_data) true);
 //}
 
 //void exit_soar (agent* thisAgent) {
@@ -111,9 +113,33 @@ void abort_with_fatal_error (agent* thisAgent, const char *msg) {
   // Note that this is a soar callback, not a gSKI callback, so it isn't being used for now anyway
   //soar_invoke_callbacks(thisAgent,
 		//	SYSTEM_TERMINATION_CALLBACK,
-		//	(soar_call_data) FALSE);
+		//	(soar_call_data) false);
 }
 
+/* -- A version for use when the current agent variable is not available == */
+
+void abort_with_fatal_error_noagent (const char *msg) {
+  FILE *f;
+  const char* warning = "Soar cannot recover from this error. \nYou will have to restart Soar to run an agent.\nData is still available for inspection, but may be corrupt.\nIf a log was open, it has been closed for safety.";
+
+  /* MToDo | Send error message to all clients, not just default one.
+   *         May not want to be a debug message either. */
+  if (Output_Manager::Get_OM().debug_mode_enabled(DT_DEBUG))
+  {
+    Output_Manager::Get_OM().print_debug(msg, DT_DEBUG, true);
+    Output_Manager::Get_OM().print_debug(warning, DT_DEBUG, true);
+  }
+
+//  fprintf (stderr,"%s",msg);
+//  fprintf (stderr,"%s",warning);å
+
+  f = fopen("soarerror", "w");
+  fprintf (f,"%s",msg);
+  fprintf (f,"%s",warning);
+  fclose(f);
+
+  assert(false);
+}
 /* ===================================================================
 
                         Signal Handling
@@ -145,7 +171,7 @@ void abort_with_fatal_error (agent* thisAgent, const char *msg) {
 ///*
 //  for(c = thisKernel->all_soar_agents; c != NIL; c = c->rest) {
 //    the_agent = ((agent *) c->first);
-//    the_agent->stop_soar = TRUE;
+//    the_agent->stop_soar = true;
 //    the_agent->reason_for_stopping =  c_interrupt_msg;
 //  }
 //*/
@@ -190,49 +216,45 @@ void init_sysparams (agent* thisAgent) {
   for (i=0; i<HIGHEST_SYSPARAM_NUMBER+1; i++) thisAgent->sysparams[i] = 0;
 
   /* --- set all params to zero, except the following: --- */
-  thisAgent->sysparams[TRACE_CONTEXT_DECISIONS_SYSPARAM] = TRUE;
-  thisAgent->sysparams[TRACE_FIRINGS_OF_CHUNKS_SYSPARAM] = FALSE;
+  thisAgent->sysparams[TRACE_CONTEXT_DECISIONS_SYSPARAM] = true;
+  thisAgent->sysparams[TRACE_FIRINGS_OF_CHUNKS_SYSPARAM] = false;
   thisAgent->sysparams[TRACE_FIRINGS_WME_TRACE_TYPE_SYSPARAM] = NONE_WME_TRACE; /* RPM 6/05 Changed from timetag to none */
-  thisAgent->sysparams[TRACE_CHUNK_NAMES_SYSPARAM] = FALSE;
-  thisAgent->sysparams[TRACE_JUSTIFICATION_NAMES_SYSPARAM] = FALSE;
-  thisAgent->sysparams[TRACE_LOADING_SYSPARAM] = TRUE; /* KJC 8/96 */
+  thisAgent->sysparams[TRACE_CHUNK_NAMES_SYSPARAM] = false;
+  thisAgent->sysparams[TRACE_JUSTIFICATION_NAMES_SYSPARAM] = false;
+  thisAgent->sysparams[TRACE_LOADING_SYSPARAM] = true; /* KJC 8/96 */
   thisAgent->sysparams[MAX_ELABORATIONS_SYSPARAM] = 100;
   thisAgent->sysparams[MAX_CHUNKS_SYSPARAM] = 50;
   thisAgent->sysparams[MAX_NIL_OUTPUT_CYCLES_SYSPARAM] = 15;
   thisAgent->sysparams[MAX_GOAL_DEPTH] = 100;  /* generate an interrupt so users can recover before exceed program stack*/
   thisAgent->sysparams[MAX_MEMORY_USAGE_SYSPARAM] = 100000000; /* default to 100MB.  Event generated when exceeded*/
 
-//#ifdef USE_X_DISPLAY
-//  thisAgent->sysparams[RESPOND_TO_LOAD_ERRORS_SYSPARAM] = FALSE;
-//#else
-  thisAgent->sysparams[RESPOND_TO_LOAD_ERRORS_SYSPARAM] = TRUE;
-//#endif
+  thisAgent->sysparams[RESPOND_TO_LOAD_ERRORS_SYSPARAM] = true;
 
 #ifdef ATTENTION_LAPSE
   /* RMJ */
-  thisAgent->sysparams[ATTENTION_LAPSE_ON_SYSPARAM] = FALSE;
+  thisAgent->sysparams[ATTENTION_LAPSE_ON_SYSPARAM] = false;
 #endif /* ATTENTION_LAPSE */
 
   // voigtjr:  turning learning off by default
-  thisAgent->sysparams[LEARNING_ON_SYSPARAM] = FALSE;
+  thisAgent->sysparams[LEARNING_ON_SYSPARAM] = false;
 
-  thisAgent->sysparams[LEARNING_ONLY_SYSPARAM] = FALSE;  /* AGR MVL1 */
-  thisAgent->sysparams[LEARNING_EXCEPT_SYSPARAM] = FALSE;  /* KJC 8/96 */
-  thisAgent->sysparams[LEARNING_ALL_GOALS_SYSPARAM] = TRUE;
+  thisAgent->sysparams[LEARNING_ONLY_SYSPARAM] = false;  /* AGR MVL1 */
+  thisAgent->sysparams[LEARNING_EXCEPT_SYSPARAM] = false;  /* KJC 8/96 */
+  thisAgent->sysparams[LEARNING_ALL_GOALS_SYSPARAM] = true;
   thisAgent->sysparams[USER_SELECT_MODE_SYSPARAM] = USER_SELECT_SOFTMAX;
-  thisAgent->sysparams[USER_SELECT_REDUCE_SYSPARAM] = FALSE;
-  thisAgent->sysparams[PRINT_WARNINGS_SYSPARAM] = TRUE;
-  thisAgent->sysparams[PRINT_ALIAS_SYSPARAM] = TRUE;  /* AGR 627 */
-  thisAgent->sysparams[EXPLAIN_SYSPARAM] = FALSE; /* KJC 7/96 */
-  thisAgent->sysparams[USE_LONG_CHUNK_NAMES] = TRUE;  /* kjh(B14) */
-  thisAgent->sysparams[TRACE_OPERAND2_REMOVALS_SYSPARAM] = FALSE;
-  thisAgent->sysparams[TIMERS_ENABLED] = TRUE;
+  thisAgent->sysparams[USER_SELECT_REDUCE_SYSPARAM] = false;
+  thisAgent->sysparams[PRINT_WARNINGS_SYSPARAM] = true;
+  thisAgent->sysparams[PRINT_ALIAS_SYSPARAM] = true;  /* AGR 627 */
+  thisAgent->sysparams[EXPLAIN_SYSPARAM] = false; /* KJC 7/96 */
+  thisAgent->sysparams[USE_LONG_CHUNK_NAMES] = true;  /* kjh(B14) */
+  thisAgent->sysparams[TRACE_OPERAND2_REMOVALS_SYSPARAM] = false;
+  thisAgent->sysparams[TIMERS_ENABLED] = true;
 
   // JRV: Chunk through local negations by default
-  thisAgent->sysparams[CHUNK_THROUGH_LOCAL_NEGATIONS_SYSPARAM] = TRUE;
+  thisAgent->sysparams[CHUNK_THROUGH_LOCAL_NEGATIONS_SYSPARAM] = true;
 
   // MMA: Chunk through evaluation rules off by default
-  thisAgent->sysparams[CHUNK_THROUGH_EVALUATION_RULES_SYSPARAM] = FALSE;
+  thisAgent->sysparams[CHUNK_THROUGH_EVALUATION_RULES_SYSPARAM] = false;
 
   thisAgent->sysparams[DECISION_CYCLE_MAX_USEC_INTERRUPT] = 0;
 }
@@ -251,11 +273,11 @@ void init_sysparams (agent* thisAgent) {
 void add_pwatch (agent* thisAgent, production *prod)
 {
   if (prod->trace_firings) return;
-  prod->trace_firings = TRUE;
+  prod->trace_firings = true;
   push (thisAgent, prod, thisAgent->productions_being_traced);
 }
 
-Bool remove_pwatch_test_fn (agent* /*thisAgent*/, cons *c,
+bool remove_pwatch_test_fn (agent* /*thisAgent*/, cons *c,
 							       void *prod_to_remove_pwatch_of)
 {
   return (c->first == static_cast<production *>(prod_to_remove_pwatch_of));
@@ -263,7 +285,7 @@ Bool remove_pwatch_test_fn (agent* /*thisAgent*/, cons *c,
 
 void remove_pwatch (agent* thisAgent, production *prod) {
   if (! prod->trace_firings) return;
-  prod->trace_firings = FALSE;
+  prod->trace_firings = false;
   free_list (thisAgent,
              extract_list_elements ( thisAgent,
                                     &thisAgent->productions_being_traced,
@@ -396,7 +418,7 @@ bool reinitialize_soar (agent* thisAgent) {
 	int64_t cur_TRACE_WM_CHANGES_SYSPARAM;
 	int64_t cur_TRACE_GDS_SYSPARAM;
 
-	thisAgent->did_PE = FALSE;    /* RCHONG:  10.11 */
+	thisAgent->did_PE = false;    /* RCHONG:  10.11 */
 
 	soar_invoke_callbacks(thisAgent,
 		BEFORE_INIT_SOAR_CALLBACK,
@@ -413,14 +435,14 @@ bool reinitialize_soar (agent* thisAgent) {
 	cur_TRACE_GDS_SYSPARAM                      = thisAgent->sysparams[TRACE_GDS_SYSPARAM];
 
 	/* Temporarily disable tracing: */
-	set_sysparam(thisAgent, TRACE_CONTEXT_DECISIONS_SYSPARAM,        FALSE);
-	set_sysparam(thisAgent, TRACE_PHASES_SYSPARAM,                   FALSE);
-	set_sysparam(thisAgent, TRACE_FIRINGS_OF_DEFAULT_PRODS_SYSPARAM, FALSE);
-	set_sysparam(thisAgent, TRACE_FIRINGS_OF_USER_PRODS_SYSPARAM,    FALSE);
+	set_sysparam(thisAgent, TRACE_CONTEXT_DECISIONS_SYSPARAM,        false);
+	set_sysparam(thisAgent, TRACE_PHASES_SYSPARAM,                   false);
+	set_sysparam(thisAgent, TRACE_FIRINGS_OF_DEFAULT_PRODS_SYSPARAM, false);
+	set_sysparam(thisAgent, TRACE_FIRINGS_OF_USER_PRODS_SYSPARAM,    false);
 	set_sysparam(thisAgent, TRACE_FIRINGS_WME_TRACE_TYPE_SYSPARAM,   NONE_WME_TRACE);
-	set_sysparam(thisAgent, TRACE_FIRINGS_PREFERENCES_SYSPARAM,      FALSE);
-	set_sysparam(thisAgent, TRACE_WM_CHANGES_SYSPARAM,               FALSE);
-	set_sysparam(thisAgent, TRACE_GDS_SYSPARAM,                      FALSE);
+	set_sysparam(thisAgent, TRACE_FIRINGS_PREFERENCES_SYSPARAM,      false);
+	set_sysparam(thisAgent, TRACE_WM_CHANGES_SYSPARAM,               false);
+	set_sysparam(thisAgent, TRACE_GDS_SYSPARAM,                      false);
 
 	/* Re-init episodic and semantic memory databases */
 	epmem_reinit(thisAgent);
@@ -461,8 +483,8 @@ bool reinitialize_soar (agent* thisAgent) {
 
 
 	/* RDF 01282003: Reinitializing the various halt and stop flags */
-	thisAgent->system_halted = FALSE;
-	thisAgent->stop_soar = FALSE;			// voigtjr:  this line doesn't exist in other kernel
+	thisAgent->system_halted = false;
+	thisAgent->stop_soar = false;			// voigtjr:  this line doesn't exist in other kernel
 	thisAgent->reason_for_stopping = 0;
 	thisAgent->substate_break_level = 0;
 
@@ -485,12 +507,12 @@ bool reinitialize_soar (agent* thisAgent) {
 		AFTER_INIT_SOAR_CALLBACK,
 		0);
 
-	thisAgent->input_cycle_flag = TRUE;  /* reinitialize flag  AGR REW1 */
+	thisAgent->input_cycle_flag = true;  /* reinitialize flag  AGR REW1 */
 	thisAgent->current_phase = INPUT_PHASE;  /* moved here June 05 from loop below.  KJC */
 
 	/* REW: begin 09.15.96 */
 	thisAgent->FIRING_TYPE = IE_PRODS;  /* KJC 10.05.98 was PE */
-	thisAgent->did_PE = FALSE;
+	thisAgent->did_PE = false;
 	/* REW: end 09.15.96 */
 
 	// reset old stats information
@@ -511,7 +533,7 @@ bool reinitialize_soar (agent* thisAgent) {
    do this.
 
    Each of the following routines runs Soar for a certain duration,
-   or until stop_soar gets set to TRUE.
+   or until stop_soar gets set to true.
      - Run_forever() runs Soar forever.
      - Run_for_n_phases() runs Soar for a given number (n) of top-level
        phases.  (If n==-1, it runs forever.)
@@ -539,7 +561,7 @@ void do_one_top_level_phase (agent* thisAgent)
 		print (thisAgent,
 			"\nSystem halted.  Use (init-soar) before running Soar again.");
 		xml_generate_error(thisAgent, "System halted.  Use (init-soar) before running Soar again.");
-		thisAgent->stop_soar = TRUE;
+		thisAgent->stop_soar = true;
 		thisAgent->reason_for_stopping = "System halted.";
 		return;
 	}
@@ -599,7 +621,7 @@ void do_one_top_level_phase (agent* thisAgent)
 	 determine_lapsing(thisAgent);
      #endif
 
-    if (thisAgent->input_cycle_flag == TRUE) { /* Soar 7 flag, but always true for Soar8 */
+    if (thisAgent->input_cycle_flag == true) { /* Soar 7 flag, but always true for Soar8 */
       soar_invoke_callbacks(thisAgent,
 		  BEFORE_INPUT_PHASE_CALLBACK,
 		  reinterpret_cast<soar_call_data>(INPUT_PHASE));
@@ -615,8 +637,8 @@ void do_one_top_level_phase (agent* thisAgent)
 		  reinterpret_cast<soar_call_data>(INPUT_PHASE) );
 
 	  if (thisAgent->input_period)
-		  thisAgent->input_cycle_flag = FALSE;
-	 }  /* END if (input_cycle_flag==TRUE) AGR REW1 this line and 1 previous line */
+		  thisAgent->input_cycle_flag = false;
+	 }  /* END if (input_cycle_flag==true) AGR REW1 this line and 1 previous line */
 
 	 if (thisAgent->sysparams[TRACE_PHASES_SYSPARAM])
         print_phase (thisAgent, "\n--- END Input Phase --- \n",1);
@@ -654,7 +676,7 @@ void do_one_top_level_phase (agent* thisAgent)
 
 			// We need to generate this event here in case no elaborations fire...
 			// FIXME return the correct enum top_level_phase constant in soar_call_data?
-			/*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+			/*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 			soar_invoke_callbacks(thisAgent, BEFORE_ELABORATION_CALLBACK, NULL ) ;
 
   		   /* 'Prime the decision for a new round of production firings at the end of
@@ -662,14 +684,14 @@ void do_one_top_level_phase (agent* thisAgent)
 			initialize_consistency_calculations_for_new_decision(thisAgent);
 
 			thisAgent->FIRING_TYPE = IE_PRODS;
-			thisAgent->applyPhase = FALSE;   /* KJC 04/05: do we still need this line?  gSKI does*/
+			thisAgent->applyPhase = false;   /* KJC 04/05: do we still need this line?  gSKI does*/
 			determine_highest_active_production_level_in_stack_propose(thisAgent);
 
 			if (thisAgent->current_phase == DECISION_PHASE)
 			{  // no elaborations will fire this phase
 				thisAgent->run_elaboration_count++ ;	// All phases count as a run elaboration
 				// FIXME return the correct enum top_level_phase constant in soar_call_data?
-				/*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+				/*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 				soar_invoke_callbacks(thisAgent, AFTER_ELABORATION_CALLBACK, NULL ) ;
 			}
 	  }
@@ -682,7 +704,7 @@ void do_one_top_level_phase (agent* thisAgent)
 	  while (thisAgent->current_phase != DECISION_PHASE) {
 		  if (thisAgent->e_cycles_this_d_cycle)
 		  {  // only for 2nd cycle or higher.  1st cycle fired above
-			  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+			  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 			  soar_invoke_callbacks(thisAgent, BEFORE_ELABORATION_CALLBACK, NULL ) ;
 		  }
 
@@ -706,7 +728,7 @@ void do_one_top_level_phase (agent* thisAgent)
           thisAgent->e_cycles_this_d_cycle++;
 		  thisAgent->run_elaboration_count++ ;
 		  determine_highest_active_production_level_in_stack_propose(thisAgent);
-		    // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+		    // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 			soar_invoke_callbacks(thisAgent, AFTER_ELABORATION_CALLBACK, NULL ) ;
 
 		  if (thisAgent->system_halted) break;
@@ -748,7 +770,7 @@ void do_one_top_level_phase (agent* thisAgent)
       /* needs to be updated for gSKI interface, and gSKI needs to accommodate Soar 7 */
 
       /* JC ADDED: Tell gski about elaboration phase beginning */
-	  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+	  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 	 soar_invoke_callbacks(thisAgent, BEFORE_ELABORATION_CALLBACK, NULL ) ;
 
       #ifndef NO_TIMING_STUFF       /* REW: 28.07.96 */
@@ -807,7 +829,7 @@ void do_one_top_level_phase (agent* thisAgent)
 	  thisAgent->timers_decision_cycle_phase[WM_PHASE].update(thisAgent->timers_phase);
       #endif
 
-	  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+	  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 	  soar_invoke_callbacks(thisAgent, AFTER_ELABORATION_CALLBACK, NULL ) ;
 
      break;     /* END of Soar7 WM PHASE */
@@ -834,7 +856,7 @@ void do_one_top_level_phase (agent* thisAgent)
 									reinterpret_cast<soar_call_data>(APPLY_PHASE) );
 
 			// We need to generate this event here in case no elaborations fire...
-			// FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+			// FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 			soar_invoke_callbacks(thisAgent, BEFORE_ELABORATION_CALLBACK, NULL ) ;
 
 			/* 'prime' the cycle for a new round of production firings
@@ -842,12 +864,12 @@ void do_one_top_level_phase (agent* thisAgent)
 			initialize_consistency_calculations_for_new_decision(thisAgent);
 
 			thisAgent->FIRING_TYPE = PE_PRODS;  /* might get reset in det_high_active_prod_level... */
-			thisAgent->applyPhase = TRUE;       /* KJC 04/05: do we still need this line?  gSKI does*/
+			thisAgent->applyPhase = true;       /* KJC 04/05: do we still need this line?  gSKI does*/
 			determine_highest_active_production_level_in_stack_apply(thisAgent);
 			if (thisAgent->current_phase == OUTPUT_PHASE)
 			{  // no elaborations will fire this phase
 				thisAgent->run_elaboration_count++ ;	// All phases count as a run elaboration
-				// FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+				// FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 				soar_invoke_callbacks(thisAgent, AFTER_ELABORATION_CALLBACK, NULL ) ;
 			}
 	  }
@@ -860,7 +882,7 @@ void do_one_top_level_phase (agent* thisAgent)
           /* JC ADDED: Tell gski about elaboration phase beginning */
 		  if (thisAgent->e_cycles_this_d_cycle)
 		  {  // only for 2nd cycle or higher.  1st cycle fired above
-			  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+			  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 			soar_invoke_callbacks(thisAgent, BEFORE_ELABORATION_CALLBACK, NULL ) ;
 		  }
 
@@ -882,7 +904,7 @@ void do_one_top_level_phase (agent* thisAgent)
 	  		  thisAgent->pe_cycles_this_d_cycle++;
 	  	  }
 		  determine_highest_active_production_level_in_stack_apply(thisAgent);
-		  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == TRUE)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
+		  // FIXME return the correct enum top_level_phase constant in soar_call_data? /*(soar_call_data)((thisAgent->applyPhase == true)? gSKI_K_APPLY_PHASE: gSKI_K_PROPOSAL_PHASE)*/
 		  soar_invoke_callbacks(thisAgent, AFTER_ELABORATION_CALLBACK, NULL ) ;
 
 		  if (thisAgent->system_halted) break;
@@ -930,7 +952,7 @@ void do_one_top_level_phase (agent* thisAgent)
  	  soar_invoke_callbacks(thisAgent,
 			 BEFORE_OUTPUT_PHASE_CALLBACK,
 			 reinterpret_cast<soar_call_data>(OUTPUT_PHASE) );
- 	  
+
  	  thisAgent->svs->output_callback();
 
 	  /** KJC June 05:  moved output function timers into do_output_cycle ***/
@@ -997,7 +1019,7 @@ void do_one_top_level_phase (agent* thisAgent)
 				  //   - not in some state's prev_op_rl_rules list
 				  if ( ( (*p)->instantiations == NIL ) && ( !(*p)->rl_rule || ( ( static_cast<int64_t>( (*p)->rl_update_count ) == 0 ) && ( (*p)->rl_ref_count == 0 ) ) ) )
 				  {
-					  excise_production( thisAgent, const_cast< production* >( *p ), FALSE );
+					  excise_production( thisAgent, const_cast< production* >( *p ), false );
 				  }
 			  }
 		  }
@@ -1041,7 +1063,7 @@ void do_one_top_level_phase (agent* thisAgent)
 		  }
           if (thisAgent->sysparams[DECISION_CYCLE_MAX_USEC_INTERRUPT] > 0) {
               if (dc_time_usec >= static_cast<uint64_t>(thisAgent->sysparams[DECISION_CYCLE_MAX_USEC_INTERRUPT])) {
-                  thisAgent->stop_soar++;
+                  thisAgent->stop_soar = true;
                   thisAgent->reason_for_stopping = "decision cycle time greater than interrupt threshold";
               }
           }
@@ -1116,9 +1138,9 @@ void do_one_top_level_phase (agent* thisAgent)
 
       /* AGR REW1 begin */
 	  if (!thisAgent->input_period)
-		  thisAgent->input_cycle_flag = TRUE;
+		  thisAgent->input_cycle_flag = true;
 	  else if ((thisAgent->d_cycle_count % thisAgent->input_period) == 0)
-		  thisAgent->input_cycle_flag = TRUE;
+		  thisAgent->input_cycle_flag = true;
       /* AGR REW1 end */
 
        soar_invoke_callbacks(thisAgent,
@@ -1135,12 +1157,7 @@ void do_one_top_level_phase (agent* thisAgent)
 			 reinterpret_cast<soar_call_data>(DECISION_PHASE) );
 
 	  if (thisAgent->sysparams[TRACE_CONTEXT_DECISIONS_SYSPARAM]) {
-     //     #ifdef USE_TCL
 		  print_string (thisAgent, "\n");
-    //      #else
-		  //if(thisAgent->printer_output_column != 1)
-			 // print_string ("\n");
-    //      #endif /* USE_TCL */
 		  print_lowest_slot_in_context_stack (thisAgent);
 	  }
 
@@ -1150,9 +1167,9 @@ void do_one_top_level_phase (agent* thisAgent)
 
 	  /* REW: begin 09.15.96 */
 #ifdef AGRESSIVE_ONC
-	  /* test for Operator NC, if TRUE, generate substate and go to OUTPUT */
+	  /* test for Operator NC, if true, generate substate and go to OUTPUT */
 	  if ((thisAgent->ms_o_assertions == NIL) &&
-		  (thisAgent->bottom_goal->id.operator_slot->wmes != NIL))
+		  (thisAgent->bottom_goal->id->operator_slot->wmes != NIL))
 	  {
 
 		  soar_invoke_callbacks(thisAgent, thisAgent,
@@ -1165,11 +1182,7 @@ void do_one_top_level_phase (agent* thisAgent)
 			  static_cast<soar_call_data>(thisAgent->current_phase) );
 
 		  if (thisAgent->sysparams[TRACE_CONTEXT_DECISIONS_SYSPARAM]) {
-			  //                  #ifdef USE_TCL
 			  print_string (thisAgent, "\n");
-			  //                  #else
-			  //				  if(thisAgent->printer_output_column != 1) print_string ("\n");
-			  //                  #endif /* USE_TCL */
 			  print_lowest_slot_in_context_stack (thisAgent);
 		  }
 		  if (thisAgent->sysparams[TRACE_PHASES_SYSPARAM])
@@ -1198,7 +1211,7 @@ void do_one_top_level_phase (agent* thisAgent)
 			  print_phase (thisAgent, "\n--- END Decision Phase ---\n",1);
 
 		  /* printf("\nSetting next phase to APPLY following a decision...."); */
-		  thisAgent->applyPhase = TRUE;
+		  thisAgent->applyPhase = true;
 		  thisAgent->FIRING_TYPE = PE_PRODS;
 		  thisAgent->current_phase = APPLY_PHASE;
 	  }
@@ -1227,7 +1240,7 @@ void do_one_top_level_phase (agent* thisAgent)
   thisAgent->num_wm_sizes_accumulated++;
 
   if (thisAgent->system_halted) {
-	  thisAgent->stop_soar = TRUE;
+	  thisAgent->stop_soar = true;
 	  thisAgent->reason_for_stopping = "System halted.";
 	  soar_invoke_callbacks(thisAgent,
 		  AFTER_HALT_SOAR_CALLBACK,
@@ -1236,7 +1249,7 @@ void do_one_top_level_phase (agent* thisAgent)
 	  // To model episodic task, after halt, perform RL update with next-state value 0
 	  if ( rl_enabled( thisAgent ) )
 	  {
-		  for ( Symbol *g = thisAgent->bottom_goal; g; g = g->id.higher_goal)
+		  for ( Symbol *g = thisAgent->bottom_goal; g; g = g->id->higher_goal)
 		  {
 			  rl_tabulate_reward_value_for_goal( thisAgent, g );
 			  rl_perform_update( thisAgent, 0, true, g );
@@ -1257,7 +1270,7 @@ void run_forever (agent* thisAgent) {
 	thisAgent->timers_kernel.start();
     #endif
 
-	thisAgent->stop_soar = FALSE;
+	thisAgent->stop_soar = false;
 	thisAgent->reason_for_stopping = 0;
 	while (! thisAgent->stop_soar) {
 		do_one_top_level_phase(thisAgent);
@@ -1278,7 +1291,7 @@ void run_for_n_phases (agent* thisAgent, int64_t n) {
   thisAgent->timers_cpu.start();
   thisAgent->timers_kernel.start();
 #endif
-  thisAgent->stop_soar = FALSE;
+  thisAgent->stop_soar = false;
   thisAgent->reason_for_stopping = "";
   while (!thisAgent->stop_soar && n) {
     do_one_top_level_phase(thisAgent);
@@ -1302,7 +1315,7 @@ void run_for_n_elaboration_cycles (agent* thisAgent, int64_t n) {
   thisAgent->timers_cpu.start();
   thisAgent->timers_kernel.start();
 #endif
-  thisAgent->stop_soar = FALSE;
+  thisAgent->stop_soar = false;
   thisAgent->reason_for_stopping = 0;
   e_cycles_at_start = thisAgent->e_cycle_count;
   d_cycles_at_start = thisAgent->d_cycle_count;
@@ -1327,7 +1340,7 @@ void run_for_n_elaboration_cycles (agent* thisAgent, int64_t n) {
 }
 
 void run_for_n_modifications_of_output (agent* thisAgent, int64_t n) {
-  Bool was_output_phase;
+  bool was_output_phase;
   int64_t count = 0;
 
   if (n == -1) { run_forever(thisAgent); return; }
@@ -1336,7 +1349,7 @@ void run_for_n_modifications_of_output (agent* thisAgent, int64_t n) {
   thisAgent->timers_cpu.start();
   thisAgent->timers_kernel.start();
 #endif
-  thisAgent->stop_soar = FALSE;
+  thisAgent->stop_soar = false;
   thisAgent->reason_for_stopping = 0;
   while (!thisAgent->stop_soar && n) {
     was_output_phase = (thisAgent->current_phase==OUTPUT_PHASE);
@@ -1349,7 +1362,7 @@ void run_for_n_modifications_of_output (agent* thisAgent, int64_t n) {
 	} }
 	if (count >= thisAgent->sysparams[MAX_NIL_OUTPUT_CYCLES_SYSPARAM]) {
 		break;
-		//thisAgent->stop_soar = TRUE;
+		//thisAgent->stop_soar = true;
 		//thisAgent->reason_for_stopping = "exceeded max_nil_output_cycles with no output";
 	}
   }
@@ -1370,7 +1383,7 @@ void run_for_n_decision_cycles (agent* thisAgent, int64_t n) {
   thisAgent->timers_cpu.start();
   thisAgent->timers_kernel.start();
 #endif
-  thisAgent->stop_soar = FALSE;
+  thisAgent->stop_soar = false;
   thisAgent->reason_for_stopping = 0;
   d_cycles_at_start = thisAgent->d_cycle_count;
   /* need next line or runs only the input phase for "d 1" after init-soar */
@@ -1389,14 +1402,14 @@ void run_for_n_decision_cycles (agent* thisAgent, int64_t n) {
 }
 
 Symbol *attr_of_slot_just_decided (agent* thisAgent) {
-  if (thisAgent->bottom_goal->id.operator_slot->wmes)
+  if (thisAgent->bottom_goal->id->operator_slot->wmes)
     return thisAgent->operator_symbol;
   return thisAgent->state_symbol;
 }
 
 void run_for_n_selections_of_slot (agent* thisAgent, int64_t n, Symbol *attr_of_slot) {
   int64_t count;
-  Bool was_decision_phase;
+  bool was_decision_phase;
 
   if (n == -1) { run_forever(thisAgent); return; }
   if (n < -1) return;
@@ -1404,7 +1417,7 @@ void run_for_n_selections_of_slot (agent* thisAgent, int64_t n, Symbol *attr_of_
   thisAgent->timers_cpu.start();
   thisAgent->timers_kernel.start();
 #endif
-  thisAgent->stop_soar = FALSE;
+  thisAgent->stop_soar = false;
   thisAgent->reason_for_stopping = 0;
   count = 0;
   while (!thisAgent->stop_soar && (count < n)) {
@@ -1425,7 +1438,7 @@ void run_for_n_selections_of_slot_at_level (agent* thisAgent, int64_t n,
                                             Symbol *attr_of_slot,
                                             goal_stack_level level) {
   int64_t count;
-  Bool was_decision_phase;
+  bool was_decision_phase;
 
   if (n == -1) { run_forever(thisAgent); return; }
   if (n < -1) return;
@@ -1433,15 +1446,15 @@ void run_for_n_selections_of_slot_at_level (agent* thisAgent, int64_t n,
   thisAgent->timers_cpu.start();
   thisAgent->timers_kernel.start();
 #endif
-  thisAgent->stop_soar = FALSE;
+  thisAgent->stop_soar = false;
   thisAgent->reason_for_stopping = 0;
   count = 0;
   while (!thisAgent->stop_soar && (count < n)) {
     was_decision_phase = (thisAgent->current_phase==DECISION_PHASE);
     do_one_top_level_phase(thisAgent);
     if (was_decision_phase) {
-      if (thisAgent->bottom_goal->id.level < level) break;
-      if (thisAgent->bottom_goal->id.level==level) {
+      if (thisAgent->bottom_goal->id->level < level) break;
+      if (thisAgent->bottom_goal->id->level==level) {
         if (attr_of_slot_just_decided(thisAgent)==attr_of_slot) count++;
       }
     }
@@ -1469,10 +1482,10 @@ extern char *getenv();
 
 // KJC Nov 05:  moved here from old interface.cpp, so could remove interface.* files
 void load_file (agent* thisAgent, char *file_name, FILE *already_open_file) {
-Bool old_print_prompt_flag;
+bool old_print_prompt_flag;
 
   old_print_prompt_flag = thisAgent->print_prompt_flag;
-  thisAgent->print_prompt_flag = FALSE;
+  thisAgent->print_prompt_flag = false;
 
   start_lex_from_file (thisAgent, file_name, already_open_file);
   //repeatedly_read_and_dispatch_commands (thisKernel, thisAgent);
