@@ -411,6 +411,8 @@ inline wma_reference wma_calculate_initial_boost( agent* my_agent, wme* w )
 
 	tc_number tc = ( my_agent->wma_tc_counter++ );
 
+	std::cout << "calculating initial boost for wme " << w << std::endl;
+
 	uint64_t num_cond_wmes = 0;
 	double combined_time_sum = 0.0;
 
@@ -422,11 +424,13 @@ inline wma_reference wma_calculate_initial_boost( agent* my_agent, wme* w )
 			{
 				if ( ( cond->type == POSITIVE_CONDITION ) && ( cond->bt.wme_->wma_tc_value != tc ) )
 				{
+					std::cout << "problem condition is " << cond << std::endl;
 					cond_wme = cond->bt.wme_;
 					cond_wme->wma_tc_value = tc;
 
 					if ( cond_wme->wma_decay_el )
 					{
+						std::cout << "problem wme is " << cond_wme << std::endl;
 						if ( !cond_wme->wma_decay_el->just_created )
 						{
 							num_cond_wmes++;
@@ -469,6 +473,12 @@ inline wma_reference wma_calculate_initial_boost( agent* my_agent, wme* w )
 
 void wma_activate_wme( agent* my_agent, wme* w, wma_reference num_references, wma_pooled_wme_set* o_set, bool o_only )
 {
+	std::cout << "activating wme " << w << " (" << w->id->id.name_letter << w->id->id.name_number << " ^" << w->attr->sc.name << ")" << std::endl;
+	std::cout << "wme reference count = " << w->reference_count << std::endl;
+	if (w->reference_count == 0) {
+		return;
+	}
+
 	// o-supported, non-architectural WME
 	if ( wma_should_have_decay_element( w ) )
 	{
@@ -501,7 +511,9 @@ void wma_activate_wme( agent* my_agent, wme* w, wma_reference num_references, wm
 			// prevents confusion with delayed forgetting
 			temp_el->forget_cycle = static_cast< wma_d_cycle >( -1 );
 
+			std::cout << "wma_activate_wme " << w << " " << w->wma_decay_el << " (before)" << std::endl;
 			w->wma_decay_el = temp_el;
+			std::cout << "wma_activate_wme " << w << " " << w->wma_decay_el << " (after)" << std::endl;
 
 			if ( my_agent->sysparams[ TRACE_WMA_SYSPARAM ] )
 			{
@@ -633,7 +645,7 @@ void wma_activate_wme( agent* my_agent, wme* w, wma_reference num_references, wm
 		}
 	}
 	// architectural
-	else if ( !o_only && !w->preference && ( w->reference_count != 0 ) )
+	else if ( !o_only && !w->preference )
 	{
 		// only action is to add it to the o_set
 		if ( o_set )
@@ -698,7 +710,9 @@ void wma_remove_decay_element( agent* my_agent, wme* w )
 		}
 
 		free_with_pool( &( my_agent->wma_decay_element_pool ), temp_el );
+		std::cout << "wma_remove_decay_element " << w << " " << w->wma_decay_el << " (before)" << std::endl;
 		w->wma_decay_el = NULL;
+		std::cout << "wma_remove_decay_element " << w << " " << w->wma_decay_el << " (after)" << std::endl;
 	}
 }
 

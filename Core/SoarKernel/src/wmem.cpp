@@ -95,6 +95,11 @@ wme *make_wme (agent* thisAgent, Symbol *id, Symbol *attr, Symbol *value, Bool a
   symbol_add_ref (attr);
   symbol_add_ref (value);
   w->acceptable = acceptable;
+  std::cout << "wme allocated " << w << " (" << w->id->id.name_letter << w->id->id.name_number << " ^" << w->attr->sc.name;
+  if (w->acceptable) {
+	  std::cout << "+";
+  }
+  std::cout << ")" << std::endl;;
   w->timetag = thisAgent->current_wme_timetag++;
   w->reference_count = 0;
   w->preference = NIL;
@@ -117,7 +122,9 @@ wme *make_wme (agent* thisAgent, Symbol *id, Symbol *attr, Symbol *value, Bool a
   w->gds_next = NIL;
 /* REW: end 09.15.96 */
 
+  std::cout << "make_wme " << w << " " << w->wma_decay_el << " (before)" << std::endl;
   w->wma_decay_el = NIL;
+  std::cout << "make_wme " << w << " " << w->wma_decay_el << " (after)" << std::endl;
   w->wma_tc_value = 0;
 
   w->epmem_id = EPMEM_NODEID_BAD;
@@ -310,6 +317,7 @@ void deallocate_wme (agent* thisAgent, wme *w) {
   symbol_remove_ref (thisAgent, w->id);
   symbol_remove_ref (thisAgent, w->attr);
   symbol_remove_ref (thisAgent, w->value);
+  std::cout << "wme deallocated " << w << std::endl;
   free_with_pool (&thisAgent->wme_pool, w);
   thisAgent->num_existing_wmes--;
 }

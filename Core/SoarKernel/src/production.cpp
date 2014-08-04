@@ -783,6 +783,7 @@ void deallocate_condition_list (agent* thisAgent,
       quickly_deallocate_test (thisAgent, c->data.tests.attr_test);
       quickly_deallocate_test (thisAgent, c->data.tests.value_test);
     }
+	std::cout << "condition deallocated (deallocate_condition_list) " << c << std::endl;
     free_with_pool (&thisAgent->condition_pool, c);
   }
 }

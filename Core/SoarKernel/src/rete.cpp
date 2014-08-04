@@ -4364,6 +4364,8 @@ void rete_node_to_conditions (agent* thisAgent,
       cond->data.tests.value_test = make_equality_test (w->value);
       cond->test_for_acceptable_preference = w->acceptable;
       cond->bt.wme_ = w;
+      std::cout << "adding wme " << w << " to backtrace for condition " << cond << " (rete.cpp)" << std::endl;
+	  std::cout << "  reference count = " << w->reference_count << std::endl;
       if (node->b.posneg.other_tests) /* don't bother if there are no tests*/
         collect_nots (thisAgent, node->b.posneg.other_tests, w, cond,
                               nots_found_in_production);

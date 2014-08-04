@@ -141,11 +141,14 @@ namespace soar_module
 				cond->data.tests.value_test = make_equality_test( (*c_it)->value );
 				cond->test_for_acceptable_preference = (*c_it)->acceptable;
 				cond->bt.wme_ = (*c_it);
+  				std::cout << "adding wme " << (*c_it) << " to backtrace for condition " << cond << " (soar_module.cpp)" << std::endl;
+  				std::cout << "  reference count = " << (*c_it)->reference_count << std::endl;
 
 				#ifndef DO_TOP_LEVEL_REF_CTS
 				if ( inst->match_goal_level > TOP_GOAL_LEVEL )
 				#endif
 				{
+					std::cout << "increasing reference count for wme " << (*c_it) << std::endl;
 					wme_add_ref( (*c_it) );
 				}			
 				

@@ -1821,10 +1821,15 @@ preference *make_fake_preference_for_goal_item (agent* thisAgent,
   cond->data.tests.value_test = make_equality_test (ap_wme->value);
   cond->test_for_acceptable_preference = TRUE;
   cond->bt.wme_ = ap_wme;
+  std::cout << "adding wme " << ap_wme << " to backtrace for condition " << cond << " (decide.cpp)" << std::endl;
+  std::cout << "  reference count = " << ap_wme->reference_count << std::endl;
   #ifdef DO_TOP_LEVEL_REF_CTS
   wme_add_ref (ap_wme);
   #else
-  if (inst->match_goal_level > TOP_GOAL_LEVEL) wme_add_ref (ap_wme);
+  if (inst->match_goal_level > TOP_GOAL_LEVEL) {
+ 	 std::cout << "increasing reference count for wme " << ap_wme << std::endl;
+	  wme_add_ref (ap_wme);
+  }
   #endif
   cond->bt.level = ap_wme->id->id.level;
   cond->bt.trace = NIL;

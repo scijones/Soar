@@ -603,6 +603,7 @@ condition *negate_condition_list (agent* thisAgent, condition *conds) {
       return conds;
     case CONJUNCTIVE_NEGATION_CONDITION:
       temp = conds->data.ncc.top;
+	  std::cout << "condition deallocated (negate_condition_list) " << conds << std::endl;
       free_with_pool (&thisAgent->condition_pool, conds);
       return temp;
     }

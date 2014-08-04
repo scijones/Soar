@@ -130,6 +130,7 @@
 
 #include <stdio.h>	// Needed for FILE token below
 #include <string.h> 	// Needed for strlen, etc. below
+#include <iostream>
 
 #ifndef _WIN32
 #include <strings.h>
@@ -146,6 +147,8 @@ extern void init_memory_utilities (agent* thisAgent);
 /* ----------------------- */
 /* basic memory allocation */
 /* ----------------------- */
+
+#define DEBUG_MEMORY 1
 
 #ifdef DEBUG_MEMORY
 
@@ -319,6 +322,7 @@ inline void allocate_with_pool(agent* thisAgent, memory_pool* p, T** dest_item_p
 
   fill_with_garbage (*(dest_item_pointer), (p)->item_size);
   increment_used_count(p);
+   std::cout << "allocated from " << p << " pointer " << (*dest_item_pointer) << std::endl;
 
 #else // !MEM_POOLS_ENABLED
    // this is for debugging -- it disables the memory pool usage and just allocates
@@ -341,6 +345,7 @@ inline void free_with_pool(memory_pool* p, T * item)
   *(void * *)(item) = (p)->free_list;
   (p)->free_list = (void *)(item);
   decrement_used_count(p); 
+   std::cout << "deallocated from " << p << " pointer " << item << std::endl;
 
 #else // !MEM_POOLS_ENABLED
    // this is for debugging -- it disables the memory pool usage and just deallocates
@@ -350,6 +355,7 @@ inline void free_with_pool(memory_pool* p, T * item)
    
    // simply prevents compiler warnings when memory pools disabled
    p=p;
+
 #endif // !MEM_POOLS_ENABLED
 }
 
