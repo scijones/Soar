@@ -1145,7 +1145,7 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
         
         for (int i = 0; i < available_history; i++)
         {
-            sum += pow(static_cast<double>(time_now - thisAgent->smem_stmts->history_get->column_int(i)),
+            sum += thisAgent->smem_stmts->history_get->column_int(i+10)*pow(static_cast<double>(time_now - thisAgent->smem_stmts->history_get->column_int(i)),
                        static_cast<double>(-d));
         }
     }
