@@ -417,7 +417,7 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_symbols_float (s_id INTEGER PRIMARY KEY, symbol_value REAL)");
     add_structure("CREATE TABLE smem_symbols_string (s_id INTEGER PRIMARY KEY, symbol_value TEXT)");
     add_structure("CREATE TABLE smem_lti (lti_id INTEGER PRIMARY KEY, soar_letter INTEGER, soar_number INTEGER, total_augmentations INTEGER, activation_value REAL, activations_total INTEGER, activations_last INTEGER, activations_first INTEGER)");
-    add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER)");
+    add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER, touches1 INTEGER, touches2 INTEGER, touches3 INTEGER, touches4 INTEGER, touches5 INTEGER, touches6 INTEGER, touches7 INTEGER, touches8 INTEGER, touches9 INTEGER, touches10 INTEGER)");
     add_structure("CREATE TABLE smem_augmentations (lti_id INTEGER, attribute_s_id INTEGER, value_constant_s_id INTEGER, value_lti_id INTEGER, activation_value REAL)");
     add_structure("CREATE TABLE smem_attribute_frequency (attribute_s_id INTEGER PRIMARY KEY, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_wmes_constant_frequency (attribute_s_id INTEGER, value_constant_s_id INTEGER, edge_frequency INTEGER)");
@@ -678,13 +678,13 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     act_lti_get = new soar_module::sqlite_statement(new_db, "SELECT activation_value FROM smem_lti WHERE lti_id=?");
     add(act_lti_get);
     
-    history_get = new soar_module::sqlite_statement(new_db, "SELECT t1,t2,t3,t4,t5,t6,t7,t8,t9,t10 FROM smem_activation_history WHERE lti_id=?");
+    history_get = new soar_module::sqlite_statement(new_db, "SELECT t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10 FROM smem_activation_history WHERE lti_id=?");
     add(history_get);
     
-    history_push = new soar_module::sqlite_statement(new_db, "UPDATE smem_activation_history SET t10=t9,t9=t8,t8=t7,t8=t7,t7=t6,t6=t5,t5=t4,t4=t3,t3=t2,t2=t1,t1=? WHERE lti_id=?");
+    history_push = new soar_module::sqlite_statement(new_db, "UPDATE smem_activation_history SET t10=t9,t9=t8,t8=t7,t8=t7,t7=t6,t6=t5,t5=t4,t4=t3,t3=t2,t2=t1,t1=?,touches10=touches9,touches9=touches8,touches8=touches7,touches7=touches6,touches6=touches5,touches5=touches4,touches4=touches3,touches3=touches2,touches2=touches1,touches1=? WHERE lti_id=?");
     add(history_push);
     
-    history_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_activation_history (lti_id,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10) VALUES (?,?,0,0,0,0,0,0,0,0,0)");
+    history_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_activation_history (lti_id,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10) VALUES (?,?,0,0,0,0,0,0,0,0,0,?,0,0,0,0,0,0,0,0,0)");
     add(history_add);
     
     //
