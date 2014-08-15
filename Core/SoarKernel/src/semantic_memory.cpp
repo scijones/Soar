@@ -1173,7 +1173,17 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->smem_timers->act->start();
     ////////////////////////////////////////////////////////////////////////////
+
+    uint64_t touches;
     
+    if (wme_p != NULL)
+    {
+        touches = (*wme_p)->wma_decay_el->num_references;
+    }
+    //Should always be the case now --
+    assert(touches != 0);
+
+
     int64_t time_now;
     if (add_access)
     {
@@ -1264,6 +1274,7 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
             {
                 thisAgent->smem_stmts->history_add->bind_int(1, lti);
                 thisAgent->smem_stmts->history_add->bind_int(2, time_now);
+                thisAgent->smem_stmts->history_add->bind_int(3, touches);
                 thisAgent->smem_stmts->history_add->execute(soar_module::op_reinit);
             }
             
@@ -1274,7 +1285,8 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
             if (add_access)
             {
                 thisAgent->smem_stmts->history_push->bind_int(1, time_now);
-                thisAgent->smem_stmts->history_push->bind_int(2, lti);
+                thisAgent->smem_stmts->history_push->bind_int(2, touches);
+                thisAgent->smem_stmts->history_push->bind_int(3, lti);
                 thisAgent->smem_stmts->history_push->execute(soar_module::op_reinit);
             }
             
@@ -1705,7 +1717,7 @@ void smem_disconnect_chunk(agent* thisAgent, smem_lti_id lti_id)
     }
 }
 
-void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* children, bool remove_old_children = true, Symbol* print_id = NULL, bool activate = true)
+void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* children, bool remove_old_children = true, Symbol* print_id = NULL, bool activate = false)
 {
     // if remove children, disconnect chunk -> no existing edges
     // else, need to query number of existing edges
@@ -1886,7 +1898,7 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
     // now we can safely activate the lti
     if (activate)
     {
-        double lti_act = smem_lti_activate(thisAgent, lti_id, true, new_edges);
+        //double lti_act = smem_lti_activate(thisAgent, lti_id, true, new_edges);
         
         if (!after_above)
         {
@@ -2143,7 +2155,7 @@ void smem_install_memory(agent* thisAgent, Symbol* state, smem_lti_id lti_id, Sy
     // activate lti
     if (activate_lti)
     {
-        smem_lti_activate(thisAgent, lti_id, true);
+        //smem_lti_activate(thisAgent, lti_id, true);
     }
     
     // point retrieved to lti
