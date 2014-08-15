@@ -1197,6 +1197,7 @@ void do_one_top_level_phase(agent* thisAgent)
             thisAgent->current_phase = INPUT_PHASE;
             thisAgent->d_cycle_count++;
             thisAgent->wma_d_cycle_count++;
+            thisAgent->smem_max_cycle++;
             /* REW: end 09.15.96 */
             break;
 
@@ -1712,6 +1713,7 @@ void init_agent_memory(agent* thisAgent)
     thisAgent->current_phase = INPUT_PHASE;
     thisAgent->d_cycle_count++;
     thisAgent->wma_d_cycle_count++;
+    //thisAgent->smem_max_cycle++;
 
     /* The following code was taken from the do_input_cycle function of io.cpp */
     // Creating the io_header and adding the top state io header wme

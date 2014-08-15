@@ -1168,7 +1168,7 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
 //       just when storing a new chunk (default is a
 //       big number that should never come up naturally
 //       and if it does, satisfies thresholding behavior).
-inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_access, uint64_t num_edges = SMEM_ACT_MAX)
+inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_access, uint64_t num_edges = SMEM_ACT_MAX, Symbol* id = NULL, wme* wme_p = NULL, bool increment_timer = true)
 {
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->smem_timers->act->start();
@@ -1177,7 +1177,7 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     int64_t time_now;
     if (add_access)
     {
-        time_now = thisAgent->smem_max_cycle++;
+        time_now = thisAgent->smem_max_cycle; //time will be incremented from wma. This should be incremented with the wma_cycle.
         
         if ((thisAgent->smem_params->activation_mode->get_value() == smem_param_container::act_base) &&
                 (thisAgent->smem_params->base_update->get_value() == smem_param_container::bupt_incremental))
@@ -1315,6 +1315,20 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     ////////////////////////////////////////////////////////////////////////////
     
     return new_activation;
+}
+
+/*
+ * When a wme has wma and it references some lti as the value and the wme is activated,
+ * this function is called to also add this activation history to smem.
+ */
+void smem_wma_lti_add_history(agent* thisAgent, smem_lti_id lti, wme* wme_p)
+{
+    if (lti == NIL) //This shouldn't ever happen.
+    {
+        return;
+    }
+
+    smem_lti_activate(thisAgent, lti, true, SMEM_ACT_MAX, NULL, wme_p);
 }
 
 
