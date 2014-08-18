@@ -1145,7 +1145,7 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
         
         for (int i = 0; i < available_history; i++)
         {
-            sum += thisAgent->smem_stmts->history_get->column_int(i+10)*pow(static_cast<double>(time_now - thisAgent->smem_stmts->history_get->column_int(i)),
+            sum += thisAgent->smem_stmts->history_get->column_int(i+SMEM_ACT_HISTORY_ENTRIES)*pow(static_cast<double>(time_now - thisAgent->smem_stmts->history_get->column_int(i)),
                        static_cast<double>(-d));
         }
     }
@@ -1179,9 +1179,11 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     if (wme_p != NULL)
     {
         touches = (*wme_p)->wma_decay_el->num_references;
+        assert(touches != 0);
+        //Should always be the case now --
+
     }
-    //Should always be the case now --
-    assert(touches != 0);
+
 
 
     int64_t time_now;
@@ -5749,7 +5751,7 @@ void smem_print_lti(agent* thisAgent, smem_lti_id lti_id, unsigned int depth, st
                 lti_access_q->reinitialize();
                 hist_q->bind_int(1, c.first);
                 hist_q->execute();
-                for (int i = 0; i < n && i < 10; ++i) //10 because of the length of the history record kept for smem.
+                for (int i = 0; i < n && i < SMEM_ACT_HISTORY_ENTRIES; ++i) //10 because of the length of the history record kept for smem.
                 {
                     if (thisAgent->smem_stmts->history_get->column_int(i) != 0)
                     {
