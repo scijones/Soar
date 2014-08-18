@@ -1139,9 +1139,9 @@ inline void wma_update_decay_histories(agent* thisAgent)
     for (wme_p = thisAgent->wma_touched_elements->begin(); wme_p != thisAgent->wma_touched_elements->end(); wme_p++)
     {
         temp_el = (*wme_p)->wma_decay_el;
-        if ((*wme_p)->value.smem_lti) // Might want to investigate the case of id as well.
+        if ((*wme_p)->value->id && (*wme_p)->value->id->smem_lti) // Might want to investigate the case of id as well.
         {
-            smem_wma_lti_add_history(thisAgent,(*wme_p)->value.smem_lti,*wme_p);
+            smem_wma_lti_add_history(thisAgent,(*wme_p)->value->id->smem_lti,*wme_p);
         }
         // update number of references in the current history
         // (has to come before history overwrite)

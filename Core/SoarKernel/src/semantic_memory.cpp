@@ -1178,7 +1178,7 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     
     if (wme_p != NULL)
     {
-        touches = (*wme_p)->wma_decay_el->num_references;
+        touches = wme_p->wma_decay_el->num_references;
         assert(touches != 0);
         //Should always be the case now --
 
@@ -1900,7 +1900,7 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
     // now we can safely activate the lti
     if (activate)
     {
-        //double lti_act = smem_lti_activate(thisAgent, lti_id, true, new_edges);
+        double lti_act = smem_lti_activate(thisAgent, lti_id, false, new_edges);
         
         if (!after_above)
         {
