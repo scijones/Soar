@@ -916,6 +916,10 @@ inline bool wma_forgetting_forget_wme(agent* thisAgent, wme* w)
                 {
                     remove_preference_from_tm(thisAgent, p);
                     return_val = true;
+                    if (w->value.smem_lti != NIL)
+                    {
+                        smem_store_wma(thisAgent, w);//If it will be forgotten, store the wma on the lti.
+                    }
                 }
             }
             

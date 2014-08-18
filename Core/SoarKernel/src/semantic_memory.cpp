@@ -1118,6 +1118,15 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
+void smem_store_wma(agent* thisAgent, wme* w)
+{
+
+    assert(w->value.smem_lti != NIL);
+
+    smem_lti_id lti_id = w->value.smem_lti;
+    //TODO
+}
+
 inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time_now, uint64_t n = 0, uint64_t activations_first = 0)
 {
     double sum = 0.0;
