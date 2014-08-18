@@ -215,6 +215,7 @@ struct idSymbol    : public Symbol
     Symbol* smem_cmd_header;
     Symbol* smem_result_header;
     struct smem_data_struct* smem_info;
+    bool smem_wma;
     
     
     struct gds_struct* gds;

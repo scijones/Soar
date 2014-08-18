@@ -1578,6 +1578,7 @@ Symbol* smem_lti_soar_make(agent* thisAgent, smem_lti_id lti, char name_letter, 
     if (return_val == NIL)
     {
         return_val = make_new_identifier(thisAgent, name_letter, level, name_number);
+        //Added field to symbol to indicate that it had history from being a wme earlier.
     }
     else
     {
@@ -1589,6 +1590,8 @@ Symbol* smem_lti_soar_make(agent* thisAgent, smem_lti_id lti, char name_letter, 
             return_val->id->promotion_level = level;
         }
     }
+    //Check if there exists history of wma
+    return_val->smem_wma = true;
     
     // set lti field irrespective
     return_val->id->smem_lti = lti;

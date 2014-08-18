@@ -484,7 +484,7 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
         wma_decay_element* temp_el = w->wma_decay_el;
         
         // if decay structure doesn't exist, create it
-        if (!temp_el)
+        if (!temp_el && !w->value.smem_wma)
         {
             allocate_with_pool(thisAgent, &(thisAgent->wma_decay_element_pool), &temp_el);
             
@@ -573,6 +573,10 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
                 print(thisAgent, msg.c_str());
                 xml_generate_warning(thisAgent, msg.c_str());
             }
+        }
+        else if (w->value.smem_wma)
+        {
+            //Initialize with what was present before forgetting.
         }
         
         // add to o_set if necessary
