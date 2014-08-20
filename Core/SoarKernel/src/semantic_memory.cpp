@@ -418,6 +418,7 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_symbols_string (s_id INTEGER PRIMARY KEY, symbol_value TEXT)");
     add_structure("CREATE TABLE smem_lti (lti_id INTEGER PRIMARY KEY, soar_letter INTEGER, soar_number INTEGER, total_augmentations INTEGER, activation_value REAL, activations_total INTEGER, activations_last INTEGER, activations_first INTEGER)");
     add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER)");
+    add_structure("CREATE TABLE smem_wma_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER, touches1 INTEGER, touches2 INTEGER, touches3 INTEGER, touches4 INTEGER, touches5 INTEGER, touches6 INTEGER, touches7 INTEGER, touches8 INTEGER, touches9 INTEGER, touches10 INTEGER)");
     add_structure("CREATE TABLE smem_augmentations (lti_id INTEGER, attribute_s_id INTEGER, value_constant_s_id INTEGER, value_lti_id INTEGER, activation_value REAL)");
     add_structure("CREATE TABLE smem_attribute_frequency (attribute_s_id INTEGER PRIMARY KEY, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_wmes_constant_frequency (attribute_s_id INTEGER, value_constant_s_id INTEGER, edge_frequency INTEGER)");
@@ -477,6 +478,7 @@ void smem_statement_container::drop_tables(agent* new_agent)
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_symbols_string");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_lti");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_activation_history");
+    new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_wma_history");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_augmentations");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_attribute_frequency");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_wmes_constant_frequency");
@@ -689,6 +691,14 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     
     //
     
+    wma_history_get = new soar_module::sqlite_statement(new_db, "SELECT t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10 FROM smem_wma_history WHERE lti_id=?");
+    add(wma_history_get);
+
+    wma_history_set = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_wma_history (lti_id,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    add(wma_history_add);
+
+    //
+
     vis_lti = new soar_module::sqlite_statement(new_db, "SELECT lti_id, soar_letter, soar_number, activation_value FROM smem_lti ORDER BY soar_letter ASC, soar_number ASC");
     add(vis_lti);
     
@@ -1125,6 +1135,14 @@ void smem_store_wma(agent* thisAgent, wme* w)
 
     smem_lti_id lti_id = w->value.smem_lti;
     //TODO
+    wma_cycle_reference* ref_history = w->wma_decay_el->touches.access_history;
+    thisAgent->smem_stmts->wma_history_set(lti_id, (*ref_history)[0].d_cycle, (*ref_history)[1].d_cycle, (*ref_history)[2].d_cycle
+            , (*ref_history)[3].d_cycle, (*ref_history)[4].d_cycle, (*ref_history)[5].d_cycle, (*ref_history)[6].d_cycle
+            , (*ref_history)[7].d_cycle, (*ref_history)[8].d_cycle, (*ref_history)[9].d_cycle, (*ref_history)[0].num_references
+            , (*ref_history)[1].num_references, (*ref_history)[2].num_references, (*ref_history)[3].num_references
+            , (*ref_history)[4].num_references, (*ref_history)[5].num_references, (*ref_history)[6].num_references
+            , (*ref_history)[7].num_references, (*ref_history)[8].num_references, (*ref_history)[9].num_references);
+    return;
 }
 
 inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time_now, uint64_t n = 0, uint64_t activations_first = 0)
