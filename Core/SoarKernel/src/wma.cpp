@@ -574,10 +574,6 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
                 xml_generate_warning(thisAgent, msg.c_str());
             }
         }
-        else if (w->value.smem_wma)
-        {
-            //Initialize with what was present before forgetting.
-        }
         
         // add to o_set if necessary
         if (o_set)
