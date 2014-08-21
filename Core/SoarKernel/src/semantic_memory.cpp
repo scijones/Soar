@@ -1153,13 +1153,15 @@ void smem_store_wma(agent* thisAgent, wme* w)
         }
         total_refs += w->wma_decay_el->touches.total_references;
         thisAgent->smem_stmts->wma_history_get->reinitialize();
-        smem_wma_merge(w, &(ref_cycle), &(ref_touches));
+        uint64_t ref_cycle_new[10];
+        uint64_t ref_touches_new[10];
+        smem_wma_merge(w, ref_cycle, ref_touches, ref_cycle_new, ref_touches_new);
 
         thisAgent->smem_stmts->wma_history_set->bind_int(1,lti_id);
         for (int i = 0; i < 10; i++)
         {
-            smem_stmts->wma_history_set->bind_int(i+2,ref_cycle[i]);
-            smem_stmts->wma_history_set->bind_int(i+12,ref_touches[i]);
+            smem_stmts->wma_history_set->bind_int(i+2,ref_cycle_new[i]);
+            smem_stmts->wma_history_set->bind_int(i+12,ref_touches_new[i]);
         }
         smem_stmts->wma_history_set->bind_int(22,total_refs);
         smem_stmts->wma_history_set->bind_int(23,((first_ref < w->wma_decay_el->touches.first_reference) ? first_ref : w->wma_decay_el->touches.first_reference));
@@ -1184,15 +1186,24 @@ void smem_store_wma(agent* thisAgent, wme* w)
     return;
 }
 
-inline void smem_wma_merge(wme* w, uint64_t** ref_cycle_list_p, uint64_t** ref_touches_list_p)
+inline void smem_wma_merge(wme* w, uint64_t* ref_cycle_list, uint64_t* ref_touches_list, uint64_t* ref_cycle_list_new, uint64_t* ref_touches_list_new)
 {
     smem_lti_id lti_id = w->value.smem_lti;
     wma_cycle_reference* ref_history = w->wma_decay_el->touches.access_history;
     int i = 0;
     int j = 0;
-    while (i < 10 || j < 10)
+    for (int k = 0; k < 10; k++)
     {
-
+        if (ref_history[i].d_cycle < ref_cycle_list[j])
+        {
+            ref_cycle_list_new[k] = ref_history[i].d_cycle;
+            ref_touches_list_new[k] = ref_history[i++].num_references;
+        }
+        else
+        {
+            ref_cycle_list_new[k] = ref_cycle_list[j];
+            ref_touches_list_new[k] = ref_touches_list[j++];
+        }
     }
 }
 
