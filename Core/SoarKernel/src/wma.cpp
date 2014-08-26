@@ -502,11 +502,17 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
                 temp_el->touches.access_history[ i ].d_cycle = 0;
                 temp_el->touches.access_history[ i ].num_references = 0;
             }
-            
+
+
             temp_el->touches.history_references = 0;
             temp_el->touches.total_references = 0;
             temp_el->touches.first_reference = 0;
             
+            if (w->value.smem_wma)
+			{
+				smem_load_wma(temp_el, value.smem_lti);
+			}
+
             // prevents confusion with delayed forgetting
             temp_el->forget_cycle = static_cast< wma_d_cycle >(-1);
             
@@ -574,10 +580,11 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
                 xml_generate_warning(thisAgent, msg.c_str());
             }
         }
-        else if (w->value.smem_wma)
-        {
-            //Initialize with what was present before forgetting.
-        }
+//        else if (w->value.smem_wma)
+//        {
+//            //Initialize with what was present before forgetting.
+//
+//        }
         
         // add to o_set if necessary
         if (o_set)

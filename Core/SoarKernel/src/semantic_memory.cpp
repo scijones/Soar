@@ -1131,6 +1131,7 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
+// This stores the activation of a working memory element's value to working memory (if the value was a lti)
 void smem_store_wma(agent* thisAgent, wme* w)
 {
     assert(w->value.smem_lti != NIL);
@@ -1186,6 +1187,7 @@ void smem_store_wma(agent* thisAgent, wme* w)
     return;
 }
 
+// This just picks the ten most recent activation events from two lists.
 inline void smem_wma_merge(wme* w, uint64_t* ref_cycle_list, uint64_t* ref_touches_list, uint64_t* ref_cycle_list_new, uint64_t* ref_touches_list_new)
 {
     smem_lti_id lti_id = w->value.smem_lti;
@@ -1205,6 +1207,23 @@ inline void smem_wma_merge(wme* w, uint64_t* ref_cycle_list, uint64_t* ref_touch
             ref_touches_list_new[k] = ref_touches_list[j++];
         }
     }
+}
+
+//This is supposed to load into a newly initialized wma decay element the activation previously given to the lti in working memory.
+void smem_load_wma(agent* thisAgent, wma_decay_element* wma_decay_el, smem_lti_id lti_id)
+{
+	thisAgent->smem_stmts->wma_history_get->bind_int(1,lti_id);
+	thisAgent->smem_stmts->wma_history_get->execute();
+	wma_decay_el->touches.total_references = thisAgent->smem_stmts->wma_history_get->column_int(21);
+	wma_decay_el->touches.first_reference = thisAgent->smem_stmts->wma_history_get->column_int(22);
+
+	for (int i = 0; i < 10; i++)
+	{
+		wma_decay_el->touches.access_history[ i ].d_cycle = thisAgent->smem_stmts->wma_history_get->column_int(i);
+		wma_decay_el->touches.access_history[ i ].num_references = thisAgent->smem_stmts->wma_history_get->column_int(i+10);
+	}
+	thisAgent->smem_stmts->wma_history_get->reinitialize();
+	return;
 }
 
 inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time_now, uint64_t n = 0, uint64_t activations_first = 0)
@@ -1671,7 +1690,10 @@ Symbol* smem_lti_soar_make(agent* thisAgent, smem_lti_id lti, char name_letter, 
         }
     }
     //Check if there exists history of wma
-    return_val->smem_wma = true;
+    thisAgent->smem_stmts->wma_history_get->bind_int(1,lti);
+    thisAgent->smem_stmts->wma_history_get->execute();
+    return_val->smem_wma = (bool)(thisAgent->smem_stmts->wma_history_get->column_int(10));
+    thisAgent->smem_stmts->wma_history_get->reinitialize();
     
     // set lti field irrespective
     return_val->id->smem_lti = lti;
