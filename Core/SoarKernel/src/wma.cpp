@@ -484,7 +484,7 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
         wma_decay_element* temp_el = w->wma_decay_el;
         
         // if decay structure doesn't exist, create it
-        if (!temp_el && !w->value.smem_wma)
+        if (!temp_el)
         {
             allocate_with_pool(thisAgent, &(thisAgent->wma_decay_element_pool), &temp_el);
             
@@ -508,7 +508,7 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
             temp_el->touches.total_references = 0;
             temp_el->touches.first_reference = 0;
             
-            if (w->value.smem_wma)
+            if (w->value->smem_wma)
 			{
 				smem_load_wma(temp_el, value.smem_lti);
 			}
