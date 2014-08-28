@@ -694,7 +694,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     wma_history_get = new soar_module::sqlite_statement(new_db, "SELECT t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10,totalrefs,firstref FROM smem_wma_history WHERE lti_id=?");
     add(wma_history_get);
 
-    wma_history_push = new soar_module::sqlite_statement(new_db, "UPDATE smem_wma_history SET t10=t9.t9=t8,t8=t7,t7=t6,t6=t5,t5=t4,t4=t3,t3=t2,t2=t1,t1=?,touches10=touches9,touches9=touches8,touches8=touches7,touches7=touches6,touches6=touches5,touches5=touches4,touches4=touches3,touches3=touches2,touches2=touches1,touches1=?,totalnum=? WHERE lti_id=?");
+    wma_history_push = new soar_module::sqlite_statement(new_db, "UPDATE smem_wma_history SET t10=t9,t9=t8,t8=t7,t7=t6,t6=t5,t5=t4,t4=t3,t3=t2,t2=t1,t1=?,touches10=touches9,touches9=touches8,touches8=touches7,touches7=touches6,touches6=touches5,touches5=touches4,touches4=touches3,touches3=touches2,touches2=touches1,touches1=?,totalrefs=? WHERE lti_id=?");
     add(wma_history_push);
 
     wma_history_set = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_wma_history (lti_id,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10,totalrefs,firstref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
