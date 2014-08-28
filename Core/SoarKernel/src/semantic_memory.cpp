@@ -1166,6 +1166,8 @@ void smem_store_wma(agent* thisAgent, wme* w)
     uint64_t first_ref = thisAgent->smem_stmts->wma_history_get->column_int(22);
     uint64_t ref_cycle[10];
     uint64_t ref_touches[10];
+    uint64_t ref_cycle_new[10];
+    uint64_t ref_touches_new[10];
 
     if (total_refs)
     {
@@ -1187,7 +1189,7 @@ void smem_store_wma(agent* thisAgent, wme* w)
             thisAgent->smem_stmts->wma_history_set->bind_int(i+12,ref_touches_new[i]);
         }
         thisAgent->smem_stmts->wma_history_set->bind_int(22,total_refs);
-        thisAgent->smem_stmts->wma_history_set->bind_int(23,((first_ref < w->wma_decay_el->touches.first_reference) ? first_ref : w->wma_decay_el->touches.first_reference));
+        thisAgent->smem_stmts->wma_history_set->bind_int(23,((first_ref < w->wma_decay_el->touches.first_reference && first_ref != 0) ? first_ref : w->wma_decay_el->touches.first_reference));
     }
     else
     {

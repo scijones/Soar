@@ -1184,7 +1184,7 @@ inline void wma_update_decay_histories(agent* thisAgent)
         }
         
         // keep track of first reference
-        if (temp_el->touches.total_references == 0)
+        if (temp_el->touches.total_references == 0 || temp_el->touches.first_reference == 0)
         {
             temp_el->touches.first_reference = current_cycle;
         }
