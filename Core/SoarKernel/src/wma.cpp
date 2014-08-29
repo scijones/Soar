@@ -1152,7 +1152,8 @@ inline void wma_update_decay_histories(agent* thisAgent)
         
         // update number of references in the current history
         // (has to come before history overwrite)
-        temp_el->touches.history_references += (temp_el->num_references - temp_el->touches.access_history[ temp_el->touches.next_p ].num_references);
+        temp_el->touches.history_references += (temp_el->num_references);// - temp_el->touches.access_history[ temp_el->touches.next_p ].num_references);
+        //I'm not sure about the above comment-out/change. I had a problem where I ended up with -1 history references, which seemed bad, and this is the only place it is set.
         
         // set history
         temp_el->touches.access_history[ temp_el->touches.next_p ].d_cycle = current_cycle;
