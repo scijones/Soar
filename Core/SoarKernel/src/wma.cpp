@@ -510,9 +510,9 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
             // prevents confusion with delayed forgetting
             temp_el->forget_cycle = static_cast< wma_d_cycle >(-1);
             
-            if(w->value->id && w->value->smem_lti)
+            if(w->value->id && w->value->id.smem_lti)
             {
-                smem_lti_activation_history(my_agent,w->value->smem_lti,temp_el);
+                smem_lti_activation_history(thisAgent,w->value->id.smem_lti,temp_el);
             }
 
             w->wma_decay_el = temp_el;
@@ -1145,9 +1145,9 @@ inline void wma_update_decay_histories(agent* thisAgent)
     {
 
         // If the wme is in SMEM, also update SMEM.
-        if((*wme_p)->value->id && (*wme_p)->id.smem_lti)
+        if((*wme_p)->value->id && (*wme_p)->value->id.smem_lti)
         {
-            smem_wma_lti_add_history(my_agent,w->value->id.smem_lti);
+            smem_wma_lti_add_history(thisAgent,w->value->id.smem_lti);
         }
 
         temp_el = (*wme_p)->wma_decay_el;

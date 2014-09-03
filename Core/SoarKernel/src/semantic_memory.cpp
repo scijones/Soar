@@ -1119,19 +1119,19 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 //////////////////////////////////////////////////////////
 
 // This function provides a working memory decay element with the history of some LTI.
-void smem_lti_activation_history(agent *my_agent, smem_lti_id lti, wma_decay_element* wma_decay_el)
+void smem_lti_activation_history(agent *thisAgent, smem_lti_id lti, wma_decay_element* wma_decay_el)
 {
     if (lti == NIL) return;
 
     // First, we need to figure out how much history we have.
-    my_agent->smem_stmts->lti_access_get->bind_int( 1, lti );
-    my_agent->smem_stmts->lti_access_get->execute();
-    uint64_t n = my_agent->smem_stmts->lti_access_get->column_int( 0 );
+    thisAgent->smem_stmts->lti_access_get->bind_int( 1, lti );
+    thisAgent->smem_stmts->lti_access_get->execute();
+    uint64_t n = thisAgent->smem_stmts->lti_access_get->column_int( 0 );
     int result[n];
 
     // Then, we get the history.
-    my_agent->smem_stmts->history_get->bind_int(1, lti);
-    my_agent->smem_stmts->history_get->execute();
+    thisAgent->smem_stmts->history_get->bind_int(1, lti);
+    thisAgent->smem_stmts->history_get->execute();
 
 
     // We want to include smem history up to the point of working memory's history capacity.
@@ -1143,7 +1143,7 @@ void smem_lti_activation_history(agent *my_agent, smem_lti_id lti, wma_decay_ele
     {
         if (i < n)
         {
-            wma_decay_el->touches.access_history[i].d_cycle = static_cast<int>(my_agent->smem_stmts->history_get->column_int(i));
+            wma_decay_el->touches.access_history[i].d_cycle = static_cast<int>(thisAgent->smem_stmts->history_get->column_int(i));
 
             // This is not yet principled. When queries are made into SMEM, I simply call it one reference.
             wma_decay_el->touches.access_history[i].num_references = 1;
@@ -1157,8 +1157,8 @@ void smem_lti_activation_history(agent *my_agent, smem_lti_id lti, wma_decay_ele
     //These are based on having one reference per smem-referenced cycle.
     wma_decay_el->touches.history_references = (n<WMA_DECAY_HISTORY) ? n : WMA_DECAY_HISTORY;
     wma_decay_el->touches.total_references = n;
-    wma_decay_el->touches.first_reference = static_cast<int>(my_agent->smem_stmts->history_get->column_int(0));
-    my_agent->smem_stmts->lti_access_get->reinitialize();
+    wma_decay_el->touches.first_reference = static_cast<int>(thisAgent->smem_stmts->history_get->column_int(0));
+    thisAgent->smem_stmts->lti_access_get->reinitialize();
 }
 
 inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time_now, uint64_t n = 0, uint64_t activations_first = 0)
@@ -1211,7 +1211,7 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
 //       just when storing a new chunk (default is a
 //       big number that should never come up naturally
 //       and if it does, satisfies thresholding behavior).
-inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_access, uint64_t num_edges = SMEM_ACT_MAX)
+inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_access, uint64_t num_edges = SMEM_ACT_MAX, wme* wme_p = NULL)
 {
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->smem_timers->act->start();
@@ -1305,35 +1305,30 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
         {
             if (add_access)
             {
-                // If we pass an id to this function and that symbol actually has a wma_decay_element
-                if (id && ((wme*)id)->wma_decay_el)
+                // If we pass a working memory decay element
+                if (wme_p && wme_p->wma_decay_el)
                 {
                     // then we should import the history from that decay element.
-                    wma_decay_element* temp_el = ((wme*)id)->wma_decay_el;
+                    wma_decay_element* temp_el = wme_p->wma_decay_el;
 
                     // The first one uses an add.
-                    my_agent->smem_stmts->history_add->bind_int(1,lti);
-                    my_agent->smem_stmts->history_add->bind_int(2,temp_el->touches.access_history[ 0 ].d_cycle);
-                    my_agent->smem_stmts->history_add->execute( soar_module::op_reinit );
+                    thisAgent->smem_stmts->history_add->bind_int(1,lti);
+                    thisAgent->smem_stmts->history_add->bind_int(2,temp_el->touches.access_history[ 0 ].d_cycle);
+                    thisAgent->smem_stmts->history_add->execute( soar_module::op_reinit );
 
                     // then we push the rest.
-                    for ( int i=1; i<WMA_DECAY_HISTORY; i++)
+                    for ( int i=1; i<WMA_DECAY_HISTORY; i++) //intentionally starts at 1.
                     {
-                        my_agent->smem_stmts->history_push->bind_int(1,lti);
-                        my_agent->smem_stmts->history_push->bind_int(2,temp_el->touches.access_history[ i ].d_cycle);
-                        my_agent->smem_stmts->history_push->execute( soar_module::op_reinit );
+                        thisAgent->smem_stmts->history_push->bind_int(1,lti);
+                        thisAgent->smem_stmts->history_push->bind_int(2,temp_el->touches.access_history[ i ].d_cycle);
+                        thisAgent->smem_stmts->history_push->execute( soar_module::op_reinit );
                     }
-
-                    // Now, add the update from just now. ######## Potentially redundant?
-                    my_agent->smem_stmts->history_push->bind_int( 1, lti );
-                    my_agent->smem_stmts->history_push->bind_int( 2, time_now );
-                    my_agent->smem_stmts->history_push->execute( soar_module::op_reinit );
                 }
                 else
                 {
-                    my_agent->smem_stmts->history_add->bind_int( 1, lti );
-                    my_agent->smem_stmts->history_add->bind_int( 2, time_now );
-                    my_agent->smem_stmts->history_add->execute( soar_module::op_reinit );
+                    thisAgent->smem_stmts->history_add->bind_int( 1, lti );
+                    thisAgent->smem_stmts->history_add->bind_int( 2, time_now );
+                    thisAgent->smem_stmts->history_add->execute( soar_module::op_reinit );
                 }
             }
             
@@ -1343,9 +1338,25 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
         {
             if (add_access)
             {
-                thisAgent->smem_stmts->history_push->bind_int(1, time_now);
-                thisAgent->smem_stmts->history_push->bind_int(2, lti);
-                thisAgent->smem_stmts->history_push->execute(soar_module::op_reinit);
+                // If we pass a working memory decay element
+                if (wme_p && wme_p->wma_decay_el)
+                {
+                    // then we should import the history from that decay element.
+                    wma_decay_element* temp_el = wme_p->wma_decay_el;
+
+                    for ( int i=0; i<WMA_DECAY_HISTORY; i++)
+                    {
+                        thisAgent->smem_stmts->history_push->bind_int(1,lti);
+                        thisAgent->smem_stmts->history_push->bind_int(2,temp_el->touches.access_history[ i ].d_cycle);
+                        thisAgent->smem_stmts->history_push->execute( soar_module::op_reinit );
+                    }
+                }
+                else
+                {
+                    thisAgent->smem_stmts->history_push->bind_int(1, time_now);
+                    thisAgent->smem_stmts->history_push->bind_int(2, lti);
+                    thisAgent->smem_stmts->history_push->execute(soar_module::op_reinit);
+                }
             }
             
             new_activation = smem_lti_calc_base(thisAgent, lti, time_now + ((add_access) ? (1) : (0)), prev_access_n + ((add_access) ? (1) : (0)), prev_access_1);
@@ -1390,10 +1401,10 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
 /* When a wme has wma and it references some lti and that wme is activated, this
 * function is called to also add this activation history to smem, if it isn't already added.
 */
-void smem_wma_lti_add_history(agent *my_agent, smem_lti_id lti)
+void smem_wma_lti_add_history(agent *thisAgent, smem_lti_id lti, wme* wme_p)
 {
     if (lti == NIL) return;
-    smem_lti_activate(my_agent,lti,true);
+    smem_lti_activate(thisAgent,lti,true,wme_p);
 }
 
 //////////////////////////////////////////////////////////
