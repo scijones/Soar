@@ -1404,7 +1404,7 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
 void smem_wma_lti_add_history(agent *thisAgent, smem_lti_id lti, wme* wme_p)
 {
     if (lti == NIL) return;
-    smem_lti_activate(thisAgent,lti,true,wme_p);
+    smem_lti_activate(thisAgent,lti,true,SMEM_ACT_MAX,wme_p);
 }
 
 //////////////////////////////////////////////////////////
