@@ -1220,7 +1220,7 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     int64_t time_now;
     if (add_access)
     {
-        time_now = thisAgent->smem_max_cycle++;
+        time_now = thisAgent->wma_d_cycle_count;//thisAgent->smem_max_cycle++;
         
         if ((thisAgent->smem_params->activation_mode->get_value() == smem_param_container::act_base) &&
                 (thisAgent->smem_params->base_update->get_value() == smem_param_container::bupt_incremental))
@@ -1255,7 +1255,7 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     }
     else
     {
-        time_now = thisAgent->smem_max_cycle;
+        time_now = thisAgent->wma_d_cycle_count;//thisAgent->smem_max_cycle;
         
         thisAgent->smem_stats->act_updates->set_value(thisAgent->smem_stats->act_updates->get_value() + 1);
     }
