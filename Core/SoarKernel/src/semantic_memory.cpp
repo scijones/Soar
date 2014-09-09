@@ -1124,19 +1124,22 @@ void smem_lti_activation_history(agent *thisAgent, smem_lti_id lti, wma_decay_el
     if (lti == NIL) return;
 
     // First, we need to figure out how much history we have.
-    thisAgent->smem_stmts->lti_access_get->bind_int( 1, lti );
+    thisAgent->smem_stmts->lti_access_get->bind_int(1, lti);
     thisAgent->smem_stmts->lti_access_get->execute();
-    uint64_t n = thisAgent->smem_stmts->lti_access_get->column_int( 0 );
-    int result[n];
-
+    uint64_t n = 0;
+    n = static_cast<uint64_t>(thisAgent->smem_stmts->lti_access_get->column_int(0));
+    thisAgent->smem_stmts->lti_access_get->reinitialize();
+    if (n > 10000)
+    {
+        assert(false);
+    }
     // Then, we get the history.
     thisAgent->smem_stmts->history_get->bind_int(1, lti);
     thisAgent->smem_stmts->history_get->execute();
 
-
     // We want to include smem history up to the point of working memory's history capacity.
     wma_decay_el->touches.history_ct = (n<WMA_DECAY_HISTORY) ? n : WMA_DECAY_HISTORY;
-    wma_decay_el->touches.next_p = (n>0)?((n<WMA_DECAY_HISTORY) ? n-1 : WMA_DECAY_HISTORY-1):0;
+    wma_decay_el->touches.next_p = (n>0)?((n<WMA_DECAY_HISTORY) ? n : 0):0;
 
     // This actually puts in the SMEM history.
     for ( int i=0; i<WMA_DECAY_HISTORY; i++ )
@@ -1157,7 +1160,9 @@ void smem_lti_activation_history(agent *thisAgent, smem_lti_id lti, wma_decay_el
     //These are based on having one reference per smem-referenced cycle.
     wma_decay_el->touches.history_references = (n<WMA_DECAY_HISTORY) ? n : WMA_DECAY_HISTORY;
     wma_decay_el->touches.total_references = n;
+    wma_decay_el->num_references = 0;
     wma_decay_el->touches.first_reference = static_cast<int>(thisAgent->smem_stmts->history_get->column_int(0));
+    thisAgent->smem_stmts->history_get->reinitialize();
     thisAgent->smem_stmts->lti_access_get->reinitialize();
 }
 
