@@ -1141,7 +1141,15 @@ inline void wma_update_decay_histories(agent* thisAgent)
         temp_el = (*wme_p)->wma_decay_el;
         if ((*wme_p)->value->id && (*wme_p)->value->id->smem_lti) // Might want to investigate the case of id as well.
         {
-            smem_wma_lti_add_history(thisAgent,(*wme_p)->value->id->smem_lti,*wme_p);
+            std::string prohibit_string;
+            if ((*wme_p)->attr->is_string())
+            {
+                get_symbol_value((*wme_p)->attr,prohibit_string);
+            }
+            if (prohibit_string.compare("prohibit"))
+            {
+                smem_wma_lti_add_history(thisAgent,(*wme_p)->value->id->smem_lti,*wme_p);
+            }
         }
         // update number of references in the current history
         // (has to come before history overwrite)
