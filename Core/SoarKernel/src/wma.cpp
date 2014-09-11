@@ -1147,7 +1147,15 @@ inline void wma_update_decay_histories(agent* thisAgent)
         // If the wme is in SMEM, also update SMEM.
         if((*wme_p)->value->id && (*wme_p)->value->id->smem_lti)
         {
-            smem_wma_lti_add_history(thisAgent,(*wme_p)->value->id->smem_lti, (*wme_p));
+        	std::string prohibit_string;
+			if ((*wme_p)->attr->is_string())
+			{
+				get_symbol_value((*wme_p)->attr,prohibit_string);
+			}
+			if (prohibit_string.compare("prohibit"))
+			{
+				smem_wma_lti_add_history(thisAgent,(*wme_p)->value->id->smem_lti,*wme_p);
+			}
         }
 
         temp_el = (*wme_p)->wma_decay_el;
