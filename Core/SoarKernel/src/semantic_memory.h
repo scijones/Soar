@@ -274,6 +274,10 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* history_push;
         soar_module::sqlite_statement* history_add;
         
+        soar_module::sqlite_statement* wma_history_get;
+        soar_module::sqlite_statement* wma_history_push;
+        soar_module::sqlite_statement* wma_history_set;
+
         soar_module::sqlite_statement* vis_lti;
         soar_module::sqlite_statement* vis_lti_act;
         soar_module::sqlite_statement* vis_value_const;

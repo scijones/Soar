@@ -484,7 +484,7 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
         wma_decay_element* temp_el = w->wma_decay_el;
         
         // if decay structure doesn't exist, create it
-        if (!temp_el && !w->value.smem_wma)
+        if (!temp_el)
         {
             allocate_with_pool(thisAgent, &(thisAgent->wma_decay_element_pool), &temp_el);
             
@@ -502,11 +502,17 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
                 temp_el->touches.access_history[ i ].d_cycle = 0;
                 temp_el->touches.access_history[ i ].num_references = 0;
             }
-            
+
+
             temp_el->touches.history_references = 0;
             temp_el->touches.total_references = 0;
             temp_el->touches.first_reference = 0;
             
+            if (w->value->id != NIL && w->value->id->smem_wma)
+			{
+				smem_load_wma(thisAgent, temp_el, w->value->id->smem_lti);
+			}
+
             // prevents confusion with delayed forgetting
             temp_el->forget_cycle = static_cast< wma_d_cycle >(-1);
             
@@ -916,7 +922,7 @@ inline bool wma_forgetting_forget_wme(agent* thisAgent, wme* w)
                 {
                     remove_preference_from_tm(thisAgent, p);
                     return_val = true;
-                    if (w->value.smem_lti != NIL)
+                    if (w->value->id != NIL && w->value->id->smem_lti != NIL)
                     {
                         smem_store_wma(thisAgent, w);//If it will be forgotten, store the wma on the lti.
                     }
@@ -1146,7 +1152,8 @@ inline void wma_update_decay_histories(agent* thisAgent)
         
         // update number of references in the current history
         // (has to come before history overwrite)
-        temp_el->touches.history_references += (temp_el->num_references - temp_el->touches.access_history[ temp_el->touches.next_p ].num_references);
+        temp_el->touches.history_references += (temp_el->num_references);// - temp_el->touches.access_history[ temp_el->touches.next_p ].num_references);
+        //I'm not sure about the above comment-out/change. I had a problem where I ended up with -1 history references, which seemed bad, and this is the only place it is set.
         
         // set history
         temp_el->touches.access_history[ temp_el->touches.next_p ].d_cycle = current_cycle;
@@ -1178,7 +1185,7 @@ inline void wma_update_decay_histories(agent* thisAgent)
         }
         
         // keep track of first reference
-        if (temp_el->touches.total_references == 0)
+        if (temp_el->touches.total_references == 0 || temp_el->touches.first_reference == 0)
         {
             temp_el->touches.first_reference = current_cycle;
         }

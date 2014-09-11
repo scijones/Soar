@@ -694,11 +694,11 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     wma_history_get = new soar_module::sqlite_statement(new_db, "SELECT t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10,totalrefs,firstref FROM smem_wma_history WHERE lti_id=?");
     add(wma_history_get);
 
-    wma_history_push = new soar_module::sqlite_statement(new_db, "UPDATE smem_wma_history SET t10=t9.t9=t8,t8=t7,t7=t6,t6=t5,t5=t4,t4=t3,t3=t2,t2=t1,t1=?,touches10=touches9,touches9=touches8,touches8=touches7,touches7=touches6,touches6=touches5,touches5=touches4,touches4=touches3,touches3=touches2,touches2=touches1,touches1=?,totalnum=? WHERE lti_id=?");
+    wma_history_push = new soar_module::sqlite_statement(new_db, "UPDATE smem_wma_history SET t10=t9,t9=t8,t8=t7,t7=t6,t6=t5,t5=t4,t4=t3,t3=t2,t2=t1,t1=?,touches10=touches9,touches9=touches8,touches8=touches7,touches7=touches6,touches6=touches5,touches5=touches4,touches4=touches3,touches3=touches2,touches2=touches1,touches1=?,totalrefs=? WHERE lti_id=?");
     add(wma_history_push);
 
-    wma_history_set = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_wma_history (lti_id,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10,totalrefs,firstref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-    add(wma_history_add);
+    wma_history_set = new soar_module::sqlite_statement(new_db, "INSERT OR REPLACE INTO smem_wma_history (lti_id,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10,totalrefs,firstref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    add(wma_history_set);
 
     //
 
@@ -1131,80 +1131,109 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
+// This just picks the ten most recent activation events from two lists.
+inline void smem_wma_merge(wme* w, int64_t* ref_cycle_list, int64_t* ref_touches_list, int64_t* ref_cycle_list_new, int64_t* ref_touches_list_new)
+{
+    smem_lti_id lti_id = w->value->id->smem_lti;
+    //wma_cycle_reference* ref_history = w->wma_decay_el->touches.access_history;
+    int i = 0;
+    int j = 0;
+    for (int k = 0; k < 10; k++)
+    {
+        if (w->wma_decay_el->touches.access_history[i].d_cycle > ref_cycle_list[j] && w->wma_decay_el->touches.access_history[i].num_references != 0)
+        {
+            ref_cycle_list_new[k] = w->wma_decay_el->touches.access_history[i].d_cycle;
+            ref_touches_list_new[k] = w->wma_decay_el->touches.access_history[i++].num_references;
+        }
+        else if (w->wma_decay_el->touches.access_history[i].d_cycle < ref_cycle_list[j] && ref_touches_list[j] != 0)
+        {
+            ref_cycle_list_new[k] = ref_cycle_list[j];
+            ref_touches_list_new[k] = ref_touches_list[j++];
+        }
+        else
+        {
+        	ref_cycle_list_new[k] = 0;
+        	ref_touches_list_new[k] = 0;
+        }
+    }
+}
+
+// This stores the activation of a working memory element's value to working memory (if the value was a lti)
 void smem_store_wma(agent* thisAgent, wme* w)
 {
-    assert(w->value.smem_lti != NIL);
+    assert(w->value->id->smem_lti != NIL);
 
-    smem_lti_id lti_id = w->value.smem_lti;
+    smem_lti_id lti_id = w->value->id->smem_lti;
 
     thisAgent->smem_stmts->wma_history_get->bind_int(1, lti_id);
     thisAgent->smem_stmts->wma_history_get->execute();
-    uint64_t total_refs = thisAgent->smem_stmts->wma_history_get->column_int(21);
-    uint64_t first_ref = thisAgent->smem_stmts->wma_history_get->column_int(22);
-    uint64_t ref_cycle[10];
-    uint64_t ref_touches[10];
+    int64_t total_refs = (thisAgent->smem_stmts->wma_history_get->column_int(20));
+    int64_t first_ref = (thisAgent->smem_stmts->wma_history_get->column_int(21));
+    int64_t ref_cycle[10];
+    int64_t ref_touches[10];
+    int64_t ref_cycle_new[10];
+    int64_t ref_touches_new[10];
 
     if (total_refs)
     {
         for (int i = 0; i < 10; i++)
         {
-            ref_cycle[i] = thisAgent->smem_stmts->wma_history_get->column_int(i);
-            ref_touches[i] = thisAgent->smem_stmts->wma_history_get->column_int(i+10);
+            ref_cycle[i] = (thisAgent->smem_stmts->wma_history_get->column_int(i));
+            ref_touches[i] = (thisAgent->smem_stmts->wma_history_get->column_int(i+10));
         }
-        total_refs += w->wma_decay_el->touches.total_references;
+        total_refs = w->wma_decay_el->touches.total_references;
         thisAgent->smem_stmts->wma_history_get->reinitialize();
-        uint64_t ref_cycle_new[10];
-        uint64_t ref_touches_new[10];
+        //uint64_t ref_cycle_new[10];
+        //uint64_t ref_touches_new[10];
         smem_wma_merge(w, ref_cycle, ref_touches, ref_cycle_new, ref_touches_new);
 
         thisAgent->smem_stmts->wma_history_set->bind_int(1,lti_id);
         for (int i = 0; i < 10; i++)
         {
-            smem_stmts->wma_history_set->bind_int(i+2,ref_cycle_new[i]);
-            smem_stmts->wma_history_set->bind_int(i+12,ref_touches_new[i]);
+            thisAgent->smem_stmts->wma_history_set->bind_int(i+2,ref_cycle_new[i]);
+            thisAgent->smem_stmts->wma_history_set->bind_int(i+12,ref_touches_new[i]);
         }
-        smem_stmts->wma_history_set->bind_int(22,total_refs);
-        smem_stmts->wma_history_set->bind_int(23,((first_ref < w->wma_decay_el->touches.first_reference) ? first_ref : w->wma_decay_el->touches.first_reference));
+        thisAgent->smem_stmts->wma_history_set->bind_int(22,total_refs);
+        thisAgent->smem_stmts->wma_history_set->bind_int(23,((first_ref < w->wma_decay_el->touches.first_reference && first_ref != 0) ? first_ref : w->wma_decay_el->touches.first_reference));
     }
     else
     {
         thisAgent->smem_stmts->wma_history_get->reinitialize();
 
-        wma_cycle_reference* ref_history = w->wma_decay_el->touches.access_history;
+        //wma_cycle_reference* ref_history = w->wma_decay_el->touches.access_history;
 
         thisAgent->smem_stmts->wma_history_set->bind_int(1,lti_id);
         for (int i = 0; i < 10; i++)
         {
-            thisAgent->smem_stmts->wma_history_set->bind_int(i+2,ref_history[i].d_cycle)
-            thisAgent->smem_stmts->wma_history_set->bind_int(i+12,ref_history[i].num_references);
+            thisAgent->smem_stmts->wma_history_set->bind_int(i+2,w->wma_decay_el->touches.access_history[i].d_cycle);
+            thisAgent->smem_stmts->wma_history_set->bind_int(i+12,w->wma_decay_el->touches.access_history[i].num_references);
         }
         thisAgent->smem_stmts->wma_history_set->bind_int(22, w->wma_decay_el->touches.total_references);
         thisAgent->smem_stmts->wma_history_set->bind_int(23, w->wma_decay_el->touches.first_reference);
     }
-    smem_stmts->wma_history_set->execute();
+    thisAgent->smem_stmts->wma_history_set->execute();
     thisAgent->smem_stmts->wma_history_set->reinitialize();
+
     return;
 }
 
-inline void smem_wma_merge(wme* w, uint64_t* ref_cycle_list, uint64_t* ref_touches_list, uint64_t* ref_cycle_list_new, uint64_t* ref_touches_list_new)
+
+
+//This is supposed to load into a newly initialized wma decay element the activation previously given to the lti in working memory.
+void smem_load_wma(agent* thisAgent, wma_decay_element* wma_decay_el, smem_lti_id lti_id)
 {
-    smem_lti_id lti_id = w->value.smem_lti;
-    wma_cycle_reference* ref_history = w->wma_decay_el->touches.access_history;
-    int i = 0;
-    int j = 0;
-    for (int k = 0; k < 10; k++)
-    {
-        if (ref_history[i].d_cycle < ref_cycle_list[j])
-        {
-            ref_cycle_list_new[k] = ref_history[i].d_cycle;
-            ref_touches_list_new[k] = ref_history[i++].num_references;
-        }
-        else
-        {
-            ref_cycle_list_new[k] = ref_cycle_list[j];
-            ref_touches_list_new[k] = ref_touches_list[j++];
-        }
-    }
+	thisAgent->smem_stmts->wma_history_get->bind_int(1,lti_id);
+	thisAgent->smem_stmts->wma_history_get->execute();
+	wma_decay_el->touches.total_references = thisAgent->smem_stmts->wma_history_get->column_int(20);
+	wma_decay_el->touches.first_reference = thisAgent->smem_stmts->wma_history_get->column_int(21);
+
+	for (int i = 0; i < 10; i++)
+	{
+		wma_decay_el->touches.access_history[ i ].d_cycle = (thisAgent->smem_stmts->wma_history_get->column_int(i));
+		wma_decay_el->touches.access_history[ i ].num_references = (thisAgent->smem_stmts->wma_history_get->column_int(i+10));
+	}
+	thisAgent->smem_stmts->wma_history_get->reinitialize();
+	return;
 }
 
 inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time_now, uint64_t n = 0, uint64_t activations_first = 0)
@@ -1671,7 +1700,10 @@ Symbol* smem_lti_soar_make(agent* thisAgent, smem_lti_id lti, char name_letter, 
         }
     }
     //Check if there exists history of wma
-    return_val->smem_wma = true;
+    thisAgent->smem_stmts->wma_history_get->bind_int(1,lti);
+    thisAgent->smem_stmts->wma_history_get->execute();
+    return_val->id->smem_wma = (bool)(thisAgent->smem_stmts->wma_history_get->column_int(10));
+    thisAgent->smem_stmts->wma_history_get->reinitialize();
     
     // set lti field irrespective
     return_val->id->smem_lti = lti;
