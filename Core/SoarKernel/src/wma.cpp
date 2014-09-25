@@ -1152,9 +1152,13 @@ inline void wma_update_decay_histories(agent* thisAgent)
 			{
 				get_symbol_value((*wme_p)->attr,prohibit_string);
 			}
-			if (prohibit_string.compare("prohibit"))
+			if (prohibit_string.compare("prohibit"))// This only allows the update if the string is NOT "prohibit".
 			{
 				smem_wma_lti_add_history(thisAgent,(*wme_p)->value->id->smem_lti,*wme_p);
+			}
+			else
+			{
+			    //DECREASE activation for prohibits. Perhaps this will make the next query-prohibit-chain faster.
 			}
         }
 
