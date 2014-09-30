@@ -1159,6 +1159,7 @@ inline void wma_update_decay_histories(agent* thisAgent)
 			else
 			{
 			    //DECREASE activation for prohibits. Perhaps this will make the next query-prohibit-chain faster.
+			    //Can more easily handle this inside the process_query.
 			}
         }
 

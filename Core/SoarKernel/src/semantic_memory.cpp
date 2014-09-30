@@ -479,6 +479,9 @@ void smem_statement_container::drop_tables(agent* new_agent)
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_symbols_float");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_symbols_string");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_lti");
+
+    new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_prohibited");
+
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_activation_history");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_augmentations");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_attribute_frequency");
@@ -1204,6 +1207,9 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
     thisAgent->smem_stmts->history_get->execute();
     {
         int available_history = static_cast<int>((SMEM_ACT_HISTORY_ENTRIES < n) ? (SMEM_ACT_HISTORY_ENTRIES) : (n));
+
+        //I will adjust here in the event of a prohibit having been applied. If there is a prohibit, available history should be 1 less than normal.
+        //might have to special case the even where one only has a single activation event.
         t_k = static_cast<uint64_t>(time_now - thisAgent->smem_stmts->history_get->column_int(available_history - 1));
         
         for (int i = 0; i < available_history; i++)
@@ -1215,6 +1221,9 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
     thisAgent->smem_stmts->history_get->reinitialize();
     
     // if available history was insufficient, approximate rest
+
+    //'n' shouldn't be referenced if prohibit + 11 entries.
+
     if (n > SMEM_ACT_HISTORY_ENTRIES)
     {
         double apx_numerator = (static_cast<double>(n - SMEM_ACT_HISTORY_ENTRIES) * (pow(static_cast<double>(t_n), 1.0 - d) - pow(static_cast<double>(t_k), 1.0 - d)));
