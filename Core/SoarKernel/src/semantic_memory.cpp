@@ -1991,12 +1991,16 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
     if (activate)
     {
         double lti_act = smem_lti_activate(thisAgent, lti_id, true, new_edges);
-        
         if (!after_above)
         {
             web_act = lti_act;
         }
     }
+    // Put the initialization to the prohibit here. (The initialization to the activation history is in the above function call "smem_lti_activate".)
+    // Also, it seemed appropriate for such an initialization to be in store_chunk.
+    thisAgent->smem_stmts->prohibit_add->bind_int(1,lti_id);
+    thisAgent->smem_stmts->prohibit_add->execute(soar_module::op_reinit);
+    //The above doesn't add a prohibit. It merely stores the lti_id in the prohibit table for later use.
     
     // insert new edges, update counters
     {
@@ -2622,6 +2626,16 @@ std::pair<bool, bool>* processMathQuery(agent* thisAgent, Symbol* mathQuery, sme
 
 smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, Symbol* negquery, Symbol* mathQuery, smem_lti_set* prohibit, soar_module::wme_set& cue_wmes, soar_module::symbol_triple_list& meta_wmes, soar_module::symbol_triple_list& retrieval_wmes, smem_query_levels query_level = qry_full, int number_to_retrieve = 1, std::list<smem_lti_id>* match_ids = NIL)
 {
+
+    //
+    //Going to loop through the prohibits and note that they have been prohibitted, thus removing the most recent activation event.
+    //A fancy version might do weird backtracing and keep track of which activation event(s) should be removed. The version here is simpler.
+    //It will merely omit the most recent activation event.
+
+
+
+    //
+
     smem_weighted_cue_list weighted_cue;
     bool good_cue = true;
     
