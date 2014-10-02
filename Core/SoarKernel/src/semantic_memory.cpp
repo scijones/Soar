@@ -2671,7 +2671,7 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
     //It will merely omit the most recent activation event.
 
     smem_lti_set::iterator prohibited_lti_p;
-    for (prohibited_lti_p = prohibit->begin(); prohibited_lti_p != prohibit->end(); prohibited_lti_p++;)
+    for (prohibited_lti_p = prohibit->begin(); prohibited_lti_p != prohibit->end(); prohibited_lti_p++)
     {
         thisAgent->smem_stmts->prohibit_check->bind_int(1,(*prohibited_lti_p));
         thisAgent->smem_stmts->prohibit_check->execute();
