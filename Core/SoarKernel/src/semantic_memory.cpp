@@ -1266,8 +1266,24 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     ////////////////////////////////////////////////////////////////////////////
     
     int64_t time_now;
+    int prohibited = 0;
     if (add_access)
     {
+        /* If we are adding an access, the prohibit changes are set-up in such a way that
+         * all I need to do is flip the prohibit bit and the normal activation history updating behavior
+         * should take care of things. There is one exception. The number of touches should remain the same instead of being incremented.
+         */
+        thisAgent->smem_stmts->prohibit_check->bind_int(1,lti);
+        thisAgent->smem_stmts->prohibit_check->execute();
+        prohibited = thisAgent->smem_stmts->prohibit_check->column_int(0);
+        thisAgent->smem_stmts->prohibit_check->reinitialize();
+        if (prohibited)
+        {//Just need to flip the bit here.
+            thisAgent->smem_stmts->prohibit_set->bind_int(1,0);
+            thisAgent->smem_stmts->prohibit_set->bind_int(2,lti);
+            thisAgent->smem_stmts->prohibit_set->execute(soar_module::op_reinit);
+        }
+
         time_now = thisAgent->wma_d_cycle_count;//thisAgent->smem_max_cycle++;
         
         if ((thisAgent->smem_params->activation_mode->get_value() == smem_param_container::act_base) &&
@@ -1328,7 +1344,7 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
         // set new
         if (add_access)
         {
-            thisAgent->smem_stmts->lti_access_set->bind_int(1, (prev_access_n + 1));
+            thisAgent->smem_stmts->lti_access_set->bind_int(1, (prohibited == 1) ? (prev_access_n) : (prev_access_n + 1));
             thisAgent->smem_stmts->lti_access_set->bind_int(2, time_now);
             thisAgent->smem_stmts->lti_access_set->bind_int(3, ((prev_access_n == 0) ? (time_now) : (prev_access_1)));
             thisAgent->smem_stmts->lti_access_set->bind_int(4, lti);
