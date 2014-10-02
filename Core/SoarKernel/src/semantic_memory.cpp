@@ -1986,6 +1986,13 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
         thisAgent->smem_stmts->act_lti_child_ct_set->bind_int(2, lti_id);
         thisAgent->smem_stmts->act_lti_child_ct_set->execute(soar_module::op_reinit);
     }
+
+    // Put the initialization of the entry in the prohibit table here.
+    //(The initialization to the activation history is in the below function call "smem_lti_activate".)
+    // Also, it seemed appropriate for such an initialization to be in store_chunk.
+    thisAgent->smem_stmts->prohibit_add->bind_int(1,lti_id);
+    thisAgent->smem_stmts->prohibit_add->execute(soar_module::op_reinit);
+    //The above doesn't add a prohibit event. It merely stores the lti_id in the prohibit table for later use.
     
     // now we can safely activate the lti
     if (activate)
@@ -1996,11 +2003,7 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
             web_act = lti_act;
         }
     }
-    // Put the initialization to the prohibit here. (The initialization to the activation history is in the above function call "smem_lti_activate".)
-    // Also, it seemed appropriate for such an initialization to be in store_chunk.
-    thisAgent->smem_stmts->prohibit_add->bind_int(1,lti_id);
-    thisAgent->smem_stmts->prohibit_add->execute(soar_module::op_reinit);
-    //The above doesn't add a prohibit. It merely stores the lti_id in the prohibit table for later use.
+
     
     // insert new edges, update counters
     {
@@ -2628,11 +2631,37 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
 {
 
     //
-    //Going to loop through the prohibits and note that they have been prohibitted, thus removing the most recent activation event.
+    //Going to loop through the prohibits and note that they have been prohibited, thus removing the most recent activation event.
     //A fancy version might do weird backtracing and keep track of which activation event(s) should be removed. The version here is simpler.
     //It will merely omit the most recent activation event.
 
+    smem_lti_set::iterator prohibited_lti_p;
+    for (prohibited_lti_p = prohibit->begin(); prohibited_lti_p != prohibit->end(); prohibited_lti_p++;)
+    {
+        thisAgent->smem_stmts->prohibit_check->bind_int(1,(*prohibited_lti_p));
+        thisAgent->smem_stmts->prohibit_check->execute();
+        if (thisAgent->smem_stmts->prohibit_check->column_int(0) == 0)
+        {//If the lti is not already prohibited
+            //Then add the prohibit and get rid of the history.
+            thisAgent->smem_stmts->prohibit_check->reinitialize();
 
+            //Add the prohibit
+            thisAgent->smem_stmts->prohibit_set->bind_int(1,1);
+            thisAgent->smem_stmts->prohibit_set->bind_int(2,(*prohibited_lti_p));
+            thisAgent->smem_stmts->prohibit_set->execute(soar_module::op_reinit);
+
+            //remove the history
+            thisAgent->smem_stmts->history_remove->bind_int(1,(*prohibited_lti_p));
+            thisAgent->smem_stmts->history_remove->execute(soar_module::op_reinit);
+
+            //The above could potentially fail if there is no history, but that shouldn't ever be possible here.
+        }
+        else
+        {//Set it up this way in case I want to do something else in the event of already being prohibited.
+            thisAgent->smem_stmts->prohibit_check->reinitialize();
+            //Right now, do nothing in this case.
+        }
+    }
 
     //
 
