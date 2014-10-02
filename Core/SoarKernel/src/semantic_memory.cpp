@@ -1186,6 +1186,8 @@ void smem_lti_activation_history(agent *thisAgent, smem_lti_id lti, wma_decay_el
 
 inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time_now, uint64_t n = 0, uint64_t activations_first = 0)
 {
+    //until I remove this comment, assume this function is buggy. implementing a change involving prohibits.
+
     double sum = 0.0;
     double d = thisAgent->smem_params->base_decay->get_value();
     uint64_t t_k;
@@ -1205,11 +1207,22 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
     // get all history
     thisAgent->smem_stmts->history_get->bind_int(1, lti);
     thisAgent->smem_stmts->history_get->execute();
+    int prohibited;
     {
         int available_history = static_cast<int>((SMEM_ACT_HISTORY_ENTRIES < n) ? (SMEM_ACT_HISTORY_ENTRIES) : (n));
 
         //I will adjust here in the event of a prohibit having been applied. If there is a prohibit, available history should be 1 less than normal.
         //might have to special case the even where one only has a single activation event.
+
+        thisAgent->smem_stmts->prohibit_check->bind_int(1,lti);
+        thisAgent->smem_stmts->prohibit_check->execute();
+        prohibited = thisAgent->smem_stmts->prohibit_check->column_int(0);
+        if (prohibited)
+        {
+            available_history--;
+        }
+        thisAgent->smem_stmts->prohibit_check->reinitialize();
+
         t_k = static_cast<uint64_t>(time_now - thisAgent->smem_stmts->history_get->column_int(available_history - 1));
         
         for (int i = 0; i < available_history; i++)
@@ -1222,10 +1235,16 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
     
     // if available history was insufficient, approximate rest
 
-    //'n' shouldn't be referenced if prohibit + 11 entries.
-
     if (n > SMEM_ACT_HISTORY_ENTRIES)
     {
+        /* In the event of a prohibition, we want to still refer to the history stored in the petrov approximation,
+         * but we need to correct the number of activation events. However, we want to trigger on whether or not to use
+         * the Petrov approx based on the non-prohibit-based value, since the long-term history will still be used even when n = 11*/
+        //The above basically just explains why the below if-block doesn't go before the "if(n > SMEM_ACT..." .
+        if (prohibited)
+        {
+            n--;
+        }
         double apx_numerator = (static_cast<double>(n - SMEM_ACT_HISTORY_ENTRIES) * (pow(static_cast<double>(t_n), 1.0 - d) - pow(static_cast<double>(t_k), 1.0 - d)));
         double apx_denominator = ((1.0 - d) * static_cast<double>(t_n - t_k));
         
