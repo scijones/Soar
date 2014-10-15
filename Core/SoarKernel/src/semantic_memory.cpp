@@ -420,7 +420,10 @@ void smem_statement_container::create_tables()
 
     add_structure("CREATE TABLE smem_prohibited (lti_id INTEGER PRIMARY KEY, prohibited INTEGER)");
 
-    add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER)");
+    //add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER)");
+    add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER, touches1 REAL, touches2 REAL, touches3 REAL, touches4 REAL, touches5 REAL, touches6 REAL, touches7 REAL, touches8 REAL, touches9 REAL, touches10 REAL)");
+
+
     add_structure("CREATE TABLE smem_augmentations (lti_id INTEGER, attribute_s_id INTEGER, value_constant_s_id INTEGER, value_lti_id INTEGER, activation_value REAL)");
     add_structure("CREATE TABLE smem_attribute_frequency (attribute_s_id INTEGER PRIMARY KEY, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_wmes_constant_frequency (attribute_s_id INTEGER, value_constant_s_id INTEGER, edge_frequency INTEGER)");
@@ -684,13 +687,16 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     act_lti_get = new soar_module::sqlite_statement(new_db, "SELECT activation_value FROM smem_lti WHERE lti_id=?");
     add(act_lti_get);
     
-    history_get = new soar_module::sqlite_statement(new_db, "SELECT t1,t2,t3,t4,t5,t6,t7,t8,t9,t10 FROM smem_activation_history WHERE lti_id=?");
+//    history_get = new soar_module::sqlite_statement(new_db, "SELECT t1,t2,t3,t4,t5,t6,t7,t8,t9,t10 FROM smem_activation_history WHERE lti_id=?");
+    history_get = new soar_module::sqlite_statement(new_db, "SELECT t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10 FROM smem_activation_history WHERE lti_id=?");
     add(history_get);
     
-    history_push = new soar_module::sqlite_statement(new_db, "UPDATE smem_activation_history SET t10=t9,t9=t8,t8=t7,t8=t7,t7=t6,t6=t5,t5=t4,t4=t3,t3=t2,t2=t1,t1=? WHERE lti_id=?");
+//    history_push = new soar_module::sqlite_statement(new_db, "UPDATE smem_activation_history SET t10=t9,t9=t8,t8=t7,t8=t7,t7=t6,t6=t5,t5=t4,t4=t3,t3=t2,t2=t1,t1=? WHERE lti_id=?");
+    history_push = new soar_module::sqlite_statement(new_db, "UPDATE smem_activation_history SET t10=t9,t9=t8,t8=t7,t8=t7,t7=t6,t6=t5,t5=t4,t4=t3,t3=t2,t2=t1,t1=?,touches10=touches9,touches9=touches8,touches8=touches7,touches7=touches6,touches6=touches5,touches5=touches4,touches4=touches3,touches3=touches2,touches2=touches1,touches1=? WHERE lti_id=?");
     add(history_push);
     
-    history_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_activation_history (lti_id,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10) VALUES (?,?,0,0,0,0,0,0,0,0,0)");
+//    history_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_activation_history (lti_id,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10) VALUES (?,?,0,0,0,0,0,0,0,0,0)");
+    history_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_activation_history (lti_id,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,touches1,touches2,touches3,touches4,touches5,touches6,touches7,touches8,touches9,touches10) VALUES (?,?,0,0,0,0,0,0,0,0,0,?,0,0,0,0,0,0,0,0,0)");
     add(history_add);
     
     prohibit_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_prohibited SET prohibited=? WHERE lti_id=?");
@@ -1227,7 +1233,10 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
         
         for (int i = 0; i < available_history; i++)
         {
-            sum += pow(static_cast<double>(time_now - thisAgent->smem_stmts->history_get->column_int(i)),
+            //sum += pow(static_cast<double>(time_now - thisAgent->smem_stmts->history_get->column_int(i)),
+//                       static_cast<double>(-d));
+
+                       sum += thisAgent->smem_stmts->history_get->column_int(i+SMEM_ACT_HISTORY_ENTRIES)*pow(static_cast<double>(time_now - thisAgent->smem_stmts->history_get->column_int(i)),
                        static_cast<double>(-d));
         }
     }
@@ -1259,12 +1268,19 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
 //       just when storing a new chunk (default is a
 //       big number that should never come up naturally
 //       and if it does, satisfies thresholding behavior).
-inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_access, uint64_t num_edges = SMEM_ACT_MAX, wme* wme_p = NULL)
+inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_access, uint64_t num_edges = SMEM_ACT_MAX, wme* wme_p = NULL, double touches = 1)
 {
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->smem_timers->act->start();
     ////////////////////////////////////////////////////////////////////////////
     
+    if (wme_p != NULL)
+    {
+        touches = wme_p->wma_decay_el->num_references;
+        assert(touches != 0);
+    }
+
+
     int64_t time_now;
     int prohibited = 0;
     if (add_access)
@@ -1378,20 +1394,26 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
                     // The first one uses an add.
                     thisAgent->smem_stmts->history_add->bind_int(1,lti);
                     thisAgent->smem_stmts->history_add->bind_int(2,temp_el->touches.access_history[ 0 ].d_cycle);
+                    thisAgent->smem_stmts->history_add->bind_double(3, touches);
                     thisAgent->smem_stmts->history_add->execute( soar_module::op_reinit );
 
                     // then we push the rest.
                     for ( int i=1; i<WMA_DECAY_HISTORY; i++) //intentionally starts at 1.
                     {
-                        thisAgent->smem_stmts->history_push->bind_int(1,lti);
-                        thisAgent->smem_stmts->history_push->bind_int(2,temp_el->touches.access_history[ i ].d_cycle);
-                        thisAgent->smem_stmts->history_push->execute( soar_module::op_reinit );
+                    //    thisAgent->smem_stmts->history_push->bind_int(1,lti);
+                    //    thisAgent->smem_stmts->history_push->bind_int(2,temp_el->touches.access_history[ i ].d_cycle);
+                    //    thisAgent->smem_stmts->history_push->execute( soar_module::op_reinit );
+                        thisAgent->smem_stmts->history_push->bind_int(1, time_now);
+                        thisAgent->smem_stmts->history_push->bind_double(2, touches);
+                        thisAgent->smem_stmts->history_push->bind_int(3, lti);
+                        thisAgent->smem_stmts->history_push->execute(soar_module::op_reinit);
                     }
                 }
                 else
                 {
-                    thisAgent->smem_stmts->history_add->bind_int( 1, lti );
-                    thisAgent->smem_stmts->history_add->bind_int( 2, time_now );
+                    thisAgent->smem_stmts->history_add->bind_int(1, lti);
+                    thisAgent->smem_stmts->history_add->bind_int(2, time_now);
+                    thisAgent->smem_stmts->history_add->bind_double(3, touches);
                     thisAgent->smem_stmts->history_add->execute( soar_module::op_reinit );
                 }
             }
@@ -1410,15 +1432,23 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
 
                     for ( int i=0; i<WMA_DECAY_HISTORY; i++)
                     {
-                        thisAgent->smem_stmts->history_push->bind_int(1,lti);
-                        thisAgent->smem_stmts->history_push->bind_int(2,temp_el->touches.access_history[ i ].d_cycle);
-                        thisAgent->smem_stmts->history_push->execute( soar_module::op_reinit );
+                        //thisAgent->smem_stmts->history_push->bind_int(1,lti);
+                        //thisAgent->smem_stmts->history_push->bind_int(2,temp_el->touches.access_history[ i ].d_cycle);
+                        //thisAgent->smem_stmts->history_push->execute( soar_module::op_reinit );
+                        thisAgent->smem_stmts->history_push->bind_int(1, time_now);
+                        thisAgent->smem_stmts->history_push->bind_double(2, touches);
+                        thisAgent->smem_stmts->history_push->bind_int(3, lti);
+                        thisAgent->smem_stmts->history_push->execute(soar_module::op_reinit);
                     }
                 }
                 else
                 {
+                    //thisAgent->smem_stmts->history_push->bind_int(1, time_now);
+                    //thisAgent->smem_stmts->history_push->bind_int(2, lti);
+                    //thisAgent->smem_stmts->history_push->execute(soar_module::op_reinit);
                     thisAgent->smem_stmts->history_push->bind_int(1, time_now);
-                    thisAgent->smem_stmts->history_push->bind_int(2, lti);
+                    thisAgent->smem_stmts->history_push->bind_double(2, touches);
+                    thisAgent->smem_stmts->history_push->bind_int(3, lti);
                     thisAgent->smem_stmts->history_push->execute(soar_module::op_reinit);
                 }
             }
