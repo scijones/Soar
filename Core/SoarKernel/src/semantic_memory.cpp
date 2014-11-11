@@ -423,6 +423,11 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_wmes_constant_frequency (attribute_s_id INTEGER, value_constant_s_id INTEGER, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_wmes_lti_frequency (attribute_s_id INTEGER, value_lti_id INTEGER, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_ascii (ascii_num INTEGER PRIMARY KEY, ascii_chr TEXT)");
+    // This table will eventually contain a sparse monte-carlo search through the semantic network,
+    // but is for now a deterministic and exhaustive depth-limited search
+    // for the sake of calculating likelihoods (or fan).
+    add_structure("CREATE TABLE smem_likelihood_trajectories (lti_id INTEGER, lti1 INTEGER, lti2 INTEGER, lti3 INTEGER, lti4 INTEGER, lti5 INTEGER, lti6 INTEGER, lti7 INTEGER, lti8 INTEGER, lti8 INTEGER, lti10 INTEGER)");
+
     // adding an ascii table just to make lti queries easier when inspecting database
     {
         add_structure("INSERT OR IGNORE INTO smem_ascii (ascii_num, ascii_chr) VALUES (65,'A')");
@@ -466,6 +471,19 @@ void smem_statement_container::create_indices()
     add_structure("CREATE INDEX smem_augmentations_attr_cycle ON smem_augmentations (attribute_s_id, activation_value)");
     add_structure("CREATE UNIQUE INDEX smem_wmes_constant_frequency_attr_val ON smem_wmes_constant_frequency (attribute_s_id, value_constant_s_id)");
     add_structure("CREATE UNIQUE INDEX smem_ct_lti_attr_val ON smem_wmes_lti_frequency (attribute_s_id, value_lti_id)");
+    //This is to find the trajectories starting from a given LTI.
+    add_structure("CREATE INDEX trajectory_lti ON smem_likelihood_trajectories (lti_id)");
+    //This is to find all trajectories containing some LTI. (for deletion and insertion updating.)
+    add_structure("CREATE INDEX lti_t1 ON smem_likelihood_trajectories (lti1)");
+    add_structure("CREATE INDEX lti_t2 ON smem_likelihood_trajectories (lti2)");
+    add_structure("CREATE INDEX lti_t3 ON smem_likelihood_trajectories (lti3)");
+    add_structure("CREATE INDEX lti_t4 ON smem_likelihood_trajectories (lti4)");
+    add_structure("CREATE INDEX lti_t5 ON smem_likelihood_trajectories (lti5)");
+    add_structure("CREATE INDEX lti_t6 ON smem_likelihood_trajectories (lti6)");
+    add_structure("CREATE INDEX lti_t7 ON smem_likelihood_trajectories (lti7)");
+    add_structure("CREATE INDEX lti_t8 ON smem_likelihood_trajectories (lti8)");
+    add_structure("CREATE INDEX lti_t9 ON smem_likelihood_trajectories (lti9)");
+    add_structure("CREATE INDEX lti_t10 ON smem_likelihood_trajectories (lti10)");
 }
 
 void smem_statement_container::drop_tables(agent* new_agent)
@@ -482,6 +500,8 @@ void smem_statement_container::drop_tables(agent* new_agent)
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_wmes_constant_frequency");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_wmes_lti_frequency");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_ascii");
+    //Dropping the likelihood table used for act-style spread.
+    new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_likelihood_trajectories");
 }
 
 smem_statement_container::smem_statement_container(agent* new_agent): soar_module::sqlite_statement_container(new_agent->smem_db)
