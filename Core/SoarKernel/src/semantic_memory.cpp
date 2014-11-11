@@ -76,6 +76,10 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
     learning = new soar_module::boolean_param("learning", off, new soar_module::f_predicate<boolean>());
     add(learning);
     
+    // spreading
+    spreading = new soar_module::boolean_param("spreading", off, new soar_module::f_predicate<boolean>());
+    add(spreading);
+
     // database
     database = new soar_module::constant_param<db_choices>("database", memory, new soar_module::f_predicate<db_choices>());
     database->add_mapping(memory, "memory");
@@ -387,6 +391,12 @@ smem_timer_container::smem_timer_container(agent* new_agent): soar_module::timer
     
     act = new smem_timer("three_activation", thisAgent, soar_module::timer::three);
     add(act);
+
+    //In case I want to look at the timing of spreading
+    /*
+    spread = new smem_timer("smem_spreading", thisAgent, soar_module::timer::three);
+    add(act);
+    */
 }
 
 //
