@@ -1489,6 +1489,40 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     thisAgent->smem_timers->act->stop();
     ////////////////////////////////////////////////////////////////////////////
     
+    /* Even though the activation has completed for the current lti, "children" may
+     * get activation spread.*/
+
+    soar_module::sqlite_statement* expand_q = thisAgent->smem_stmts->web_expand;
+    std::map< smem_lti_id, uint64_t > children;
+    smem_lti_id temp_lti;
+
+    expand_q->bind_int(1, lti_id);
+    /* Will end up making the basic algorithm here, but will move it over to being
+     * implemented in sql. (Hopefully faster.)
+     */
+
+    while (expand_q->execute() == soar_module::row)
+    {
+        // identifier vs. constant
+        if (expand_q->column_int(6) != SMEM_AUGMENTATIONS_NULL)
+        {
+            // add to children or increment link count.
+            temp_lti = static_cast< smem_lti_id >(expand_q->column_int(6));
+            if (children.find(temp_lti) == children.end())
+            {
+                children[temp_lti] = 1;
+            }
+            else
+            {
+                children[temp_lti] = children[temp_lti] + 1;
+            }
+        }
+    }
+
+    expand_q->reinitialize();
+
+
+
     return new_activation;
 }
 
