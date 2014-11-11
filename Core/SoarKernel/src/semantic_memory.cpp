@@ -648,6 +648,11 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add(web_lti_child);
     
     //
+
+    web_val_parent = new soar_module::sqlite_statement(new_db,
+            "SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? UNION ALL SELECT value_lti_id FROM smem_augmentations WHERE lti_id IN (SELECT lti_id FROM smem_augmentations WHERE value_lti_id=?)");
+
+    //
     
     attribute_frequency_check = new soar_module::sqlite_statement(new_db, "SELECT edge_frequency FROM smem_attribute_frequency WHERE attribute_s_id=?");
     add(attribute_frequency_check);
@@ -1147,6 +1152,95 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 // Activation Functions (smem::act)
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
+
+void parent_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories,int depth = 10)
+{
+    soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
+    parents_q->bind_int(1) = lti_id;
+    parents_q->bind_int(2) = lti_id;
+    std::list<smem_lti_id> parents;
+
+    if (lti_trajectories.find[lti_id]==lti_trajectories.end())
+    {
+        lti_trajectories[lti_id] = new std::list<smem_lti_id>;
+        while(parents_q->execute() == soar_module::row)
+        {
+            lti_trajectories[lti_id].push_back(parents_q->column_int(0));
+            parents->push_back(parents_q->column_int(0));
+        }
+    }
+    parents_q->reinitialize();
+    if (depth > 1)
+    {
+        for(std::list<smem_lti_id>::iterator parent_iterator = parents.begin(); parent_iterator!=parents.end(); parent_iterator++)
+        {
+            parent_spread(thisAgent, *parent_iterator, lti_trajectories, depth-1);
+        }
+    }
+}
+
+void trajectory_construction(agent* thisAgent, std::list<smem_lti_id> trajectory, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories, int depth = 10)
+{
+    smem_lti_id lti_id = trajectory.back();
+    //I should iterate through the tree stored in the map and recursively construct trajectories to add to the table in smem.
+    if (depth==0)
+    {
+        //A depth of 0 indicates that we have ten elements in the trajectory list, so we have hit the depth limit and should add to the table.
+        //smem_likelihood_trajectories (lti_id INTEGER, lti1 INTEGER, lti2 INTEGER, lti3 INTEGER, lti4 INTEGER, lti5 INTEGER, lti6 INTEGER, lti7 INTEGER, lti8 INTEGER, lti8 INTEGER, lti10 INTEGER)
+
+    }
+    if (lti_trajectories.find(lti_id)==lti_trajectories.end())
+    {
+        //If the element is not in the trajectory map, it was a terminal node and the list should end here. The rest of the values will be 0.
+    }
+
+    //If we reach here, the element is not at maximum depth and is not inherently terminal, so recursion continues.
+
+    bool triggered = false;
+    for (std::list<smem_lti_id>::iterator lti_iterator = lti_trajectories[lti_id]->begin(); lti_iterator != lti_trajectories[lti_id]->end(); lti_iterator++)
+    {
+        if (!triggered)
+        {
+            triggered = true;
+            trajectory.push_back(*lti_iterator);
+            trajectory_construction(thisAgent, trajectory, lti_trajectories, depth-1);
+        }
+        else
+        {
+            trajectory.pop_back;
+            trajectory.push_back(*lti_iterator);
+            trajectory_construction(thisAgent, trajectory, lti_trajectories, depth-1);
+        }
+    }
+}
+
+inline bool smem_calc_spread(agent* thisAgent)
+{
+
+    soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
+
+    soar_module::sqlite_statement* lti_all = new soar_module::sqlite_statement(new_db, "SELECT lti_id FROM smem_lti");
+
+    smem_lti_id lti_id;
+
+    //Iterate through all ltis in SMem
+    while (lti_all->execute() == soar_module::row)
+    {
+        //Get the lti_id in question
+        lti_id = lti_all->column_int(0);
+        std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
+        //Make tree with all of the trajectories for that lti_id.
+        parent_spread(thisAgent, lti_id, lti_trajectories);
+        std::list<smem_lti_id> trajectory;
+        trajectory.push_back(lti_id);
+        trajectory_construction(thisAgent,trajectory,lti_trajectories);
+
+
+    }
+    lti_all->reinitialize();
+
+
+}
 
 inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time_now, uint64_t n = 0, uint64_t activations_first = 0)
 {
