@@ -724,6 +724,11 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     
     //
     
+    trajectory_add(new_db,"INSERT INTO smem_likelihood_trajectories (lti_id, lti1, lti2, lti3, lti4, lti5, lti6, lti7, lti8, lti9, lti10) VALUES (?,?,?,?,?,?,?,?,?,?)");
+    add(trajectory_add);
+
+    //
+
     vis_lti = new soar_module::sqlite_statement(new_db, "SELECT lti_id, soar_letter, soar_number, activation_value FROM smem_lti ORDER BY soar_letter ASC, soar_number ASC");
     add(vis_lti);
     
@@ -1187,11 +1192,29 @@ void trajectory_construction(agent* thisAgent, std::list<smem_lti_id> trajectory
     {
         //A depth of 0 indicates that we have ten elements in the trajectory list, so we have hit the depth limit and should add to the table.
         //smem_likelihood_trajectories (lti_id INTEGER, lti1 INTEGER, lti2 INTEGER, lti3 INTEGER, lti4 INTEGER, lti5 INTEGER, lti6 INTEGER, lti7 INTEGER, lti8 INTEGER, lti8 INTEGER, lti10 INTEGER)
-
+        for (std::list<smem_lti_id>::iterator trajectory_iterator = trajectory.begin(); trajectory_iterator != trajectory.end(); trajectory_iterator++)
+        {
+            depth++;
+            thisAgent->smem_stmts->trajectory_add->bind_int(depth, *trajectory_iterator);
+        }
+        thisAgent->smem_stmts->trajectory_add->execute(soar_module::op_reinit);
+        return;
     }
     if (lti_trajectories.find(lti_id)==lti_trajectories.end())
     {
         //If the element is not in the trajectory map, it was a terminal node and the list should end here. The rest of the values will be 0.
+        int i = 0;
+        for (std::list<smem_lti_id>::iterator trajectory_iterator = trajectory.begin(); trajectory_iterator != trajectory.end(); trajectory_iterator++)
+        {
+            i++;
+            thisAgent->smem_stmts->trajectory_add->bind_int(i, *trajectory_iterator);
+        }
+        for (int j = i+1; j < 12; j++)
+        {
+            thisAgent->smem_stmts->trajectory_add->bind_int(j, 0);
+        }
+        thisAgent->smem_stmts->trajectory_add->execute(soar_module::op_reinit);
+        return;
     }
 
     //If we reach here, the element is not at maximum depth and is not inherently terminal, so recursion continues.
