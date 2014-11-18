@@ -735,10 +735,10 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     
     //
     
-    trajectory_add(new_db,"INSERT INTO smem_likelihood_trajectories (lti_id, lti1, lti2, lti3, lti4, lti5, lti6, lti7, lti8, lti9, lti10) VALUES (?,?,?,?,?,?,?,?,?,?)");
+    trajectory_add = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_likelihood_trajectories (lti_id, lti1, lti2, lti3, lti4, lti5, lti6, lti7, lti8, lti9, lti10) VALUES (?,?,?,?,?,?,?,?,?,?)");
     add(trajectory_add);
 
-    trajectory_get(new_db, "SELECT lti1, lti2, lti3, lti4, lti5, lti6, lti7, lti8, lti9, lti10 FROM smem_likelihood_trajectories WHERE lti_id=?");
+    trajectory_get = new soar_module::sqlite_statement(new_db, "SELECT lti1, lti2, lti3, lti4, lti5, lti6, lti7, lti8, lti9, lti10 FROM smem_likelihood_trajectories WHERE lti_id=?");
     add(trajectory_get);
 
     //
@@ -1175,21 +1175,21 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 //This
 void parent_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories,int depth = 10)
 {
-    soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
-    parents_q->bind_int(1) = lti_id;
-    parents_q->bind_int(2) = lti_id;
+    //soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
+    thisAgent->smem_stmts->web_val_parent->bind_int(1, lti_id);
+    thisAgent->smem_stmts->web_val_parent->bind_int(2, lti_id);
     std::list<smem_lti_id> parents;
 
-    if (lti_trajectories.find[lti_id]==lti_trajectories.end())
+    if (lti_trajectories.find(lti_id)==lti_trajectories.end())
     {
         lti_trajectories[lti_id] = new std::list<smem_lti_id>;
-        while(parents_q->execute() == soar_module::row)
+        while(thisAgent->smem_stmts->web_val_parent->execute() == soar_module::row)
         {
-            lti_trajectories[lti_id].push_back(parents_q->column_int(0));
-            parents->push_back(parents_q->column_int(0));
+            (lti_trajectories[lti_id])->push_back(thisAgent->smem_stmts->web_val_parent->column_int(0));
+            parents.push_back(thisAgent->smem_stmts->web_val_parent->column_int(0));
         }
     }
-    parents_q->reinitialize();
+    thisAgent->smem_stmts->web_val_parent->reinitialize();
     if (depth > 1)
     {
         for(std::list<smem_lti_id>::iterator parent_iterator = parents.begin(); parent_iterator!=parents.end(); parent_iterator++)
@@ -1246,7 +1246,7 @@ void trajectory_construction(agent* thisAgent, std::list<smem_lti_id> trajectory
         }
         else
         {
-            trajectory.pop_back;
+            trajectory.pop_back();
             trajectory.push_back(*lti_iterator);
             trajectory_construction(thisAgent, trajectory, lti_trajectories, depth-1);
 
@@ -1254,12 +1254,12 @@ void trajectory_construction(agent* thisAgent, std::list<smem_lti_id> trajectory
     }
 }
 
-inline bool smem_calc_spread(agent* thisAgent)
+extern bool smem_calc_spread(agent* thisAgent)
 {//This is written to be a batch process when spreading is turned on. It will take a long time.
 
     soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
 
-    soar_module::sqlite_statement* lti_all = new soar_module::sqlite_statement(new_db, "SELECT DISTINCT lti_id FROM smem_lti");
+    soar_module::sqlite_statement* lti_all = new soar_module::sqlite_statement(thisAgent->smem_db, "SELECT DISTINCT lti_id FROM smem_lti");
 
     smem_lti_id lti_id;
 
@@ -1277,7 +1277,7 @@ inline bool smem_calc_spread(agent* thisAgent)
 
     }
     lti_all->reinitialize();
-    soar_module::sqlite_statement* lti_count_num_appearances = new soar_module::sqlite_statement(new_db,
+    soar_module::sqlite_statement* lti_count_num_appearances = new soar_module::sqlite_statement(thisAgent->smem_db,
             "SELECT lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 INTO smem_trajectory_num (lti_id, num_appearances) FROM "
             "(((((((((SELECT lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti1 LEFT JOIN "
             "SELECT lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti2 USING (lti)) LEFT JOIN "
@@ -1294,7 +1294,7 @@ inline bool smem_calc_spread(agent* thisAgent)
 
     //soar_module::sqlite_statement* likelihood_add = new soar_module::sqlite_statement(new_db,
       //      "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) VALUES (?,?,?)");
-    soar_module::sqlite_statement* likelihood_cond_count = new soar_module::sqlite_statement(new_db,
+    soar_module::sqlite_statement* likelihood_cond_count = new soar_module::sqlite_statement(thisAgent->smem_db,
             "SELECT parent, lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) FROM "
             "((((((((("
             "SELECT lti_id AS parent, lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti_id, parent LEFT JOIN "
@@ -1310,11 +1310,13 @@ inline bool smem_calc_spread(agent* thisAgent)
     //soar_module::sqlite_statement* likelihood_add = new soar_module::sqlite_statement(new_db,
       //          "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT ");
 
+    likelihood_cond_count->execute(soar_module::op_reinit);
+
     //Iterate through all ltis in SMem (again)
     //while (lti_all->execute() == soar_module::row)
     //{
         //Get the lti_id in question
-        lti_id = lti_all->column_int(0);
+       // lti_id = lti_all->column_int(0);
         //Use the likelihood_cond_count query to find the number of instances of some lti in another's trajectories.
         //Insert that into the smem_likelihoods table.
 
@@ -1322,8 +1324,7 @@ inline bool smem_calc_spread(agent* thisAgent)
 
     //add_structure("CREATE TABLE smem_trajectory_num (lti_id INTEGER, num_apearances INTEGER)");
     //add_structure("CREATE TABLE smem_likelihoods (lti_j INTEGER, lti_i INTEGER, num_appearances_i_j INTEGER)");
-
-
+    return true;
 
 }
 

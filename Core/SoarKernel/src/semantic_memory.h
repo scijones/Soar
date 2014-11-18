@@ -261,6 +261,8 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* wmes_constant_frequency_update;
         soar_module::sqlite_statement* wmes_lti_frequency_update;
         
+        soar_module::sqlite_statement* web_val_parent;
+
         soar_module::sqlite_statement* attribute_frequency_get;
         soar_module::sqlite_statement* wmes_constant_frequency_get;
         soar_module::sqlite_statement* wmes_lti_frequency_get;
@@ -275,6 +277,9 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* history_push;
         soar_module::sqlite_statement* history_add;
         
+        soar_module::sqlite_statement* trajectory_add;
+        soar_module::sqlite_statement* trajectory_get;
+
         soar_module::sqlite_statement* vis_lti;
         soar_module::sqlite_statement* vis_lti_act;
         soar_module::sqlite_statement* vis_value_const;
