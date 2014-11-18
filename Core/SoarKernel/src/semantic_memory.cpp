@@ -1292,30 +1292,33 @@ inline bool smem_calc_spread(agent* thisAgent)
     lti_count_num_appearances->execute(soar_module::op_reinit);
     //The above should be made into a table (view?) so that the below can be easily calculated.
 
-    soar_module::sqlite_statement* likelihood_add = new soar_module::sqlite_statement(new_db,
-            "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) VALUES (?,?,?)");
+    //soar_module::sqlite_statement* likelihood_add = new soar_module::sqlite_statement(new_db,
+      //      "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) VALUES (?,?,?)");
     soar_module::sqlite_statement* likelihood_cond_count = new soar_module::sqlite_statement(new_db,
-            "SELECT lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 INTO smem_trajectory_num (lti_id, num_appearances) FROM "
-            "(((((((((SELECT lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 =? AND lti_id=? GROUP BY lti_id LEFT JOIN "
-            "SELECT lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 =? AND lti_id=? GROUP BY lti_id USING (lti)) LEFT JOIN "
-            "SELECT lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 =? AND lti_id=? GROUP BY lti_id USING (lti)) LEFT JOIN "
-            "SELECT lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 =? AND lti_id=? GROUP BY lti_id USING (lti)) LEFT JOIN "
-            "SELECT lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 =? AND lti_id=? GROUP BY lti_id USING (lti)) LEFT JOIN "
-            "SELECT lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 =? AND lti_id=? GROUP BY lti_id USING (lti)) LEFT JOIN "
-            "SELECT lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 =? AND lti_id=? GROUP BY lti_id USING (lti)) LEFT JOIN "
-            "SELECT lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 =? AND lti_id=? GROUP BY lti_id USING (lti)) LEFT JOIN "
-            "SELECT lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 =? AND lti_id=? GROUP BY lti_id USING (lti)) LEFT JOIN "
-            "SELECT lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 =? AND lti_id=? GROUP BY lti_id USING (lti_id))");
+            "SELECT parent, lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) FROM "
+            "((((((((("
+            "SELECT lti_id AS parent, lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti_id, parent LEFT JOIN "
+            "SELECT lti_id AS parent, lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
+            "SELECT lti_id AS parent, lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
+            "SELECT lti_id AS parent, lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
+            "SELECT lti_id AS parent, lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
+            "SELECT lti_id AS parent, lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
+            "SELECT lti_id AS parent, lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
+            "SELECT lti_id AS parent, lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
+            "SELECT lti_id AS parent, lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
+            "SELECT lti_id AS parent, lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti_id, parent USING (lti,parent))");
+    //soar_module::sqlite_statement* likelihood_add = new soar_module::sqlite_statement(new_db,
+      //          "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT ");
 
     //Iterate through all ltis in SMem (again)
-    while (lti_all->execute() == soar_module::row)
-    {
+    //while (lti_all->execute() == soar_module::row)
+    //{
         //Get the lti_id in question
         lti_id = lti_all->column_int(0);
         //Use the likelihood_cond_count query to find the number of instances of some lti in another's trajectories.
         //Insert that into the smem_likelihoods table.
 
-    }
+    //}
 
     //add_structure("CREATE TABLE smem_trajectory_num (lti_id INTEGER, num_apearances INTEGER)");
     //add_structure("CREATE TABLE smem_likelihoods (lti_j INTEGER, lti_i INTEGER, num_appearances_i_j INTEGER)");
