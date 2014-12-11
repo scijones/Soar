@@ -436,7 +436,7 @@ void smem_statement_container::create_tables()
     // This table will eventually contain a sparse monte-carlo search through the semantic network,
     // but is for now a deterministic and exhaustive depth-limited search
     // for the sake of calculating likelihoods (or fan).
-    add_structure("CREATE TABLE smem_likelihood_trajectories (lti_id INTEGER, lti1 INTEGER, lti2 INTEGER, lti3 INTEGER, lti4 INTEGER, lti5 INTEGER, lti6 INTEGER, lti7 INTEGER, lti8 INTEGER, lti8 INTEGER, lti10 INTEGER)");
+    add_structure("CREATE TABLE smem_likelihood_trajectories (lti_id INTEGER, lti1 INTEGER, lti2 INTEGER, lti3 INTEGER, lti4 INTEGER, lti5 INTEGER, lti6 INTEGER, lti7 INTEGER, lti8 INTEGER, lti9 INTEGER, lti10 INTEGER)");
 
     add_structure("CREATE TABLE smem_likelihoods (lti_j INTEGER, lti_i INTEGER, num_appearances_i_j INTEGER)");
 
@@ -735,7 +735,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     
     //
     
-    trajectory_add = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_likelihood_trajectories (lti_id, lti1, lti2, lti3, lti4, lti5, lti6, lti7, lti8, lti9, lti10) VALUES (?,?,?,?,?,?,?,?,?,?)");
+    trajectory_add = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_likelihood_trajectories (lti_id, lti1, lti2, lti3, lti4, lti5, lti6, lti7, lti8, lti9, lti10) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
     add(trajectory_add);
 
     trajectory_get = new soar_module::sqlite_statement(new_db, "SELECT lti1, lti2, lti3, lti4, lti5, lti6, lti7, lti8, lti9, lti10 FROM smem_likelihood_trajectories WHERE lti_id=?");
