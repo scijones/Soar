@@ -1312,19 +1312,26 @@ extern bool smem_calc_spread(agent* thisAgent)
 
     //soar_module::sqlite_statement* likelihood_add = new soar_module::sqlite_statement(new_db,
       //      "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) VALUES (?,?,?)");
+
+
+    /*
+     * INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT parent, lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 FROM ((((((((((SELECT lti_id AS parent, lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti, parent) LEFT JOIN (SELECT lti_id AS parent, lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti, parent) USING (lti,parent));
+     *
+     * */
+
     soar_module::sqlite_statement* likelihood_cond_count = new soar_module::sqlite_statement(thisAgent->smem_db,
-            "SELECT parent, lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) FROM "
+            "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT parent, lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 FROM "
             "((((((((("
-            "SELECT lti_id AS parent, lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti_id, parent LEFT JOIN "
-            "SELECT lti_id AS parent, lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
-            "SELECT lti_id AS parent, lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
-            "SELECT lti_id AS parent, lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
-            "SELECT lti_id AS parent, lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
-            "SELECT lti_id AS parent, lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
-            "SELECT lti_id AS parent, lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
-            "SELECT lti_id AS parent, lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
-            "SELECT lti_id AS parent, lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti_id, parent USING (lti,parent)) LEFT JOIN "
-            "SELECT lti_id AS parent, lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti_id, parent USING (lti,parent))");
+            "(SELECT lti_id AS parent, lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti, parent) LEFT JOIN "
+            "(SELECT lti_id AS parent, lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN "
+            "(SELECT lti_id AS parent, lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN "
+            "(SELECT lti_id AS parent, lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN "
+            "(SELECT lti_id AS parent, lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN "
+            "(SELECT lti_id AS parent, lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN "
+            "(SELECT lti_id AS parent, lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN "
+            "(SELECT lti_id AS parent, lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN "
+            "(SELECT lti_id AS parent, lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN "
+            "(SELECT lti_id AS parent, lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti, parent) USING (lti,parent))");
     //soar_module::sqlite_statement* likelihood_add = new soar_module::sqlite_statement(new_db,
       //          "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT ");
     likelihood_cond_count->prepare();
