@@ -440,7 +440,7 @@ void smem_statement_container::create_tables()
 
     add_structure("CREATE TABLE smem_likelihoods (lti_j INTEGER, lti_i INTEGER, num_appearances_i_j INTEGER)");
 
-    add_structure("CREATE TABLE smem_trajectory_num (lti_id INTEGER, num_apearances INTEGER)");
+    add_structure("CREATE TABLE smem_trajectory_num (lti_id INTEGER, num_appearances INTEGER)");
 
     // adding an ascii table just to make lti queries easier when inspecting database
     {
@@ -734,6 +734,8 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add(history_add);
     
     //
+    lti_all = new soar_module::sqlite_statement(new_db, "SELECT lti_id FROM smem_lti");
+    add(lti_all);
     
     trajectory_add = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_likelihood_trajectories (lti_id, lti1, lti2, lti3, lti4, lti5, lti6, lti7, lti8, lti9, lti10) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
     add(trajectory_add);
@@ -1172,24 +1174,30 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
-//This
+//This recursively spreads to parents.
 void parent_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories,int depth = 10)
 {
-    //soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
-    thisAgent->smem_stmts->web_val_parent->bind_int(1, lti_id);
-    thisAgent->smem_stmts->web_val_parent->bind_int(2, lti_id);
+    soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
+    parents_q->bind_int(1, lti_id);
+    parents_q->bind_int(2, lti_id);
     std::list<smem_lti_id> parents;
+
+    //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
+    if (parents_q->get_status() == soar_module::unprepared)
+    {
+        parents_q->prepare();
+    }
 
     if (lti_trajectories.find(lti_id)==lti_trajectories.end())
     {
         lti_trajectories[lti_id] = new std::list<smem_lti_id>;
-        while(thisAgent->smem_stmts->web_val_parent->execute() == soar_module::row)
+        while(parents_q->execute() == soar_module::row)
         {
-            (lti_trajectories[lti_id])->push_back(thisAgent->smem_stmts->web_val_parent->column_int(0));
-            parents.push_back(thisAgent->smem_stmts->web_val_parent->column_int(0));
+            (lti_trajectories[lti_id])->push_back(parents_q->column_int(0));
+            parents.push_back(parents_q->column_int(0));
         }
     }
-    thisAgent->smem_stmts->web_val_parent->reinitialize();
+    parents_q->reinitialize();
     if (depth > 1)
     {
         for(std::list<smem_lti_id>::iterator parent_iterator = parents.begin(); parent_iterator!=parents.end(); parent_iterator++)
@@ -1257,17 +1265,18 @@ void trajectory_construction(agent* thisAgent, std::list<smem_lti_id> trajectory
 extern bool smem_calc_spread(agent* thisAgent)
 {//This is written to be a batch process when spreading is turned on. It will take a long time.
 
+    smem_attach(thisAgent);
     soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
 
-    soar_module::sqlite_statement* lti_all = new soar_module::sqlite_statement(thisAgent->smem_db, "SELECT DISTINCT lti_id FROM smem_lti");
+    soar_module::sqlite_statement* lti_a = thisAgent->smem_stmts->lti_all;
 
     smem_lti_id lti_id;
 
     //Iterate through all ltis in SMem
-    while (lti_all->execute() == soar_module::row)
+    while (lti_a->execute() == soar_module::row)
     {
         //Get the lti_id in question
-        lti_id = lti_all->column_int(0);
+        lti_id = lti_a->column_int(0);
         std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
         //Make tree with all of the trajectories for that lti_id.
         parent_spread(thisAgent, lti_id, lti_trajectories);
@@ -1276,20 +1285,29 @@ extern bool smem_calc_spread(agent* thisAgent)
         trajectory_construction(thisAgent,trajectory,lti_trajectories);
 
     }
-    lti_all->reinitialize();
+
+    /*
+    INSERT INTO smem_trajectory_num (lti_id, num_apearances) SELECT lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10  FROM ((((((((((SELECT lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti1) LEFT JOIN (SELECT lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti2) USING (lti)) LEFT JOIN (SELECT lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti3) USING (lti)) LEFT JOIN (SELECT lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti4) USING (lti)) LEFT JOIN (SELECT lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti5) USING (lti)) LEFT JOIN (SELECT lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti6) USING (lti)) LEFT JOIN (SELECT lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti7) USING (lti)) LEFT JOIN (SELECT lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti8) USING (lti)) LEFT JOIN (SELECT lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti9) USING (lti)) LEFT JOIN (SELECT lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti10) USING (lti))
+    */
+
+    lti_a->reinitialize();
     soar_module::sqlite_statement* lti_count_num_appearances = new soar_module::sqlite_statement(thisAgent->smem_db,
-            "SELECT lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 INTO smem_trajectory_num (lti_id, num_appearances) FROM "
-            "(((((((((SELECT lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti1 LEFT JOIN "
-            "SELECT lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti2 USING (lti)) LEFT JOIN "
-            "SELECT lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti3 USING (lti)) LEFT JOIN "
-            "SELECT lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti4 USING (lti)) LEFT JOIN "
-            "SELECT lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti5 USING (lti)) LEFT JOIN "
-            "SELECT lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti6 USING (lti)) LEFT JOIN "
-            "SELECT lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti7 USING (lti)) LEFT JOIN "
-            "SELECT lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti8 USING (lti)) LEFT JOIN "
-            "SELECT lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti9 USING (lti)) LEFT JOIN "
-            "SELECT lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti10 USING (lti))");
+            "INSERT INTO smem_trajectory_num (lti_id, num_apearances) "
+            "SELECT lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10  "
+            "FROM ((((((((("
+            "(SELECT lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti1) LEFT JOIN "
+            "(SELECT lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti2) USING (lti)) LEFT JOIN "
+            "(SELECT lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti3) USING (lti)) LEFT JOIN "
+            "(SELECT lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti4) USING (lti)) LEFT JOIN "
+            "(SELECT lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti5) USING (lti)) LEFT JOIN "
+            "(SELECT lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti6) USING (lti)) LEFT JOIN "
+            "(SELECT lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti7) USING (lti)) LEFT JOIN "
+            "(SELECT lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti8) USING (lti)) LEFT JOIN "
+            "(SELECT lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti9) USING (lti)) LEFT JOIN "
+            "(SELECT lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti10) USING (lti))");
+    lti_count_num_appearances->prepare();
     lti_count_num_appearances->execute(soar_module::op_reinit);
+    delete lti_count_num_appearances;
     //The above should be made into a table (view?) so that the below can be easily calculated.
 
     //soar_module::sqlite_statement* likelihood_add = new soar_module::sqlite_statement(new_db,
@@ -1309,9 +1327,9 @@ extern bool smem_calc_spread(agent* thisAgent)
             "SELECT lti_id AS parent, lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti_id, parent USING (lti,parent))");
     //soar_module::sqlite_statement* likelihood_add = new soar_module::sqlite_statement(new_db,
       //          "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT ");
-
+    likelihood_cond_count->prepare();
     likelihood_cond_count->execute(soar_module::op_reinit);
-
+    delete likelihood_cond_count;
     //Iterate through all ltis in SMem (again)
     //while (lti_all->execute() == soar_module::row)
     //{
@@ -1322,7 +1340,7 @@ extern bool smem_calc_spread(agent* thisAgent)
 
     //}
 
-    //add_structure("CREATE TABLE smem_trajectory_num (lti_id INTEGER, num_apearances INTEGER)");
+    //add_structure("CREATE TABLE smem_trajectory_num (lti_id INTEGER, num_appearances INTEGER)");
     //add_structure("CREATE TABLE smem_likelihoods (lti_j INTEGER, lti_i INTEGER, num_appearances_i_j INTEGER)");
     return true;
 
@@ -3966,7 +3984,7 @@ bool smem_parse_chunk(agent* thisAgent, smem_str_to_chunk_map* chunks, smem_chun
     return return_val;
 }
 
-bool smem_parse_chunks(agent* thisAgent, const char* chunks_str, std::string** err_msg)
+bool smem_parse_chunks(agent* thisAgent, const char* chunks_str, std::string* err_msg)
 {
     bool return_val = false;
     uint64_t clause_count = 0;
@@ -4084,9 +4102,8 @@ bool smem_parse_chunks(agent* thisAgent, const char* chunks_str, std::string** e
     {
         std::string num;
         to_string(clause_count, num);
-        
-        (*err_msg)->append("Error parsing clause #");
-        (*err_msg)->append(num);
+        (err_msg)->append("Error parsing clause #");
+        (err_msg)->append(num);
     }
     
     return return_val;
