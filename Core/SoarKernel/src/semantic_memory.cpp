@@ -1178,8 +1178,8 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 void parent_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories,int depth = 10)
 {
     soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
-    parents_q->bind_int(1, lti_id);
-    parents_q->bind_int(2, lti_id);
+    //parents_q->bind_int(1, lti_id);
+    //parents_q->bind_int(2, lti_id);
     std::list<smem_lti_id> parents;
 
     //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
@@ -1187,6 +1187,8 @@ void parent_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,st
     {
         parents_q->prepare();
     }
+    parents_q->bind_int(1, lti_id);
+        parents_q->bind_int(2, lti_id);
 
     if (lti_trajectories.find(lti_id)==lti_trajectories.end())
     {
@@ -1200,6 +1202,10 @@ void parent_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,st
     parents_q->reinitialize();
     if (depth > 1)
     {
+        /*if (depth == 10 && lti_id == 1)
+        {
+            //assert(parents.size()!=0); This fails for my example, but it shouldn't
+        }*/
         for(std::list<smem_lti_id>::iterator parent_iterator = parents.begin(); parent_iterator!=parents.end(); parent_iterator++)
         {
             parent_spread(thisAgent, *parent_iterator, lti_trajectories, depth-1);
@@ -1275,24 +1281,41 @@ extern bool smem_calc_spread(agent* thisAgent)
     //Iterate through all ltis in SMem
     while (lti_a->execute() == soar_module::row)
     {
+        //I tested and this does give all lti_ids for a small example.
         //Get the lti_id in question
         lti_id = lti_a->column_int(0);
         std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
         //Make tree with all of the trajectories for that lti_id.
         parent_spread(thisAgent, lti_id, lti_trajectories);
+        /*for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator begin = lti_trajectories.begin(); begin != lti_trajectories.end(); begin++)
+        {
+            std::string temp;
+            to_string(begin->first, temp);
+            temp.append("|");
+            print(thisAgent,temp.c_str());
+            for (std::list<smem_lti_id>::iterator inner = begin->second->begin(); inner != begin->second->end(); inner++)
+            {
+                to_string((*inner), temp);
+                print(thisAgent,temp.c_str());
+            }
+            print(thisAgent, "\n");
+        }*/
         std::list<smem_lti_id> trajectory;
         trajectory.push_back(lti_id);
         trajectory_construction(thisAgent,trajectory,lti_trajectories);
 
     }
+    lti_a->reinitialize();
+
+
 
     /*
-    INSERT INTO smem_trajectory_num (lti_id, num_apearances) SELECT lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10  FROM ((((((((((SELECT lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti1) LEFT JOIN (SELECT lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti2) USING (lti)) LEFT JOIN (SELECT lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti3) USING (lti)) LEFT JOIN (SELECT lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti4) USING (lti)) LEFT JOIN (SELECT lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti5) USING (lti)) LEFT JOIN (SELECT lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti6) USING (lti)) LEFT JOIN (SELECT lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti7) USING (lti)) LEFT JOIN (SELECT lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti8) USING (lti)) LEFT JOIN (SELECT lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti9) USING (lti)) LEFT JOIN (SELECT lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti10) USING (lti))
+    INSERT INTO smem_trajectory_num (lti_id, num_appearances) SELECT lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10  FROM ((((((((((SELECT lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti1) LEFT JOIN (SELECT lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti2) USING (lti)) LEFT JOIN (SELECT lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti3) USING (lti)) LEFT JOIN (SELECT lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti4) USING (lti)) LEFT JOIN (SELECT lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti5) USING (lti)) LEFT JOIN (SELECT lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti6) USING (lti)) LEFT JOIN (SELECT lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti7) USING (lti)) LEFT JOIN (SELECT lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti8) USING (lti)) LEFT JOIN (SELECT lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti9) USING (lti)) LEFT JOIN (SELECT lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti10) USING (lti))
     */
 
-    lti_a->reinitialize();
+
     soar_module::sqlite_statement* lti_count_num_appearances = new soar_module::sqlite_statement(thisAgent->smem_db,
-            "INSERT INTO smem_trajectory_num (lti_id, num_apearances) "
+            "INSERT INTO smem_trajectory_num (lti_id, num_appearances) "
             "SELECT lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10  "
             "FROM ((((((((("
             "(SELECT lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti1) LEFT JOIN "
@@ -1318,7 +1341,7 @@ extern bool smem_calc_spread(agent* thisAgent)
      * INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT parent, lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 FROM ((((((((((SELECT lti_id AS parent, lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti, parent) LEFT JOIN (SELECT lti_id AS parent, lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti, parent) USING (lti,parent)) LEFT JOIN (SELECT lti_id AS parent, lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti, parent) USING (lti,parent));
      *
      * */
-
+    //conceptual error - not actually being clever here. just wrong. need to find all column 1, column n pairs. basically, need full outer join or rework.
     soar_module::sqlite_statement* likelihood_cond_count = new soar_module::sqlite_statement(thisAgent->smem_db,
             "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT parent, lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10 FROM "
             "((((((((("
