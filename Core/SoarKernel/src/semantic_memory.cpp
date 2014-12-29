@@ -27,6 +27,7 @@
 #include "decide.h"
 #include "test.h"
 #include "tempmem.h"
+#include "soar_rand.h"
 
 #include <list>
 #include <map>
@@ -482,6 +483,7 @@ void smem_statement_container::create_indices()
     add_structure("CREATE INDEX smem_lti_t ON smem_lti (activations_last)");
     add_structure("CREATE INDEX smem_augmentations_parent_attr_val_lti ON smem_augmentations (lti_id, attribute_s_id, value_constant_s_id, value_lti_id)");
     add_structure("CREATE INDEX smem_augmentations_attr_val_lti_cycle ON smem_augmentations (attribute_s_id, value_constant_s_id, value_lti_id, activation_value)");
+    add_structure("CREATE INDEX smem_augmentations_lti_id ON smem_augmentations (value_lti_id, lti_id)");
     add_structure("CREATE INDEX smem_augmentations_attr_cycle ON smem_augmentations (attribute_s_id, activation_value)");
     add_structure("CREATE UNIQUE INDEX smem_wmes_constant_frequency_attr_val ON smem_wmes_constant_frequency (attribute_s_id, value_constant_s_id)");
     add_structure("CREATE UNIQUE INDEX smem_ct_lti_attr_val ON smem_wmes_lti_frequency (attribute_s_id, value_lti_id)");
@@ -661,7 +663,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     //
 
     web_val_parent = new soar_module::sqlite_statement(new_db,
-            "SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? UNION ALL SELECT value_lti_id FROM smem_augmentations WHERE lti_id IN (SELECT lti_id FROM smem_augmentations WHERE value_lti_id=?)");
+            "SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " UNION ALL SELECT value_lti_id FROM smem_augmentations WHERE lti_id IN (SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR ")");
 
     //
     
@@ -1177,46 +1179,53 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 //This recursively spreads to parents.
 void parent_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories,int depth = 10)
 {
-    soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
-    //parents_q->bind_int(1, lti_id);
-    //parents_q->bind_int(2, lti_id);
-    std::list<smem_lti_id> parents;
 
-    //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
-    if (parents_q->get_status() == soar_module::unprepared)
-    {
-        parents_q->prepare();
-    }
-    parents_q->bind_int(1, lti_id);
-        parents_q->bind_int(2, lti_id);
 
     if (lti_trajectories.find(lti_id)==lti_trajectories.end())
     {
-        lti_trajectories[lti_id] = new std::list<smem_lti_id>;
-        while(parents_q->execute() == soar_module::row)
+        soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
+        //To make this fast enough, I need a different table with reverse index.
+
+
+        //parents_q->bind_int(1, lti_id);
+        //parents_q->bind_int(2, lti_id);
+        std::list<smem_lti_id> parents;
+
+        //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
+        if (parents_q->get_status() == soar_module::unprepared)
         {
-            (lti_trajectories[lti_id])->push_back(parents_q->column_int(0));
-            parents.push_back(parents_q->column_int(0));
+            parents_q->prepare();
         }
-    }
-    parents_q->reinitialize();
-    if (depth > 1)
-    {
-        /*if (depth == 10 && lti_id == 1)
+        parents_q->bind_int(1, lti_id);
+        parents_q->bind_int(2, lti_id);
+        lti_trajectories[lti_id] = new std::list<smem_lti_id>;
+        while(parents_q->execute() == soar_module::row && parents_q->column_int(0) != lti_id)
         {
-            //assert(parents.size()!=0); This fails for my example, but it shouldn't
-        }*/
-        for(std::list<smem_lti_id>::iterator parent_iterator = parents.begin(); parent_iterator!=parents.end(); parent_iterator++)
+            //if (parents_q->column_int(0) != lti_id)
+            //{
+                (lti_trajectories[lti_id])->push_back(parents_q->column_int(0));
+                parents.push_back(parents_q->column_int(0));
+            //}
+        }
+
+        parents_q->reinitialize();
+        if (depth > 1)
         {
-            parent_spread(thisAgent, *parent_iterator, lti_trajectories, depth-1);
+            for(std::list<smem_lti_id>::iterator parent_iterator = parents.begin(); parent_iterator!=parents.end(); parent_iterator++)
+            {
+                parent_spread(thisAgent, *parent_iterator, lti_trajectories, depth-1);
+            }
         }
     }
 }
 
 //This is a deterministic and exhaustive construction of trajectories with depth up to 10 (or something).
-void trajectory_construction(agent* thisAgent, std::list<smem_lti_id> trajectory, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories, int depth = 10)
+void trajectory_construction(agent* thisAgent, std::list<smem_lti_id>& trajectory, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories, int depth = 10)
 {
+
     smem_lti_id lti_id = trajectory.back();
+    parent_spread(thisAgent, lti_id, lti_trajectories,1);
+
     //I should iterate through the tree stored in the map and recursively construct trajectories to add to the table in smem.
     if (depth==0)
     {
@@ -1224,13 +1233,13 @@ void trajectory_construction(agent* thisAgent, std::list<smem_lti_id> trajectory
         //smem_likelihood_trajectories (lti_id INTEGER, lti1 INTEGER, lti2 INTEGER, lti3 INTEGER, lti4 INTEGER, lti5 INTEGER, lti6 INTEGER, lti7 INTEGER, lti8 INTEGER, lti8 INTEGER, lti10 INTEGER)
         for (std::list<smem_lti_id>::iterator trajectory_iterator = trajectory.begin(); trajectory_iterator != trajectory.end(); trajectory_iterator++)
         {
-            depth++;
-            thisAgent->smem_stmts->trajectory_add->bind_int(depth, *trajectory_iterator);
+            //depth++;
+            thisAgent->smem_stmts->trajectory_add->bind_int(++depth, *trajectory_iterator);
         }
         thisAgent->smem_stmts->trajectory_add->execute(soar_module::op_reinit);
         return;
     }
-    if (lti_trajectories.find(lti_id)==lti_trajectories.end())
+    if (lti_trajectories.find(lti_id)==lti_trajectories.end() || lti_trajectories[lti_id]->size() == 0)
     {
         //If the element is not in the trajectory map, it was a terminal node and the list should end here. The rest of the values will be 0.
         int i = 0;
@@ -1249,27 +1258,37 @@ void trajectory_construction(agent* thisAgent, std::list<smem_lti_id> trajectory
 
     //If we reach here, the element is not at maximum depth and is not inherently terminal, so recursion continues.
 
-    bool triggered = false;
-    for (std::list<smem_lti_id>::iterator lti_iterator = lti_trajectories[lti_id]->begin(); lti_iterator != lti_trajectories[lti_id]->end(); lti_iterator++)
+    //bool triggered = false;
+    //for (std::list<smem_lti_id>::iterator lti_iterator = lti_trajectories[lti_id]->begin(); lti_iterator != lti_trajectories[lti_id]->end(); lti_iterator++)
+    std::list<smem_lti_id>::iterator lti_iterator = lti_trajectories[lti_id]->begin();
+    int index = SoarRandInt(lti_trajectories[lti_id]->size()-1);
+    assert(lti_trajectories.find(lti_id)!=lti_trajectories.end());
+    assert(lti_trajectories[lti_id]->size() > 0);
+    for (int i = 0; i < index; ++i)
     {
-        if (!triggered)
-        {
-            triggered = true;
-            trajectory.push_back(*lti_iterator);
-            trajectory_construction(thisAgent, trajectory, lti_trajectories, depth-1);
-        }
-        else
-        {
-            trajectory.pop_back();
-            trajectory.push_back(*lti_iterator);
-            trajectory_construction(thisAgent, trajectory, lti_trajectories, depth-1);
+        ++lti_iterator;
+    }
+    smem_lti_id next = *lti_iterator;
+    {
+        //if (!triggered)
+        //{
+            //triggered = true;
+        trajectory.push_back(*lti_iterator);
+        trajectory_construction(thisAgent, trajectory, lti_trajectories, depth-1);
+        //}
+        //else
+        //{
+        //    trajectory.pop_back();
+        //    trajectory.push_back(*lti_iterator);
+        //    trajectory_construction(thisAgent, trajectory, lti_trajectories, depth-1);
 
-        }
+        //}
     }
 }
 
 extern bool smem_calc_spread(agent* thisAgent)
 {//This is written to be a batch process when spreading is turned on. It will take a long time.
+
 
     smem_attach(thisAgent);
     soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
@@ -1277,16 +1296,23 @@ extern bool smem_calc_spread(agent* thisAgent)
     soar_module::sqlite_statement* lti_a = thisAgent->smem_stmts->lti_all;
 
     smem_lti_id lti_id;
+    std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
 
+    int j = 0;
     //Iterate through all ltis in SMem
+    print(thisAgent,"here\n");
     while (lti_a->execute() == soar_module::row)
     {
+        /*
+        print(thisAgent,"here\n");
+        std::string toprint;
+        to_string(++j,toprint);
+        print(thisAgent,toprint.c_str());
         //I tested and this does give all lti_ids for a small example.
         //Get the lti_id in question
         lti_id = lti_a->column_int(0);
-        std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
         //Make tree with all of the trajectories for that lti_id.
-        parent_spread(thisAgent, lti_id, lti_trajectories);
+        parent_spread(thisAgent, lti_id, lti_trajectories);*/
         /*for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator begin = lti_trajectories.begin(); begin != lti_trajectories.end(); begin++)
         {
             std::string temp;
@@ -1300,14 +1326,21 @@ extern bool smem_calc_spread(agent* thisAgent)
             }
             print(thisAgent, "\n");
         }*/
-        std::list<smem_lti_id> trajectory;
-        trajectory.push_back(lti_id);
-        trajectory_construction(thisAgent,trajectory,lti_trajectories);
-
+        lti_id = lti_a->column_int(0);
+        for (int i = 0; i < 10; ++i)
+        {
+            std::list<smem_lti_id> trajectory;
+            trajectory.push_back(lti_id);
+            trajectory_construction(thisAgent,trajectory,lti_trajectories);
+        }
     }
     lti_a->reinitialize();
 
-
+    //std::map<smem_lti_id,std::list<smem_lti_id>*>
+    for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+    {
+        delete to_delete->second;
+    }
 
     /*
     INSERT INTO smem_trajectory_num (lti_id, num_appearances) SELECT lti, count1+count2+count3+count4+count5+count6+count7+count8+count9+count10  FROM ((((((((((SELECT lti1 AS lti,COUNT(*) AS count1 FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti1) LEFT JOIN (SELECT lti2 AS lti,COUNT(*) AS count2 FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti2) USING (lti)) LEFT JOIN (SELECT lti3 AS lti,COUNT(*) AS count3 FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti3) USING (lti)) LEFT JOIN (SELECT lti4 AS lti,COUNT(*) AS count4 FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti4) USING (lti)) LEFT JOIN (SELECT lti5 AS lti,COUNT(*) AS count5 FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti5) USING (lti)) LEFT JOIN (SELECT lti6 AS lti,COUNT(*) AS count6 FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti6) USING (lti)) LEFT JOIN (SELECT lti7 AS lti,COUNT(*) AS count7 FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti7) USING (lti)) LEFT JOIN (SELECT lti8 AS lti,COUNT(*) AS count8 FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti8) USING (lti)) LEFT JOIN (SELECT lti9 AS lti,COUNT(*) AS count9 FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti9) USING (lti)) LEFT JOIN (SELECT lti10 AS lti,COUNT(*) AS count10 FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti10) USING (lti))
