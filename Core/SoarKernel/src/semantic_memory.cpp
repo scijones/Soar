@@ -2953,6 +2953,7 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             {
                 thisAgent->smem_stmts->act_lti_get->bind_int(1, q->column_int(0));
                 thisAgent->smem_stmts->act_lti_get->execute();
+                //Here is the major change for spreading. Instead of just using the base-level value for sorting, I also must include the change from context.
                 plentiful_parents.push(std::make_pair< double, smem_lti_id >(thisAgent->smem_stmts->act_lti_get->column_double(0), q->column_int(0)));
                 thisAgent->smem_stmts->act_lti_get->reinitialize();
                 

@@ -330,6 +330,7 @@ typedef uint64_t smem_hash_id;
 // represents a collection of long-term identifiers
 typedef std::list<smem_lti_id> smem_lti_list;
 typedef std::set<smem_lti_id> smem_lti_set;
+typedef std::map<smem_lti_id, uint64_t> smem_lti_map;
 
 // a list of symbols
 typedef std::list<Symbol*> smem_sym_list;

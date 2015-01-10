@@ -434,6 +434,11 @@ agent* create_soar_agent(char* agent_name)                                      
 #endif
     newAgent->smem_ignore_changes = false;
     
+    /*
+     * The following is for spreading and is used to easily keep track of the "context vector".
+     * */
+    newAgent->smem_in_wmem = new smem_lti_map;
+
     // statistics initialization
     newAgent->dc_stat_tracking = false;
     newAgent->stats_db = new soar_module::sqlite_database();
@@ -516,7 +521,7 @@ void destroy_soar_agent(agent* delete_agent)
     delete delete_agent->smem_timers;
     
     delete delete_agent->smem_db;
-    
+    delete delete_agent->smem_in_wmem;
     delete delete_agent->svs;
     
     // cleanup statistics db
