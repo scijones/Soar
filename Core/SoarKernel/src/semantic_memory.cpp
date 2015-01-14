@@ -434,14 +434,16 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_wmes_constant_frequency (attribute_s_id INTEGER, value_constant_s_id INTEGER, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_wmes_lti_frequency (attribute_s_id INTEGER, value_lti_id INTEGER, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_ascii (ascii_num INTEGER PRIMARY KEY, ascii_chr TEXT)");
-    // This table will eventually contain a sparse monte-carlo search through the semantic network,
-    // but is for now a deterministic and exhaustive depth-limited search
+    // This table is a sparse monte-carlo search through the semantic network,
+    // but can be a deterministic and exhaustive depth-limited search
     // for the sake of calculating likelihoods (or fan).
     add_structure("CREATE TABLE smem_likelihood_trajectories (lti_id INTEGER, lti1 INTEGER, lti2 INTEGER, lti3 INTEGER, lti4 INTEGER, lti5 INTEGER, lti6 INTEGER, lti7 INTEGER, lti8 INTEGER, lti9 INTEGER, lti10 INTEGER)");
 
     add_structure("CREATE TABLE smem_likelihoods (lti_j INTEGER, lti_i INTEGER, num_appearances_i_j INTEGER)");
 
     add_structure("CREATE TABLE smem_trajectory_num (lti_id INTEGER, num_appearances INTEGER)");
+
+    add_structure("CREATE TABLE smem_current_spread (lti_id INTEGER,num_appearances_i_j,num_appearances)");
 
     // adding an ascii table just to make lti queries easier when inspecting database
     {
@@ -504,6 +506,7 @@ void smem_statement_container::create_indices()
     add_structure("CREATE INDEX lti_cue ON smem_likelihoods (lti_j)");
     add_structure("CREATE INDEX lti_given ON smem_likelihoods (lti_i)"); // Want p(i|j), but use ~ p(j|i)p(i), where j is LTI in WMem.
 
+    add_structure("CREATE INDEX lti_spreaded ON smem_current_spread (lti_id)");
     add_structure("CREATE INDEX lti_count ON smem_trajectory_num (lti_id)");
 }
 
@@ -524,6 +527,7 @@ void smem_statement_container::drop_tables(agent* new_agent)
     //Dropping the likelihood table used for act-style spread.
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_likelihood_trajectories");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_likelihoods");
+    new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_current_spread");
     new_agent->smem_db->sql_execute("DROP TABLE IF EXISTS smem_trajectory_num");
 }
 
@@ -1286,7 +1290,7 @@ void trajectory_construction(agent* thisAgent, std::list<smem_lti_id>& trajector
     }
 }
 
-extern bool smem_calc_spread(agent* thisAgent)
+extern bool smem_calc_spread_trajectories(agent* thisAgent)
 {//This is written to be a batch process when spreading is turned on. It will take a long time.
 
 
@@ -1446,6 +1450,68 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
     return ((sum > 0) ? (log(sum)) : (SMEM_ACT_LOW));
 }
 
+// Given the current elements in thisAgent->smem_in_wmem, this function will update
+// the component of activation from spread.
+/*
+ * Idea: num_appearances_i_j = number of appearances of i in j.
+ * Suppose i is in j and in our context. We then find all j's such that i is in them.
+ * We add to their current value the value from i.
+ *
+ * Implementation: Make context table match vector here. Join num_appearances_i_j on i and context lti.
+ * Group by j and sum number of appearances in the grouping. The resulting number is the number of
+ * appearances of j relevant to the context of i's.
+ *
+ * For simplification at the cost of efficiency, I will completely rewrite the table each time.
+ * This incurs cost equal to the number of ltis in wmem each time instead of only processing additions
+ * and deletions. Only processing changes is the obvious next step.
+ * */
+
+inline void smem_calc_spread(agent* thisAgent)
+{
+    //The first thing is to create the table that elements with additional "spread"
+    //will have their spread activation stored in. This is already done.
+    //In the future, this will perhaps be stored as an additional column with the other activation information.
+    //"CREATE TABLE smem_current_spread (lti_id INTEGER PRIMARY KEY,spread REAL)"
+
+
+    //This part will end up not being here.
+    soar_module::sqlite_statement* create_context_table = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE TABLE smem_current_context (lti_id INTEGER PRIMARY KEY)");
+    create_context_table->prepare();
+    create_context_table->execute();
+    delete create_context_table;
+
+    //Now, delete old entries.
+    soar_module::sqlite_statement* delete_old_context = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DELETE FROM smem_current_context");
+    delete_old_context->prepare();
+    delete_old_context->execute(soar_module::op_reinit);
+    delete delete_old_context;
+
+    //Insert values that will be used later.
+    soar_module::sqlite_statement* new_spread_context = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "INSERT INTO smem_current_context (lti_id) VALUES (?)");
+    new_spread_context->prepare();
+
+    for(smem_lti_map::iterator it = thisAgent->smem_in_wmem->begin(); it != thisAgent->smem_in_wmem->end(); ++it)
+    {
+        new_spread_context->bind_int(1,it->first);
+        new_spread_context->execute(soar_module::op_reinit);
+    }
+    soar_module::sqlite_statement* prepare_spread = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "INSERT INTO smem_current_spread (lti_id,num_appearances_i_j,num_appearances) SELECT lti_j,num_appearances_i_j,num_appearances "
+            "FROM (SELECT C.lti_id FROM smem_current_context AS C JOIN "
+            "SELECT L.num_appearances_i_j,lti_j FROM smem_likelihoods AS L ON C.lti_id = L.lti_i JOIN "
+            "SELECT N.num_appearances FROM smem_trajectory_num AS N ON N.lti_id = L.lti_i) "
+            "ORDER BY lti_id");
+    prepare_spread->prepare();
+    prepare_spread->execute();
+    delete prepare_spread;
+    //I only actually take the log and do the fan calculation if something here is found to be part of the candidate set.
+}
+
+
+
 // activates a new or existing long-term identifier
 // note: optional num_edges parameter saves us a lookup
 //       just when storing a new chunk (default is a
@@ -1587,8 +1653,19 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     
     // always associate activation with lti
     {
+        double spread = 0;
         // activation_value=? WHERE lti=?
-        thisAgent->smem_stmts->act_lti_set->bind_double(1, new_activation);
+        //soar_module::sqlite_statement* prepare_spread = new soar_module::sqlite_statement(thisAgent->smem_db,
+        //"INSERT INTO smem_current_spread (lti_id,num_appearances_i_j,num_appearances)soar_module::
+        soar_module::sqlite_statement* calc_spread = new soar_module::sqlite_statement(thisAgent->smem_db,
+                "SELECT num_appearances,num_appearances_i_j FROM smem_current_spread WHERE lti_id = ?");
+        calc_spread->prepare();
+        calc_spread->bind_int(1,lti);
+        while (calc_spread->execute() == soar_module::row)
+        {
+            spread+=(1.45-log((1+calc_spread->column_int(0))/calc_spread->column_int(1)));
+        }
+        thisAgent->smem_stmts->act_lti_set->bind_double(1, new_activation+spread);
         thisAgent->smem_stmts->act_lti_set->bind_int(2, lti);
         thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
     }
@@ -2928,6 +3005,8 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
                 {
                     to_update.insert(q->column_int(0));
                 }
+                //Here is the major change for spreading. Instead of just using the base-level value for sorting, I also must include the change from context.
+                smem_calc_spread(thisAgent);
                 
                 for (std::set< smem_lti_id >::iterator it = to_update.begin(); it != to_update.end(); it++)
                 {
@@ -2949,11 +3028,11 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             bool use_db = false;
             bool has_feature = false;
             
+
             while (more_rows && (q->column_double(1) == static_cast<double>(SMEM_ACT_MAX)))
             {
                 thisAgent->smem_stmts->act_lti_get->bind_int(1, q->column_int(0));
                 thisAgent->smem_stmts->act_lti_get->execute();
-                //Here is the major change for spreading. Instead of just using the base-level value for sorting, I also must include the change from context.
                 plentiful_parents.push(std::make_pair< double, smem_lti_id >(thisAgent->smem_stmts->act_lti_get->column_double(0), q->column_int(0)));
                 thisAgent->smem_stmts->act_lti_get->reinitialize();
                 

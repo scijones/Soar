@@ -131,13 +131,13 @@ void add_wme_to_wm(agent* thisAgent, wme* w)
     push(thisAgent, w, thisAgent->wmes_to_add);
     if (w->value->id && w->value->id->smem_lti)//test for lti, if so, either add or increment count in context map vector.
     {
-        if (thisAgent->smem_in_wmem.find(w->value->id->smem_lti)==thisAgent->smem_in_wmem.end())
+        if (thisAgent->smem_in_wmem->find(w->value->id->smem_lti)==thisAgent->smem_in_wmem->end())
         {
-            thisAgent->smem_in_wmem[w->value->id->smem_lti] = (uint64_t)1;
+            (*(thisAgent->smem_in_wmem))[w->value->id->smem_lti] = (uint64_t)1;
         }
         else
         {
-            thisAgent->smem_in_wmem[w->value->id->smem_lti] = thisAgent->smem_in_wmem[w->value->id->smem_lti] + 1;
+            (*(thisAgent->smem_in_wmem))[w->value->id->smem_lti] = (*(thisAgent->smem_in_wmem))[w->value->id->smem_lti] + 1;
         }
     }
 
@@ -160,14 +160,14 @@ void remove_wme_from_wm(agent* thisAgent, wme* w)
         //We shouldn't ever get here without having already added the lti before.
         //TODO:I need to read through buffered WM changes and see if that could screw things up.
         //I won't be doing any add-remove of the same LTI in 1 DC, so I'm guessing things will be okay.
-        assert(thisAgent->smem_in_wmem.find(w->value->id->smem_lti)!=thisAgent->smem_in_wmem.end());
-        if (thisAgent->smem_in_wmem[w->value->id->smem_lti]==1)
+        assert(thisAgent->smem_in_wmem->find(w->value->id->smem_lti)!=thisAgent->smem_in_wmem->end());
+        if ((*(thisAgent->smem_in_wmem))[w->value->id->smem_lti]==1)
         {
-            thisAgent->smem_in_wmem.erase(w->value->id->smem_lti);
+            thisAgent->smem_in_wmem->erase(w->value->id->smem_lti);
         }
         else
         {
-            thisAgent->smem_in_wmem[w->value->id->smem_lti] = thisAgent->smem_in_wmem[w->value->id->smem_lti] - 1;
+            (*(thisAgent->smem_in_wmem))[w->value->id->smem_lti] = (*(thisAgent->smem_in_wmem))[w->value->id->smem_lti] - 1;
         }
     }
     if (w->value->is_identifier())
