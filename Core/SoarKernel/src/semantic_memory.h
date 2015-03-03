@@ -262,6 +262,7 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* wmes_lti_frequency_update;
         
         soar_module::sqlite_statement* web_val_parent;
+        soar_module::sqlite_statement* web_val_child;
 
         soar_module::sqlite_statement* attribute_frequency_get;
         soar_module::sqlite_statement* wmes_constant_frequency_get;

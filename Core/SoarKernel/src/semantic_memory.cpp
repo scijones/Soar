@@ -670,6 +670,8 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     web_val_parent = new soar_module::sqlite_statement(new_db,
             "SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " UNION ALL SELECT value_lti_id FROM smem_augmentations WHERE lti_id IN (SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR ")");
 
+    web_val_child = new soar_module::sqlite_statement(new_db,
+            "SELECT value_lti_id FROM smem_augmentations WHERE lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR );
     //
     
     attribute_frequency_check = new soar_module::sqlite_statement(new_db, "SELECT edge_frequency FROM smem_attribute_frequency WHERE attribute_s_id=?");
@@ -1230,43 +1232,42 @@ void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std
 
     if (lti_trajectories.find(lti_id)==lti_trajectories.end())
     {
-        soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
-        //To make this fast enough, I need a different table with reverse index.
+        soar_module::sqlite_statement* children_q = thisAgent->smem_stmts->web_val_child;
 
 
         //parents_q->bind_int(1, lti_id);
         //parents_q->bind_int(2, lti_id);
-        std::list<smem_lti_id> parents;
+        std::list<smem_lti_id> children;
 
         //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
-        if (parents_q->get_status() == soar_module::unprepared)
+        if (children_q->get_status() == soar_module::unprepared)
         {
-            parents_q->prepare();
+            children_q->prepare();
         }
-        parents_q->bind_int(1, lti_id);
-        parents_q->bind_int(2, lti_id);
+        children_q->bind_int(1, lti_id);
+        children_q->bind_int(2, lti_id);
         lti_trajectories[lti_id] = new std::list<smem_lti_id>;
-        while(parents_q->execute() == soar_module::row && parents_q->column_int(0) != lti_id)
+        while(children_q->execute() == soar_module::row && children_q->column_int(0) != lti_id)
         {
             //if (parents_q->column_int(0) != lti_id)
             //{
-                (lti_trajectories[lti_id])->push_back(parents_q->column_int(0));
-                parents.push_back(parents_q->column_int(0));
+                (lti_trajectories[lti_id])->push_back(children_q->column_int(0));
+                children.push_back(children_q->column_int(0));
             //}
         }
 
-        parents_q->reinitialize();
+        children_q->reinitialize();
         if (depth > 1)
         {
-            for(std::list<smem_lti_id>::iterator parent_iterator = parents.begin(); parent_iterator!=parents.end(); parent_iterator++)
+            for(std::list<smem_lti_id>::iterator child_iterator = children.begin(); child_iterator!=children.end(); child_iterator++)
             {
-                child_spread(thisAgent, *parent_iterator, lti_trajectories, depth-1);
+                child_spread(thisAgent, *child_iterator, lti_trajectories, depth-1);
             }
         }
     }
 }
 
-//This is a deterministic and exhaustive construction of trajectories with depth up to 10 (or something).
+//This is a random construction of trajectories with depth up to 10 (or something).
 void trajectory_construction(agent* thisAgent, std::list<smem_lti_id>& trajectory, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories, int depth = 10)
 {
 
@@ -1338,7 +1339,7 @@ extern bool smem_calc_spread_trajectories(agent* thisAgent)
 
 
     smem_attach(thisAgent);
-    soar_module::sqlite_statement* parents_q = thisAgent->smem_stmts->web_val_parent;
+    soar_module::sqlite_statement* children_q = thisAgent->smem_stmts->web_val_child;
 
     soar_module::sqlite_statement* lti_a = thisAgent->smem_stmts->lti_all;
 

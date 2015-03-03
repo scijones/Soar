@@ -1407,7 +1407,7 @@ void chunk_instantiation(agent* thisAgent, instantiation* inst, bool dont_variab
 
     add_goal_or_impasse_tests(thisAgent, top_cc);
 
-    prod = make_production(thisAgent, prod_type, prod_name, inst->prod->name->sc->name, &lhs_top, &lhs_bottom, &rhs, false);
+    prod = make_production(thisAgent, prod_type, prod_name, (inst->prod ? inst->prod->name->sc->name : prod_name->sc->name), &lhs_top, &lhs_bottom, &rhs, false);
 
     if (!prod)
     {
