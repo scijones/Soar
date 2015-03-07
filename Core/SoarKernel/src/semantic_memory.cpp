@@ -427,7 +427,7 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_symbols_integer (s_id INTEGER PRIMARY KEY, symbol_value INTEGER)");
     add_structure("CREATE TABLE smem_symbols_float (s_id INTEGER PRIMARY KEY, symbol_value REAL)");
     add_structure("CREATE TABLE smem_symbols_string (s_id INTEGER PRIMARY KEY, symbol_value TEXT)");
-    add_structure("CREATE TABLE smem_lti (lti_id INTEGER PRIMARY KEY, soar_letter INTEGER, soar_number INTEGER, total_augmentations INTEGER, activation_value REAL, activations_total INTEGER, activations_last INTEGER, activations_first INTEGER)");
+    add_structure("CREATE TABLE smem_lti (lti_id INTEGER PRIMARY KEY, soar_letter INTEGER, soar_number INTEGER, total_augmentations INTEGER, activation_value REAL, activations_total INTEGER, activations_last INTEGER, activations_first INTEGER, activation_spread REAL)");
     add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER)");
     add_structure("CREATE TABLE smem_augmentations (lti_id INTEGER, attribute_s_id INTEGER, value_constant_s_id INTEGER, value_lti_id INTEGER, activation_value REAL)");
     add_structure("CREATE TABLE smem_attribute_frequency (attribute_s_id INTEGER PRIMARY KEY, edge_frequency INTEGER)");
@@ -727,10 +727,10 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     act_lti_child_ct_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_lti SET total_augmentations=? WHERE lti_id=?");
     add(act_lti_child_ct_set);
     
-    act_lti_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_lti SET activation_value=? WHERE lti_id=?");
+    act_lti_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_lti SET activation_value=?,activation_spread=? WHERE lti_id=?");
     add(act_lti_set);
     
-    act_lti_get = new soar_module::sqlite_statement(new_db, "SELECT activation_value FROM smem_lti WHERE lti_id=?");
+    act_lti_get = new soar_module::sqlite_statement(new_db, "SELECT activation_value,activation_spread FROM smem_lti WHERE lti_id=?");
     add(act_lti_get);
     
     history_get = new soar_module::sqlite_statement(new_db, "SELECT t1,t2,t3,t4,t5,t6,t7,t8,t9,t10 FROM smem_activation_history WHERE lti_id=?");
@@ -754,10 +754,10 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     //
 
-    vis_lti = new soar_module::sqlite_statement(new_db, "SELECT lti_id, soar_letter, soar_number, activation_value FROM smem_lti ORDER BY soar_letter ASC, soar_number ASC");
+    vis_lti = new soar_module::sqlite_statement(new_db, "SELECT lti_id, soar_letter, soar_number, activation_value, activation_spread FROM smem_lti ORDER BY soar_letter ASC, soar_number ASC");
     add(vis_lti);
     
-    vis_lti_act = new soar_module::sqlite_statement(new_db, "SELECT activation_value FROM smem_lti WHERE lti_id=?");
+    vis_lti_act = new soar_module::sqlite_statement(new_db, "SELECT activation_value,activation_spread FROM smem_lti WHERE lti_id=?");
     add(vis_lti_act);
     
     vis_value_const = new soar_module::sqlite_statement(new_db, "SELECT lti_id, tsh1.symbol_type AS attr_type, tsh1.s_id AS attr_hash, tsh2.symbol_type AS val_type, tsh2.s_id AS val_hash FROM smem_augmentations w, smem_symbols_type tsh1, smem_symbols_type tsh2 WHERE (w.attribute_s_id=tsh1.s_id) AND (w.value_constant_s_id=tsh2.s_id)");
@@ -1287,7 +1287,7 @@ void trajectory_construction(agent* thisAgent, std::list<smem_lti_id>& trajector
         thisAgent->smem_stmts->trajectory_add->execute(soar_module::op_reinit);
         return;
     }
-    if (lti_trajectories.find(lti_id)==lti_trajectories.end() || lti_trajectories[lti_id]->size() == 0)
+    if ((lti_trajectories.find(lti_id)==lti_trajectories.end() || lti_trajectories[lti_id]->size() == 0)||SoarRand()>.9)//TODO: Define the probability constant elsewhere.
     {
         //If the element is not in the trajectory map, it was a terminal node and the list should end here. The rest of the values will be 0.
         int i = 0;
@@ -1440,7 +1440,7 @@ extern bool smem_calc_spread_trajectories(agent* thisAgent)
     delete likelihood_cond_count;
 
     soar_module::sqlite_statement* lti_count_num_appearances = new soar_module::sqlite_statement(thisAgent->smem_db,
-                "INSERT INTO smem_trajectory_num (lti_id, num_appearances) SELECT lti_i, SUM(num_appearances_i_j) FROM smem_likelihoods GROUP BY lti_i");
+                "INSERT INTO smem_trajectory_num (lti_id, num_appearances) SELECT lti_j, SUM(num_appearances_i_j) FROM smem_likelihoods GROUP BY lti_j");
 
     lti_count_num_appearances->prepare();
     lti_count_num_appearances->execute(soar_module::op_reinit);
@@ -1648,21 +1648,23 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
         calc_spread->prepare();
         calc_spread->bind_int(1,lti);
         double additional;
-        while (calc_spread->execute() == soar_module::row)
+        while (calc_spread->execute() == soar_module::row && calc_spread->column_int(1))
         {
             //print(thisAgent, "forreal\n");//temporary
-            additional = (200-log((1+calc_spread->column_int(0))/calc_spread->column_int(1)));
-            std::ostringstream temp_string;
+                additional = (log(((double)(calc_spread->column_int(1)))/calc_spread->column_int(0)))-log(0.5/(calc_spread->column_int(0)));
+            /*std::ostringstream temp_string;
             temp_string << additional << std::endl;
             if (additional < 0)
-                print(thisAgent, temp_string.str().c_str());
+                print(thisAgent, temp_string.str().c_str());*/
 
-            spread+=(additional>0 ? additional: 0);
+            spread+=additional;//(additional>0 ? additional: 0);
         }
         delete calc_spread;
-        thisAgent->smem_stmts->act_lti_set->bind_double(1, new_activation);//+spread);
-        thisAgent->smem_stmts->act_lti_set->bind_int(2, lti);
+        thisAgent->smem_stmts->act_lti_set->bind_double(1, new_activation);
+        thisAgent->smem_stmts->act_lti_set->bind_double(2, spread);
+        thisAgent->smem_stmts->act_lti_set->bind_int(3, lti);
         thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
+        new_activation+=spread;
     }
     
     ////////////////////////////////////////////////////////////////////////////
@@ -1750,22 +1752,25 @@ inline void smem_calc_spread(agent* thisAgent)
         calc_spread->prepare();
         calc_spread->bind_int(1,to_activate->column_int(0));
         double additional;
-        while (calc_spread->execute() == soar_module::row)
+        while (calc_spread->execute() == soar_module::row && calc_spread->column_int(1))
         {
             //print(thisAgent, "forreal\n");//temporary
-            additional = (20-log((1+calc_spread->column_int(0))/calc_spread->column_int(1)));
             //std::ostringstream temp_string;
             //temp_string << additional << std::endl;
             //if (additional < 0)
             //    print(thisAgent, temp_string.str().c_str());
-
-            spread+=(additional>0 ? additional: 0);
+            additional = (log(((double)(calc_spread->column_int(1)))/calc_spread->column_int(0)))-log(0.5/(calc_spread->column_int(0)));
+            spread+=additional;//(additional>0 ? additional: 0);
         }
         delete calc_spread;
         thisAgent->smem_stmts->act_set->bind_double(1, thisAgent->smem_stmts->act_lti_get->column_double(0)+spread);
         thisAgent->smem_stmts->act_set->bind_int(2, to_activate->column_int(0));
         thisAgent->smem_stmts->act_set->execute(soar_module::op_reinit);
 
+        thisAgent->smem_stmts->act_lti_set->bind_double(1, thisAgent->smem_stmts->act_lti_get->column_double(0));
+        thisAgent->smem_stmts->act_lti_set->bind_double(2, spread);
+        thisAgent->smem_stmts->act_lti_set->bind_int(3, to_activate->column_int(0));
+        thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
 
         thisAgent->smem_stmts->act_lti_get->reinitialize();
         //print(thisAgent,"doing spread\n");//temporary
@@ -3134,7 +3139,7 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             {
                 thisAgent->smem_stmts->act_lti_get->bind_int(1, q->column_int(0));
                 thisAgent->smem_stmts->act_lti_get->execute();
-                plentiful_parents.push(std::make_pair< double, smem_lti_id >(thisAgent->smem_stmts->act_lti_get->column_double(0), q->column_int(0)));
+                plentiful_parents.push(std::make_pair< double, smem_lti_id >(thisAgent->smem_stmts->act_lti_get->column_double(0)+thisAgent->smem_stmts->act_lti_get->column_double(1), q->column_int(0)));
                 thisAgent->smem_stmts->act_lti_get->reinitialize();
                 
                 more_rows = (q->execute() == soar_module::row);
@@ -5513,7 +5518,7 @@ void smem_visualize_store(agent* thisAgent, std::string* return_val)
             return_val->append((*lti_name));
             return_val->append("\\n[");
             
-            temp_double = q->column_double(3);
+            temp_double = q->column_double(3)+q->column_double(4);
             to_string(temp_double, temp_str, 3, true);
             if (temp_double >= 0)
             {
@@ -5963,7 +5968,7 @@ void smem_visualize_lti(agent* thisAgent, smem_lti_id lti_id, unsigned int depth
             act_q->bind_int(1, cl_p->first);
             if (act_q->execute() == soar_module::row)
             {
-                temp_double = act_q->column_double(0);
+                temp_double = act_q->column_double(0)+act_q->column_double(1);
                 to_string(temp_double, temp_str, 3, true);
                 if (temp_double >= 0)
                 {
@@ -6130,7 +6135,7 @@ void smem_print_store(agent* thisAgent, std::string* return_val)
     soar_module::sqlite_statement* q = thisAgent->smem_stmts->vis_lti;
     while (q->execute() == soar_module::row)
     {
-        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), q->column_double(3), return_val);
+        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), q->column_double(3)+q->column_double(4), return_val);
     }
     q->reinitialize();
 }
