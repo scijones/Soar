@@ -369,12 +369,13 @@ void remove_preference_from_tm(agent* thisAgent, preference* pref)
     print(thisAgent, "\nRemove preference at 0x%8x:  ", reinterpret_cast<uintptr_t>(pref));
     print_preference(thisAgent, pref);
 #endif
-    
+    if (s)
+    {//HACK HACK HACK - I'm quieting a segfault here where the slot was a null ptr.
     /* --- remove preference from the list for the slot --- */
     remove_from_dll(s->all_preferences, pref,
                     all_of_slot_next, all_of_slot_prev);
     remove_from_dll(s->preferences[pref->type], pref, next, prev);
-    
+    }
     /* --- other miscellaneous stuff --- */
     pref->in_tm = false;
     pref->slot = NIL;      /* BUG shouldn't we use pref->slot in place of pref->in_tm? */
@@ -382,13 +383,16 @@ void remove_preference_from_tm(agent* thisAgent, preference* pref)
     
     /* --- if acceptable/require pref for context slot, we may need to remove
        a wme later --- */
+
+    if (s)
+    {//HACK HACK HACK - I'm quieting a segfault here where the slot was a null ptr.
     if ((s->isa_context_slot) &&
             ((pref->type == ACCEPTABLE_PREFERENCE_TYPE) ||
              (pref->type == REQUIRE_PREFERENCE_TYPE)))
     {
         mark_context_slot_as_acceptable_preference_changed(thisAgent, s);
     }
-    
+    }
     /* --- update identifier levels --- */
     if (pref->value->symbol_type == IDENTIFIER_SYMBOL_TYPE)
     {
