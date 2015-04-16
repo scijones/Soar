@@ -1546,7 +1546,7 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
         
         sum += (apx_numerator / apx_denominator);
     }
-    
+
     return ((sum > 0) ? (log(sum)) : (SMEM_ACT_LOW));
 }
 
