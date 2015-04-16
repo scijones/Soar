@@ -1652,8 +1652,11 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
 * Right now, the implementation idea is to keep track of context with a set stored in the agent.
 *
 * */
-
-inline void smem_calc_spread(agent* thisAgent)
+/*
+ * batch processing is way too expensive, so i'll instead just make a thing that keeps track of new and old prohibits.
+ * it will be similar to keeping track of what is in wmem.
+ * */
+inline void smem_calc_spread(agent* thisAgent, smem_lti_set* prohibit)
 {
 
     soar_module::sqlite_statement* calc_spread = new soar_module::sqlite_statement(thisAgent->smem_db,
@@ -3063,7 +3066,7 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
     ////////////////////////////////////////////////////////////////////////////
     
     //Here is the major change for spreading. Instead of just using the base-level value for sorting, I also must include the change from context.
-    smem_calc_spread(thisAgent);
+    smem_calc_spread(thisAgent,prohibit);
 
     // prepare query stats
     {
