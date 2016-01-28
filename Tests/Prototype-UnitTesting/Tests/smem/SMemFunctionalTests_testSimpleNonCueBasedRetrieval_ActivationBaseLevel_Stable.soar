@@ -3,7 +3,7 @@ smem --set activation-mode base-level
 smem --set activate-on-query on
 smem --set activate-on-add on
 smem --set base-update-policy stable
-smem --set spreading-type actr
+#smem --set spreading-type actr
 # Add some data with multiple levels
 smem --add {
   (<x> ^name foo
