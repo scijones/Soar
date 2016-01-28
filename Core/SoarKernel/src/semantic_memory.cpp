@@ -921,7 +921,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     
     // Adding statements needed to support prohibits.
 
-    prohibit_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_prohibited SET prohibited=?,dirty=1 WHERE lti_id=?");
+    prohibit_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_prohibited SET prohibited=1,dirty=1 WHERE lti_id=?");
     add(prohibit_set);
 
     prohibit_add = new soar_module::sqlite_statement(new_db, "INSERT OR IGNORE INTO smem_prohibited (lti_id,prohibited,dirty) VALUES (?,0,0)");
@@ -932,6 +932,9 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     prohibit_reset = new soar_module::sqlite_statement(new_db, "UPDATE smem_prohibited SET prohibited=0,dirty=0 WHERE lti_id=?");
     add(prohibit_reset);
+
+    prohibit_clean = new soar_module::sqlite_statement(new_db, "UPDATE smem_prohibited SET prohibited=1,dirty=0 WHERE lti_id=?");
+    add(prohibit_clean);
 
     prohibit_remove = new soar_module::sqlite_statement(new_db, "DELETE FROM smem_prohibited WHERE lti_id=?");
     add(prohibit_remove);
@@ -2390,8 +2393,13 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
         */
         thisAgent->smem_stmts->prohibit_check->bind_int(1,lti);
         prohibited = thisAgent->smem_stmts->prohibit_check->execute()==soar_module::row;
-        thisAgent->smem_stmts->prohibit_check->reinitialize();
+        bool dirty = false;
         if (prohibited)
+        {
+            dirty = thisAgent->smem_stmts->prohibit_check->column_int(1)==1;
+        }
+        thisAgent->smem_stmts->prohibit_check->reinitialize();
+        if (prohibited && dirty)
         {//Just need to flip the bit here.
             //Find the number of touches from the most recent activation. We are removing that many.
             thisAgent->smem_stmts->history_get->bind_int(1, lti);
@@ -2439,6 +2447,30 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     }
     else
     {
+        /* If we are not adding an access, we need to remove the old history so that recalculation takes into account the prohibit having occurred.
+         * The big difference is that we'll have to leave it prohibited, just not dirty any more. Only an access removes the prohibit.
+         */
+        thisAgent->smem_stmts->prohibit_check->bind_int(1,lti);
+        prohibited = thisAgent->smem_stmts->prohibit_check->execute()==soar_module::row;
+        bool dirty = false;
+        if (prohibited)
+        {
+            dirty = thisAgent->smem_stmts->prohibit_check->column_int(1)==1;
+        }
+        thisAgent->smem_stmts->prohibit_check->reinitialize();
+        if (prohibited && dirty)
+        {//Just need to flip the bit here.
+            //Find the number of touches from the most recent activation. We are removing that many.
+            thisAgent->smem_stmts->history_get->bind_int(1, lti);
+            thisAgent->smem_stmts->history_get->execute();
+            prev_access_n-=thisAgent->smem_stmts->history_get->column_double(10);
+            thisAgent->smem_stmts->history_get->reinitialize();
+            //remove the history
+            thisAgent->smem_stmts->history_remove->bind_int(1,(lti));
+            thisAgent->smem_stmts->history_remove->execute(soar_module::op_reinit);
+            thisAgent->smem_stmts->prohibit_clean->bind_int(1,lti);
+            thisAgent->smem_stmts->prohibit_clean->execute(soar_module::op_reinit);
+        }
         time_now = thisAgent->smem_max_cycle;
         
         thisAgent->smem_stats->act_updates->set_value(thisAgent->smem_stats->act_updates->get_value() + 1);
@@ -2446,13 +2478,13 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     
 
     // set new
-    if (add_access)
+    //if (add_access)
     {
 
-        thisAgent->smem_stmts->lti_access_set->bind_double(1, (prev_access_n + touches));
+        thisAgent->smem_stmts->lti_access_set->bind_double(1, (prev_access_n + (add_access) ? (touches) : (0)));
         //thisAgent->smem_stmts->lti_access_set->bind_int(1, (prev_access_n + 1));
-        thisAgent->smem_stmts->lti_access_set->bind_int(2, time_now);
-        thisAgent->smem_stmts->lti_access_set->bind_int(3, (prohibited) ? (prev_access_1) : ((prev_access_n == 0) ? (time_now) : (prev_access_1)));
+        thisAgent->smem_stmts->lti_access_set->bind_int(2, (add_access) ? (time_now) : (prev_access_t));
+        thisAgent->smem_stmts->lti_access_set->bind_int(3, (prohibited) ? (prev_access_1) : ((prev_access_n == 0) ? ((add_access) ? (time_now) : (0)) : (prev_access_1)));
         thisAgent->smem_stmts->lti_access_set->bind_int(4, lti);
         thisAgent->smem_stmts->lti_access_set->execute(soar_module::op_reinit);
     }
@@ -2525,12 +2557,13 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
 
     // always associate activation with lti
     double spread = 0;
+    double new_base;
     double additional;
     {
         // Adding a bunch of stuff for spreading here.
         thisAgent->smem_stmts->act_lti_get->bind_int(1,lti);
         thisAgent->smem_stmts->act_lti_get->execute();
-        if (thisAgent->smem_params->spreading_model->get_value() == smem_param_container::likelihood)
+        if (thisAgent->smem_params->spreading_model->get_value() == smem_param_container::likelihood && thisAgent->smem_params->spreading->get_value() == on)
         {
             spread = thisAgent->smem_stmts->act_lti_get->column_double(1);//This is the spread before changes.
         }
@@ -2557,16 +2590,27 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
         spread = log(raw_prob/(1.0-raw_prob))-log(offset/(1.0-offset));*/
 
         // activation_value=? spreading value = ? WHERE lti=?
+
+        if (static_cast<double>(new_activation)==static_cast<double>(SMEM_ACT_LOW) || static_cast<double>(new_activation) == 0)
+        {//used for base-level - thisAgent->smem_max_cycle - We assume that the memory was accessed at least "age of the agent" ago if there is no record.
+            double decay = thisAgent->smem_params->base_decay->get_value();
+            new_base = pow(static_cast<double>(thisAgent->smem_max_cycle),static_cast<double>(-decay));
+            new_base = log(new_base/(1+new_base));
+        }
+        else
+        {
+            new_base = new_activation;
+        }
         thisAgent->smem_stmts->act_lti_set->bind_double(1, new_activation);
         thisAgent->smem_stmts->act_lti_set->bind_double(2, spread);
-        thisAgent->smem_stmts->act_lti_set->bind_double(3, new_activation+spread);
+        thisAgent->smem_stmts->act_lti_set->bind_double(3, new_base+spread);
         thisAgent->smem_stmts->act_lti_set->bind_int(4, lti);
         thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
         // only if augmentation count is less than threshold do we associate with edges
         if (num_edges < static_cast<uint64_t>(thisAgent->smem_params->thresh->get_value()))
         {
             // activation_value=? WHERE lti=?
-            thisAgent->smem_stmts->act_set->bind_double(1, new_activation+spread);
+            thisAgent->smem_stmts->act_set->bind_double(1, new_base+spread);
             thisAgent->smem_stmts->act_set->bind_int(2, lti);
             thisAgent->smem_stmts->act_set->execute(soar_module::op_reinit);
         }
@@ -2576,7 +2620,7 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     thisAgent->smem_timers->act->stop();
     ////////////////////////////////////////////////////////////////////////////
     
-    return new_activation+spread;
+    return new_base+spread;
 }
 
 /*
@@ -2803,16 +2847,28 @@ void smem_calc_spread(agent* thisAgent)
                 thisAgent->smem_stmts->act_lti_child_ct_get->reinitialize();
 
                 //This is the same sort of activation updating one would have to do with base-level.
+                double prev_base = thisAgent->smem_stmts->act_lti_get->column_double(0);
+                double new_base;
+                if (static_cast<double>(prev_base)==static_cast<double>(SMEM_ACT_LOW) || static_cast<double>(prev_base) == 0)
+                {//used for base-level - thisAgent->smem_max_cycle - We assume that the memory was accessed at least "age of the agent" ago if there is no record.
+                    double decay = thisAgent->smem_params->base_decay->get_value();
+                    new_base = pow(static_cast<double>(thisAgent->smem_max_cycle),static_cast<double>(-decay));
+                    new_base = log(new_base/(1+new_base));
+                }
+                else
+                {
+                    new_base = prev_base;
+                }
                 if (num_edges < static_cast<uint64_t>(thisAgent->smem_params->thresh->get_value()))
                 {
-                    thisAgent->smem_stmts->act_set->bind_double(1, thisAgent->smem_stmts->act_lti_get->column_double(0)+spread);
+                    thisAgent->smem_stmts->act_set->bind_double(1, new_base+spread);
                     thisAgent->smem_stmts->act_set->bind_int(2, lti_id);
                     thisAgent->smem_stmts->act_set->execute(soar_module::op_reinit);
                 }
 
-                thisAgent->smem_stmts->act_lti_set->bind_double(1, thisAgent->smem_stmts->act_lti_get->column_double(0));
+                thisAgent->smem_stmts->act_lti_set->bind_double(1, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
                 thisAgent->smem_stmts->act_lti_set->bind_double(2, spread);
-                thisAgent->smem_stmts->act_lti_set->bind_double(3, spread+thisAgent->smem_stmts->act_lti_get->column_double(0));
+                thisAgent->smem_stmts->act_lti_set->bind_double(3, spread+new_base);
                 thisAgent->smem_stmts->act_lti_set->bind_int(4, lti_id);
                 thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
 
@@ -3044,10 +3100,21 @@ void smem_calc_spread(agent* thisAgent)
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_2->start();
                 ////////////////////////////////////////////////////////////////////////////
+                double new_base;
+                if (static_cast<double>(prev_base)==static_cast<double>(SMEM_ACT_LOW) || static_cast<double>(prev_base) == 0)
+                {//used for base-level - thisAgent->smem_max_cycle - We assume that the memory was accessed at least "age of the agent" ago if there is no record.
+                    double decay = thisAgent->smem_params->base_decay->get_value();
+                    new_base = pow(static_cast<double>(thisAgent->smem_max_cycle),static_cast<double>(-decay));
+                    new_base = log(new_base/(1+new_base));
+                }
+                else
+                {
+                    new_base = prev_base;
+                }
                 if (num_edges < static_cast<uint64_t>(thisAgent->smem_params->thresh->get_value())) // ** This is costly.
                 {//The cost is from having to update several indexes that use the activation value.
                     //These indexes are on the entire graph structure of smem. (smem_augmentations)
-                    thisAgent->smem_stmts->act_set->bind_double(1, ((prev_base==SMEM_ACT_LOW) ? (0.0):(prev_base))+spread);
+                    thisAgent->smem_stmts->act_set->bind_double(1, new_base+spread);
                     thisAgent->smem_stmts->act_set->bind_int(2, lti_id);
                     thisAgent->smem_stmts->act_set->execute(soar_module::op_reinit);
                 }
@@ -3057,9 +3124,9 @@ void smem_calc_spread(agent* thisAgent)
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_3->start();
                 ////////////////////////////////////////////////////////////////////////////
-                thisAgent->smem_stmts->act_lti_set->bind_double(1, ((prev_base==SMEM_ACT_LOW) ? (0.0):(prev_base)));
+                thisAgent->smem_stmts->act_lti_set->bind_double(1, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
                 thisAgent->smem_stmts->act_lti_set->bind_double(2, spread);
-                thisAgent->smem_stmts->act_lti_set->bind_double(3, spread+ ((prev_base==SMEM_ACT_LOW) ? (0.0):(prev_base)));
+                thisAgent->smem_stmts->act_lti_set->bind_double(3, spread+ new_base);
                 thisAgent->smem_stmts->act_lti_set->bind_int(4, lti_id);
                 thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
                 ////////////////////////////////////////////////////////////////////////////
@@ -4779,7 +4846,7 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             {
                 thisAgent->smem_stmts->act_lti_get->bind_int(1, q->column_int(0));
                 thisAgent->smem_stmts->act_lti_get->execute();
-                plentiful_parents.push(std::make_pair< double, smem_lti_id >(thisAgent->smem_stmts->act_lti_get->column_double(0)+thisAgent->smem_stmts->act_lti_get->column_double(1), q->column_int(0)));
+                plentiful_parents.push(std::make_pair< double, smem_lti_id >(thisAgent->smem_stmts->act_lti_get->column_double(2), q->column_int(0)));
                 thisAgent->smem_stmts->act_lti_get->reinitialize();
                 
                 more_rows = (q->execute() == soar_module::row);
