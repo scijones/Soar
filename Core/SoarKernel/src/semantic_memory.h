@@ -430,7 +430,8 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* delete_old_uncommitted_spread;
         soar_module::sqlite_statement* reverse_old_committed_spread;
         soar_module::sqlite_statement* add_uncommitted_fingerprint;
-        soar_module::sqlite_statement* delete_committed_fingerprint;
+        soar_module::sqlite_statement* set_committed_fingerprint;
+        soar_module::sqlite_statement* delete_reversed_committed_spread;
         soar_module::sqlite_statement* calc_uncommitted_spread;
 
 

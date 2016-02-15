@@ -662,10 +662,10 @@ void smem_statement_container::create_tables()
      */
     add_structure("CREATE TABLE smem_trajectory_num (lti_id INTEGER, num_appearances REAL)");
     // This contains the counts needed to calculation spreading activation values for ltis in working memory.
-    add_structure("CREATE TABLE smem_current_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, PRIMARY KEY (lti_source, lti_id)) WITHOUT ROWID");
+    add_structure("CREATE TABLE smem_current_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, sign INTEGER, committed INTEGER)");
     // This keeps track of the context.
     add_structure("CREATE TABLE smem_current_context (lti_id INTEGER PRIMARY KEY)");
-    add_structure("CREATE TABLE smem_uncommitted_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, sign INTEGER, PRIMARY KEY (lti_source,lti_id)) WITHOUT ROWID");
+//    add_structure("CREATE TABLE smem_uncommitted_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, sign INTEGER, PRIMARY KEY (lti_source,lti_id)) WITHOUT ROWID");
     add_structure("CREATE TABLE smem_current_spread_activations (lti_id INTEGER PRIMARY KEY, activation_base_level REAL,activation_spread REAL,activation_value REAL)");
 
     //Also adding in prohibit tracking in order to meaningfully use BLA with "activate-on-query".
@@ -755,10 +755,11 @@ void smem_statement_container::create_indices()
     add_structure("CREATE INDEX lti_tid10 ON smem_likelihood_trajectories (lti_id,lti10) WHERE lti10!=0");
     add_structure("CREATE INDEX lti_cue ON smem_likelihoods (lti_j)");
     add_structure("CREATE INDEX lti_given ON smem_likelihoods (lti_i)"); // Want p(i|j), but use ~ p(j|i)p(i), where j is LTI in WMem.
-    //add_structure("CREATE INDEX lti_spreaded ON smem_current_spread (lti_id)");
+    add_structure("CREATE INDEX lti_spreaded ON smem_current_spread (lti_id, committed, sign)");
+    add_structure("CREATE INDEX lti_source ON smem_current_spread (lti_source, sign, committed)");
     //add_structure("CREATE INDEX lti_source ON smem_current_spread (lti_source)");//,lti_id,num_appearances,num_appearances_i_j)");
-    add_structure("CREATE INDEX lti_sink ON smem_uncommitted_spread (lti_id)");
-    add_structure("CREATE INDEX lti_source ON smem_uncommitted_spread (lti_source)");
+    //add_structure("CREATE INDEX lti_sink ON smem_uncommitted_spread (lti_id)");
+   // add_structure("CREATE INDEX lti_source ON smem_uncommitted_spread (lti_source)");
     add_structure("CREATE INDEX lti_count ON smem_trajectory_num (lti_id)");
 }
 
@@ -1139,7 +1140,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add(calc_spread);
 
     //gets the relevant info from currently relevant ltis
-    calc_uncommitted_spread = new soar_module::sqlite_statement(new_db,"SELECT lti_id,num_appearances,num_appearances_i_j,sign FROM smem_uncommitted_spread WHERE lti_id = ?");
+    calc_uncommitted_spread = new soar_module::sqlite_statement(new_db,"SELECT lti_id,num_appearances,num_appearances_i_j,sign FROM smem_current_spread WHERE lti_id = ? AND committed=0");
     add(calc_uncommitted_spread);
 
     //gets the size of the current spread table.
@@ -1156,12 +1157,12 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     //When spread is still uncommitted, just remove. when it is committed, mark row as negative.
     //This should be called alongside reverse_old_committed_spread
-    delete_old_uncommitted_spread = new soar_module::sqlite_statement(new_db,"DELETE FROM smem_uncommitted_spread WHERE lti_source=? AND sign=1");
+    delete_old_uncommitted_spread = new soar_module::sqlite_statement(new_db,"DELETE FROM smem_current_spread WHERE lti_source=? AND sign=1 AND committed=0");
     add(delete_old_uncommitted_spread);
 
     //When spread is committed but needs removal, add a negative row for later processing.
     //This needs to be called before delete_old_spread and for the same value as delete_old_spread's delete.
-    reverse_old_committed_spread = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_uncommitted_spread SELECT lti_id,num_appearances_i_j,num_appearances,lti_source,0 FROM smem_current_spread WHERE lti_source=? AND EXISTS (SELECT 1 FROM smem_current_spread_activations WHERE smem_current_spread_activations.lti_id=smem_current_spread.lti_id)");
+    reverse_old_committed_spread = new soar_module::sqlite_statement(new_db,"UPDATE smem_current_spread SET sign=0, committed=0 WHERE lti_source=? AND sign=1 AND committed=1");
     add(reverse_old_committed_spread);
 
     //add lti to the context table
@@ -1169,7 +1170,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add(add_new_context);
 
     //add a fingerprint's information to the current spread table.
-    add_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_current_spread(lti_id,num_appearances_i_j,num_appearances,lti_source) SELECT lti_i,num_appearances_i_j,num_appearances,lti_j FROM (SELECT * FROM smem_likelihoods WHERE lti_j=?) INNER JOIN smem_trajectory_num ON lti_id=lti_j");
+    add_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_current_spread(lti_id,num_appearances_i_j,num_appearances,lti_source,sign,committed) SELECT lti_i,num_appearances_i_j,num_appearances,lti_j,1,0 FROM (SELECT * FROM smem_likelihoods WHERE lti_j=?) INNER JOIN smem_trajectory_num ON lti_id=lti_j");
     add(add_fingerprint);
 
     //add a fingerprint's information to the current uncommitted spread table. should happen after add_fingerprint
@@ -1177,9 +1178,12 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add(add_uncommitted_fingerprint);
 
     //remove a fingerprint's information from the current uncommitted spread table.(has been processed)
-    delete_committed_fingerprint = new soar_module::sqlite_statement(new_db,"DELETE FROM smem_uncommitted_spread WHERE lti_id=?");
-    add(delete_committed_fingerprint);
+    set_committed_fingerprint = new soar_module::sqlite_statement(new_db,"UPDATE smem_current_spread SET committed=1 WHERE lti_id=?");
+    add(set_committed_fingerprint);
 
+    //actually delete
+    delete_reversed_committed_spread = new soar_module::sqlite_statement(new_db,"DELETE FROM smem_current_spread WHERE lti_id=? AND committed=1 AND sign=0");
+    add(delete_reversed_committed_spread);
     //
 
     //Modified to include spread value.
@@ -3143,7 +3147,7 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
         thisAgent->smem_timers->spreading_calc_2_2_1_1->stop();
         ////////////////////////////////////////////////////////////////////////////
     }
-    for (smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
+    /*for (smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
     {
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->smem_timers->spreading_calc_2_2_1_2->start();
@@ -3153,7 +3157,7 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->smem_timers->spreading_calc_2_2_1_2->stop();
         ////////////////////////////////////////////////////////////////////////////
-    }
+    }*/
     thisAgent->smem_context_additions->clear();
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->smem_timers->spreading_calc_2_2_1->stop();
@@ -3374,6 +3378,17 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                 }
             }
         }
+    }
+    //set_committed_fingerprint, delete_reversed_committed_spread
+    for (smem_lti_set::iterator candidate = current_candidates->begin(); candidate != current_candidates->end(); ++candidate)
+    {
+        thisAgent->smem_stmts->set_committed_fingerprint->bind_int(1,*candidate);
+        thisAgent->smem_stmts->set_committed_fingerprint->execute(soar_module::op_reinit);
+    }
+    for (smem_lti_set::iterator candidate = current_candidates->begin(); candidate != current_candidates->end(); ++candidate)
+    {
+        thisAgent->smem_stmts->delete_reversed_committed_spread->bind_int(1,*candidate);
+        thisAgent->smem_stmts->delete_reversed_committed_spread->execute(soar_module::op_reinit);
     }
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->smem_timers->spreading_calc_2_2_3->stop();
