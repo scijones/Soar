@@ -1065,7 +1065,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add(vis_lti);
     
     //Modified to include spread value.
-    vis_lti_act = new soar_module::sqlite_statement(new_db, "SELECT activation_base_level,activation_spread FROM smem_lti WHERE lti_id=?");
+    vis_lti_act = new soar_module::sqlite_statement(new_db, "SELECT activation_value,activation_spread FROM smem_lti WHERE lti_id=?");
     add(vis_lti_act);
     
     vis_act = new soar_module::sqlite_statement(new_db, "SELECT DISTINCT activation_value FROM smem_augmentations WHERE lti_id=?");
