@@ -20,7 +20,6 @@
 #include "debug.h"
 #include "decide.h"
 #include "explain.h"
-#include "init_soar.h"
 #include "instantiation.h"
 #include "preference.h"
 #include "print.h"
@@ -38,6 +37,7 @@
 #include <stdlib.h>
 #include <cstring>
 #include <ctype.h>
+#include <run_soar.h>
 
 using namespace soar_TraceNames;
 
@@ -863,20 +863,20 @@ void Explanation_Based_Chunker::add_chunk_to_rete()
     {
         #ifdef BUILD_WITH_EXPLAINER
         assert(m_prod);
-        thisAgent->explanationLogger->record_chunk_contents(m_prod, m_vrblz_top, m_rhs, m_results, unification_map, m_inst, m_chunk_inst);
+            thisAgent->explanationLogger->record_chunk_contents(m_prod, m_vrblz_top, m_rhs, m_results, unification_map, m_inst, m_chunk_inst);
         if (m_prod_type == JUSTIFICATION_PRODUCTION_TYPE) {
             thisAgent->explanationLogger->increment_stat_justifications();
         } else {
             thisAgent->explanationLogger->increment_stat_succeeded();
         }
-        #endif
+            #endif
         dprint(DT_VARIABLIZATION_MANAGER, "Add production to rete result: Refracted instantiation matched.\n");
 
     } else if (rete_addition_result == DUPLICATE_PRODUCTION) {
         #ifdef BUILD_WITH_EXPLAINER
-        thisAgent->explanationLogger->increment_stat_duplicates(duplicate_rule);
+            thisAgent->explanationLogger->increment_stat_duplicates(duplicate_rule);
         thisAgent->explanationLogger->cancel_chunk_record();
-        #endif
+            #endif
         excise_production(thisAgent, m_prod, false);
         m_chunk_inst->in_ms = false;
         dprint(DT_VARIABLIZATION_MANAGER, "Add production to rete result: Duplicate production.\n");
@@ -884,16 +884,16 @@ void Explanation_Based_Chunker::add_chunk_to_rete()
         if (m_prod_type == JUSTIFICATION_PRODUCTION_TYPE)
         {
             #ifdef BUILD_WITH_EXPLAINER
-            thisAgent->explanationLogger->increment_stat_justification_did_not_match();
+                    thisAgent->explanationLogger->increment_stat_justification_did_not_match();
             thisAgent->explanationLogger->cancel_chunk_record();
-            #endif
+                    #endif
             excise_production(thisAgent, m_prod, false);
         } else {
             #ifdef BUILD_WITH_EXPLAINER
-            thisAgent->explanationLogger->increment_stat_chunk_did_not_match();
+                    thisAgent->explanationLogger->increment_stat_chunk_did_not_match();
             assert(m_prod);
             thisAgent->explanationLogger->record_chunk_contents(m_prod, m_vrblz_top, m_rhs, m_results, unification_map, m_inst, m_chunk_inst);
-            #endif
+                    #endif
             /* MToDo | Why don't we excise the chunk here like we do non-matching
              * justifications? It doesn't seem like either case of non-matching rule
              * should be possible unless a chunking or gds problem has occurred.
@@ -986,9 +986,9 @@ void Explanation_Based_Chunker::build_chunk_or_justification(instantiation* inst
     {
         thisAgent->outputManager->display_soar_error(thisAgent, ebc_error_no_conditions, PRINT_WARNINGS_SYSPARAM);
         #ifdef BUILD_WITH_EXPLAINER
-        thisAgent->explanationLogger->increment_stat_no_grounds();
+            thisAgent->explanationLogger->increment_stat_no_grounds();
         thisAgent->explanationLogger->cancel_chunk_record();
-        #endif
+            #endif
         clean_up();
         return;
     }
@@ -1061,8 +1061,8 @@ void Explanation_Based_Chunker::build_chunk_or_justification(instantiation* inst
 
             deallocate_failed_chunk();
             #ifdef BUILD_WITH_EXPLAINER
-            thisAgent->explanationLogger->cancel_chunk_record();
-            #endif
+                    thisAgent->explanationLogger->cancel_chunk_record();
+                    #endif
             clean_up();
             return;
         }

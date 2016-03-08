@@ -111,8 +111,7 @@ class Explanation_Based_Chunker
         uint64_t get_chunk_count() { return chunk_count; };
         void     set_chunk_count(uint64_t pChunkCount) { chunk_count = pChunkCount; };
         char*    get_chunk_name_prefix() { return chunk_name_prefix; };
-        void     set_chunk_name_prefix(const char* pChunk_name_prefix)
-                 { free(chunk_name_prefix); strcpy(chunk_name_prefix, pChunk_name_prefix); };
+        void     set_chunk_name_prefix(const char* pChunk_name_prefix);
 
         /* Determines whether learning is on for a particular instantiation
          * based on the global learning settings and whether the state chunky */
@@ -158,8 +157,8 @@ class Explanation_Based_Chunker
         uint64_t            chunks_this_d_cycle;
 
         /* String that every chunk name begins with */
-        char                chunk_name_prefix[kChunkNamePrefixMaxLength];
-        char                justification_name_prefix[kChunkNamePrefixMaxLength];
+        char*               chunk_name_prefix;
+        char*               justification_name_prefix;
 
         /* Variables used by dependency analysis methods */
         ::list*             grounds;
@@ -278,9 +277,8 @@ class Explanation_Based_Chunker
         void update_unification_table(uint64_t pOld_o_id, uint64_t pNew_o_id, uint64_t pOld_o_id_2 = 0);
         void create_consistent_identity_for_result_element(preference* result, uint64_t pNew_i_id, WME_Field field);
         bool unify_backtraced_dupe_conditions(condition* ground_cond, condition* new_cond);
-        void unify_backtraced_conditions(condition* parent_cond,
-        const identity_triple o_ids_to_replace,
-        const rhs_triple rhs_funcs);
+        void unify_backtraced_conditions(condition* parent_cond, const identity_triple o_ids_to_replace, const rhs_triple rhs_funcs);
+        void add_singleton_unification_if_needed(condition* pCond);
         void literalize_RHS_function_args(const rhs_value rv);
         void merge_conditions(condition* top_cond);
 

@@ -97,6 +97,7 @@ void debug_set_mode_info(trace_mode_info mode_info[num_trace_modes], bool pEnabl
     //    mode_info[DT_EXPLAIN_PATHS].enabled =               true;
     //    mode_info[DT_EXPLAIN_CONDS].enabled =               true;
         //    mode_info[DT_EXPLAIN_IDENTITIES].enabled =               true;
+        //DT_UNIFY_SINGLETONS
     }
 }
 
@@ -151,6 +152,8 @@ void initialize_debug_trace(trace_mode_info mode_info[num_trace_modes])
     mode_info[DT_EXPLAIN_UPDATE].prefix =               strdup("EUpdate | ");
     mode_info[DT_EXPLAIN_CONDS].prefix =                strdup("EConds  | ");
     mode_info[DT_EXPLAIN_IDENTITIES].prefix =           strdup("EIdent  | ");
+    mode_info[DT_UNIFY_SINGLETONS].prefix =             strdup("Unify_S | ");
+
 
 
 #ifdef DEBUG_OUTPUT_ON
@@ -323,10 +326,9 @@ void debug_trace_set(int dt_num, bool pEnable)
     {
         if (dt_num == 0)
         {
-             Output_Manager::Get_OM().set_output_params_global(true);
-             thisAgent->output_settings->set_output_params_agent(true);
-             print(thisAgent, "Debug output enabled.\n");
-             dprint(DT_DEBUG, "Test debug statement.\n");
+             Output_Manager::Get_OM().set_output_params_global(pEnable);
+             thisAgent->output_settings->set_output_params_agent(pEnable);
+             dprint(DT_DEBUG, "Debug output test statement...\n");
              return;
         }
         Output_Manager::Get_OM().set_output_mode(dt_num, pEnable);

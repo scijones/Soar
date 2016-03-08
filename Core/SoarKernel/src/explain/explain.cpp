@@ -81,6 +81,10 @@ void Explanation_Logger::clear_explanations()
     dprint(DT_EXPLAIN, "Explanation logger clearing instantiation records...\n");
     for (std::unordered_map< uint64_t, instantiation_record* >::iterator it = (*instantiations).begin(); it != (*instantiations).end(); ++it)
     {
+        if (it->second->original_production)
+        {
+            it->second->original_production->save_for_justification_explanation = false;
+        }
         delete it->second;
     }
     instantiations->clear();
@@ -352,15 +356,6 @@ instantiation_record* Explanation_Logger::get_instantiation(instantiation* pInst
 }
 
 
-void Explanation_Logger::record_dependencies()
-{
-
-    assert(current_discussed_chunk);
-
-    current_discussed_chunk->generate_dependency_paths();
-
-}
-
 bool Explanation_Logger::toggle_production_watch(production* pProduction)
 {
     if (pProduction->explain_its_chunks)
@@ -402,8 +397,8 @@ bool Explanation_Logger::explain_chunk(const std::string* pStringParameter)
         chunk_record* lFoundChunk = get_chunk_record(sym);
         if (lFoundChunk)
         {
-            discuss_chunk(lFoundChunk);
-            return true;
+                    discuss_chunk(lFoundChunk);
+                    return true;
         }
 
         outputManager->printa_sf(thisAgent, "Soar has not recorded an explanation for %s.\nType 'explain -l' to see a list of all chunk formations Soar has recorded.\n", pStringParameter->c_str());
@@ -420,7 +415,7 @@ void Explanation_Logger::discuss_chunk(chunk_record* pChunkRecord)
 {
     if (current_discussed_chunk != pChunkRecord)
     {
-        outputManager->printa_sf(thisAgent, "Now explaining %y.  - Note that future explain commands are now relative to the problem-solving that led to that chunk.\n\n", pChunkRecord->name);
+        outputManager->printa_sf(thisAgent, "Now explaining %y.\n  - Note that future explain commands are now relative to the problem-solving that led to that chunk.\n\n", pChunkRecord->name);
         if (current_discussed_chunk)
         {
             clear_chunk_from_instantiations();
@@ -540,15 +535,15 @@ bool Explanation_Logger::explain_item(const std::string* pObjectTypeString, cons
         {
             outputManager->printa_sf(thisAgent, "The chunk ID must be a number.  Use 'explain [chunk-name] to explain by name.'\n");
         }
-        lSuccess = print_chunk_explanation_for_id(lObjectID);
-    } else if (lFirstChar == 'i')
+            lSuccess = print_chunk_explanation_for_id(lObjectID);
+        } else if (lFirstChar == 'i')
     {
         if (!from_string(lObjectID, pObjectIDString->c_str()))
         {
             outputManager->printa_sf(thisAgent, "The instantiation ID must be a number.\n");
         }
-        lSuccess = print_instantiation_explanation_for_id(lObjectID);
-    } else if (lFirstChar == 'l')
+            lSuccess = print_instantiation_explanation_for_id(lObjectID);
+        } else if (lFirstChar == 'l')
     {
         if (!from_string(lObjectID, pObjectIDString->c_str()))
         {
