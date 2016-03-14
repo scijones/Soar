@@ -405,6 +405,9 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* history_remove;
         soar_module::sqlite_statement* vis_lti;
         soar_module::sqlite_statement* vis_lti_act;
+        soar_module::sqlite_statement* vis_lti_check_spread;
+        soar_module::sqlite_statement* vis_lti_base_act;
+        soar_module::sqlite_statement* vis_lti_all_act;
         soar_module::sqlite_statement* vis_act;
         soar_module::sqlite_statement* vis_value_const;
         soar_module::sqlite_statement* vis_value_lti;
