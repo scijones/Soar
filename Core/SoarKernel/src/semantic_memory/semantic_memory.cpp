@@ -1238,6 +1238,18 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     vis_lti_act = new soar_module::sqlite_statement(new_db, "SELECT CASE WHEN activation_value IS NULL THEN activation_value_lti ELSE activation_value END AS activation_val FROM ((SELECT lti_id AS lti_id1, activation_value AS activation_value_lti FROM smem_lti WHERE lti_id1=?) LEFT OUTER JOIN smem_current_spread_activations ON lti_id1=smem_current_spread_activations.lti_id AND activation_value_lti != smem_current_spread_activations.activation_value)");
     add(vis_lti_act);
     
+    //Check if spreading activation exists. (returns a 1 if so)
+    vis_lti_check_spread = new soar_module::sqlite_statement(new_db, "SELECT CASE WHEN activation_value IS NULL THEN 0 ELSE 1 END AS activation_val FROM ((SELECT lti_id AS lti_id1, activation_value AS activation_value_lti FROM smem_lti WHERE lti_id1=?) LEFT OUTER JOIN smem_current_spread_activations ON lti_id1=smem_current_spread_activations.lti_id AND activation_value_lti != smem_current_spread_activations.activation_value)");
+    add(vis_lti_check_spread);
+
+    //If we only had base-level, return only base-level activation.
+    vis_lti_base_act = new soar_module::sqlite_statement(new_db, "SELECT activation_base_level,0,activation_value FROM smem_lti WHERE lti_id=?");
+    add(vis_lti_base_act);
+
+    //If we have spread, return all the activation data.
+    vis_lti_all_act = new soar_module::sqlite_statement(new_db, "SELECT activation_base_level,activation_spread,activation_value FROM smem_current_spread_activations WHERE lti_id=?");
+    add(vis_lti_all_act);
+
     //vis_act = new soar_module::sqlite_statement(new_db, "SELECT DISTINCT activation_value FROM smem_augmentations WHERE lti_id=?");
     //add(vis_act);
 
@@ -8173,7 +8185,7 @@ void smem_visualize_lti(agent* thisAgent, smem_lti_id lti_id, unsigned int depth
     return_val->append(return_val2);
 }
 
-inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti_id, char lti_letter, uint64_t lti_number, double lti_act, std::string* return_val, std::list<uint64_t>* history = NIL)
+inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti_id, char lti_letter, uint64_t lti_number, double lti_act_base, double lti_act_spread, double lti_act_total, std::string* return_val, std::list<uint64_t>* history = NIL)
 {
     std::set< smem_lti_id > next;
 
@@ -8342,12 +8354,25 @@ inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti
     augmentations.clear();
 
     return_val->append(" [");
-    to_string(lti_act, temp_str, 3, true);
-    if (lti_act >= 0)
+    to_string(lti_act_base, temp_str, 3, true);
+    if (lti_act_base >= 0)
     {
         return_val->append("+");
     }
     return_val->append(temp_str);
+    return_val->append(", ");
+    to_string(lti_act_spread, temp_str, 3, true);
+    if (lti_act_spread >= 0)
+    {
+        return_val->append("+");
+    }
+    return_val->append(temp_str);
+    return_val->append(", ");
+    to_string(lti_act_total, temp_str, 3, true);
+    if (lti_act_total >=0)
+    {
+        return_val->append("+");
+    }
     return_val->append("]");
     return_val->append(")\n");
 
@@ -8381,7 +8406,7 @@ void smem_print_store(agent* thisAgent, std::string* return_val)
     {
         act_q->bind_int(1, q->column_int(0));
         act_q->execute();
-        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), act_q->column_double(0), return_val);
+        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), 0, 0, act_q->column_double(0), return_val);
         act_q->reinitialize();
     }
     q->reinitialize();
@@ -8434,7 +8459,21 @@ void smem_print_lti(agent* thisAgent, smem_lti_id lti_id, uint64_t depth, std::s
                 thisAgent->smem_stmts->act_lti_child_ct_get->reinitialize();
             }
 
-            act_q = thisAgent->smem_stmts->vis_lti_act;
+/*            act_q = thisAgent->smem_stmts->vis_lti_act;
+            act_q->bind_int(1, c.first);
+            act_q->execute();*/
+            //Replacing the above code with code that prints out how much activation is from spread versus BLA.
+            thisAgent->smem_stmts->vis_lti_check_spread->bind_int(1,c.first);
+            thisAgent->smem_stmts->vis_lti_check_spread->execute();
+            if (thisAgent->smem_stmts->vis_lti_check_spread->column_int(0))
+            {
+                act_q = thisAgent->smem_stmts->vis_lti_all_act;
+            }
+            else
+            {
+                act_q = thisAgent->smem_stmts->vis_lti_base_act;
+            }
+            thisAgent->smem_stmts->vis_lti_check_spread->reinitialize();
             act_q->bind_int(1, c.first);
             act_q->execute();
 
@@ -8460,11 +8499,11 @@ void smem_print_lti(agent* thisAgent, smem_lti_id lti_id, uint64_t depth, std::s
 
             if (history && !access_history.empty())
             {
-                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), return_val, &(access_history));
+                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value())), act_q->column_double(2), return_val, &(access_history));
             }
             else
             {
-                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), return_val);
+                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value())), act_q->column_double(2), return_val);
             }
 
             // done with lookup
