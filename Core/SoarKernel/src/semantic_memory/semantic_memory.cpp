@@ -695,8 +695,8 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_current_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, PRIMARY KEY (lti_source, lti_id)) WITHOUT ROWID");
     // This keeps track of the context.
     add_structure("CREATE TABLE smem_current_context (lti_id INTEGER PRIMARY KEY)");
-    add_structure("CREATE TABLE smem_uncommitted_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, sign INTEGER, PRIMARY KEY(lti_id,lti_source)) WITHOUT ROWID");
-    add_structure("CREATE TABLE smem_committed_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, PRIMARY KEY(lti_source,lti_id)) WITHOUT ROWID");
+    add_structure("CREATE TABLE smem_uncommitted_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, sign INTEGER, time_introduced INTEGER, time_updated INTEGER, PRIMARY KEY(lti_id,lti_source, time_introduced)) WITHOUT ROWID");
+    add_structure("CREATE TABLE smem_committed_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, time_introduced INTEGER, time_updated INTEGER, PRIMARY KEY(lti_source,lti_id)) WITHOUT ROWID");
     add_structure("CREATE TABLE smem_current_spread_activations (lti_id INTEGER PRIMARY KEY, activation_base_level REAL,activation_spread REAL,activation_value REAL)");
 
     //Also adding in prohibit tracking in order to meaningfully use BLA with "activate-on-query".
@@ -1177,7 +1177,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     //add(calc_spread);
 
     //gets the relevant info from currently relevant ltis
-    calc_uncommitted_spread = new soar_module::sqlite_statement(new_db,"SELECT lti_id,num_appearances,num_appearances_i_j,sign,lti_source FROM smem_uncommitted_spread WHERE lti_id = ?");
+    calc_uncommitted_spread = new soar_module::sqlite_statement(new_db,"SELECT lti_id,num_appearances,num_appearances_i_j,sign,lti_source,time_introduced FROM smem_uncommitted_spread WHERE lti_id = ?");
     add(calc_uncommitted_spread);
 
     //gets the size of the current spread table.
@@ -1199,7 +1199,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     //When spread is committed but needs removal, add a negative row for later processing.
     //This needs to be called before delete_old_spread and for the same value as delete_old_spread's delete.
-    reverse_old_committed_spread = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_uncommitted_spread(lti_id,num_appearances_i_j,num_appearances,lti_source,sign) SELECT lti_id,num_appearances_i_j,num_appearances,lti_source,0 FROM smem_committed_spread WHERE lti_source=?");//
+    reverse_old_committed_spread = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_uncommitted_spread(lti_id,num_appearances_i_j,num_appearances,lti_source,sign,time_introduced,time_updated) SELECT lti_id,num_appearances_i_j,num_appearances,lti_source,0,time_introduced,time_updated FROM smem_committed_spread WHERE lti_source=?");//
     add(reverse_old_committed_spread);
 
     //add lti to the context table
@@ -1211,12 +1211,12 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add(add_fingerprint);
 
     //add a fingerprint's information to the current uncommitted spread table. should happen after add_fingerprint
-    add_uncommitted_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT OR IGNORE INTO smem_uncommitted_spread SELECT lti_id,num_appearances_i_j,num_appearances,lti_source,1 FROM smem_current_spread WHERE lti_source=?");
+    add_uncommitted_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT OR IGNORE INTO smem_uncommitted_spread SELECT lti_id,num_appearances_i_j,num_appearances,lti_source,1,?,? FROM smem_current_spread WHERE lti_source=?");
 //    add_uncommitted_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_uncommitted_spread(lti_id,num_appearances_i_j,num_appearances,lti_source,sign) SELECT lti_i,num_appearances_i_j,num_appearances,lti_j,1 FROM (SELECT * FROM smem_likelihoods WHERE lti_j=?) INNER JOIN smem_trajectory_num ON lti_id=lti_j");
     add(add_uncommitted_fingerprint);
 
-    remove_fingerprint_reversal = new soar_module::sqlite_statement(new_db, "DELETE FROM smem_uncommitted_spread WHERE lti_source=? AND lti_id IN (SELECT lti_id FROM smem_committed_spread WHERE lti_source=?)");
-    add(remove_fingerprint_reversal);
+    //remove_fingerprint_reversal = new soar_module::sqlite_statement(new_db, "DELETE FROM smem_uncommitted_spread WHERE lti_source=? AND lti_id IN (SELECT lti_id FROM smem_committed_spread WHERE lti_source=?)");
+    //add(remove_fingerprint_reversal);//We just won't use this in the decay version. It's less elegant than a weird update system, but more likely for me to get right the first time.
 
     //remove a fingerprint's information from the current uncommitted spread table.(has been processed)
     delete_committed_fingerprint = new soar_module::sqlite_statement(new_db,"DELETE FROM smem_uncommitted_spread WHERE lti_id=?");
@@ -1225,7 +1225,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     delete_commit_of_negative_fingerprint = new soar_module::sqlite_statement(new_db,"DELETE FROM smem_committed_spread WHERE lti_id=? AND lti_source=?");
     add(delete_commit_of_negative_fingerprint);
 
-    add_committed_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_committed_spread (lti_id,num_appearances_i_j,num_appearances,lti_source) VALUES (?,?,?,?)");
+    add_committed_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_committed_spread (lti_id,num_appearances_i_j,num_appearances,lti_source,time_introduced,time_updated) VALUES (?,?,?,?,?,?)");
     add(add_committed_fingerprint);
 
     //
@@ -3109,10 +3109,10 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
         std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
         if (thisAgent->smem_params->spreading_traversal->get_value() == smem_param_container::deterministic)
         {//One can do random walks or one can simulate them by doing a breadth-first traversal with coefficients. This is the latter.
-            for(smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
+            for(smem_lti_map::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
             {//We keep track of old walks. If we haven't changed smem, no need to recalculate.
-                thisAgent->smem_stmts->trajectory_check_invalid->bind_int(1,*it);
-                thisAgent->smem_stmts->trajectory_get->bind_int(1,*it);
+                thisAgent->smem_stmts->trajectory_check_invalid->bind_int(1,it->first);
+                thisAgent->smem_stmts->trajectory_get->bind_int(1,it->first);
                 bool was_invalid = (thisAgent->smem_stmts->trajectory_check_invalid->execute() == soar_module::row);
                 //If the previous trajectory is no longer valid because of a change to memory or we don't have a trajectory, we might need to remove
                 //the old one.
@@ -3124,15 +3124,15 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                     //We also need to make a new one.
                     if (was_invalid)
                     {
-                        thisAgent->smem_stmts->likelihood_cond_count_remove->bind_int(1,(*it));
+                        thisAgent->smem_stmts->likelihood_cond_count_remove->bind_int(1,(it->first));
                         thisAgent->smem_stmts->likelihood_cond_count_remove->execute(soar_module::op_reinit);
-                        thisAgent->smem_stmts->lti_count_num_appearances_remove->bind_int(1,(*it));
+                        thisAgent->smem_stmts->lti_count_num_appearances_remove->bind_int(1,(it->first));
                         thisAgent->smem_stmts->lti_count_num_appearances_remove->execute(soar_module::op_reinit);
                     }
                     ////////////////////////////////////////////////////////////////////////////
                     thisAgent->smem_timers->spreading_calc_2_1_det->start();
                     ////////////////////////////////////////////////////////////////////////////
-                    trajectory_construction_deterministic(thisAgent,*it,lti_trajectories);
+                    trajectory_construction_deterministic(thisAgent,it->first,lti_trajectories);
                     ////////////////////////////////////////////////////////////////////////////
                     thisAgent->smem_timers->spreading_calc_2_1_det->stop();
                     ////////////////////////////////////////////////////////////////////////////
@@ -3140,20 +3140,20 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                     for (int i = 1; i < 11; i++)
                     {
                         thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(2*i-1,p1);
-                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2*i,(*it));
+                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2*i,(it->first));
                         p1 = p1 * p1;
                     }
                     thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
-                    thisAgent->smem_stmts->lti_count_num_appearances_insert->bind_int(1,(*it));
+                    thisAgent->smem_stmts->lti_count_num_appearances_insert->bind_int(1,(it->first));
                     thisAgent->smem_stmts->lti_count_num_appearances_insert->execute(soar_module::op_reinit);
                 }
             }
         }
         else
         {//Random walks can be handled a little differently.
-            for(smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
+            for(smem_lti_map::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
             {//We keep track of old walks. If we havent changed smem, no need to recalculate.
-                thisAgent->smem_stmts->trajectory_get->bind_int(1,*it);
+                thisAgent->smem_stmts->trajectory_get->bind_int(1,it->first);
                 count = 0;
                 while(thisAgent->smem_stmts->trajectory_get->execute() == soar_module::row)
                 {
@@ -3165,15 +3165,15 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                     for (int i = 0; i < thisAgent->smem_params->number_trajectories->get_value()-count; ++i)
                     {
                         std::list<smem_lti_id> trajectory;
-                        trajectory.push_back(*it);
+                        trajectory.push_back(it->first);
                         trajectory_construction(thisAgent,trajectory,lti_trajectories,thisAgent->smem_params->spreading_depth_limit->get_value());
                     }
                     for (int i = 1; i < 11; i++)
                     {
-                        thisAgent->smem_stmts->likelihood_cond_count_insert->bind_int(i,(*it));
+                        thisAgent->smem_stmts->likelihood_cond_count_insert->bind_int(i,(it->first));
                     }
                     thisAgent->smem_stmts->likelihood_cond_count_insert->execute(soar_module::op_reinit);
-                    thisAgent->smem_stmts->lti_count_num_appearances_insert->bind_int(1,(*it));
+                    thisAgent->smem_stmts->lti_count_num_appearances_insert->bind_int(1,(it->first));
                     thisAgent->smem_stmts->lti_count_num_appearances_insert->execute(soar_module::op_reinit);
                 }
                 thisAgent->smem_stmts->trajectory_get->reinitialize();
@@ -3195,28 +3195,34 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
     ////////////////////////////////////////////////////////////////////////////
     soar_module::sqlite_statement* add_fingerprint = thisAgent->smem_stmts->add_fingerprint;
     soar_module::sqlite_statement* add_uncommitted_fingerprint = thisAgent->smem_stmts->add_uncommitted_fingerprint;
-    soar_module::sqlite_statement* remove_fingerprint_reversal = thisAgent->smem_stmts->remove_fingerprint_reversal;
-    for (smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
+    //soar_module::sqlite_statement* remove_fingerprint_reversal = thisAgent->smem_stmts->remove_fingerprint_reversal;
+    for (smem_lti_map::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
     {//Now we add the walks/traversals we've done. //can imagine doing this as a batch process through a join on a list of the additions if need be.
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->smem_timers->spreading_calc_2_2_1_1->start();
         ////////////////////////////////////////////////////////////////////////////
-        add_fingerprint->bind_int(1,(*it));
+        add_fingerprint->bind_int(1,(it->first));
         add_fingerprint->execute(soar_module::op_reinit);
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->smem_timers->spreading_calc_2_2_1_1->stop();
         ////////////////////////////////////////////////////////////////////////////
     }
-    for (smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
+    for (smem_lti_map::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
     {
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->smem_timers->spreading_calc_2_2_1_2->start();
         ////////////////////////////////////////////////////////////////////////////
-        add_uncommitted_fingerprint->bind_int(1,(*it));
+        add_uncommitted_fingerprint->bind_int(1,(it->first));
+        add_fingerprint->bind_int(2,(it->second));//time introduced = whatever the smem_context_additions set says it was.
+        add_fingerprint->bind_int(3,0);//time updated = never.
+        //The above times are measured in smem cycles. (same for BLA.)
         add_uncommitted_fingerprint->execute(soar_module::op_reinit);
-        remove_fingerprint_reversal->bind_int(1,(*it));
+
+        //In the decay version of spreading, we don't remove the reversal of a committed spread when the element is added back in.
+        //They will decay from different moments in time, so a reversal of the old spread and then a commit of the new spread is actually necessary.
+        /*remove_fingerprint_reversal->bind_int(1,(*it));
         remove_fingerprint_reversal->bind_int(2,(*it));
-        remove_fingerprint_reversal->execute(soar_module::op_reinit);
+        remove_fingerprint_reversal->execute(soar_module::op_reinit);*/
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->smem_timers->spreading_calc_2_2_1_2->stop();
         ////////////////////////////////////////////////////////////////////////////

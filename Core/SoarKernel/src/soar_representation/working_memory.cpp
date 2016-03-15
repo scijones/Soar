@@ -327,7 +327,7 @@ void do_buffered_wm_changes(agent* thisAgent)
                 }
                 else
                 {
-                    thisAgent->smem_context_additions->insert(w->id->id->smem_lti);
+                    (*(thisAgent->smem_context_additions))[w->id->id->smem_lti] = thisAgent->smem_max_cycle;
                 }
             }
             else

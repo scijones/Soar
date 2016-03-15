@@ -415,7 +415,7 @@ agent* create_soar_agent(char* agent_name)                                      
 
     thisAgent->smem_in_wmem = new smem_lti_map;
     thisAgent->smem_spreaded_to = new smem_lti_unordered_map;
-    thisAgent->smem_context_additions = new smem_lti_set;
+    thisAgent->smem_context_additions = new smem_lti_map;
     thisAgent->smem_context_removals = new smem_lti_set;
     thisAgent->substate_break_level = 0;
     

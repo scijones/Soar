@@ -763,7 +763,7 @@ typedef struct EXPORT agent_struct
 
     smem_lti_map* smem_in_wmem;//These are for spreading.
     smem_lti_unordered_map* smem_spreaded_to;
-    smem_lti_set* smem_context_additions;
+    smem_lti_map* smem_context_additions;
     smem_lti_set* smem_context_removals;
 
 	// BasicWeightedCue from JSoar for unit testing
