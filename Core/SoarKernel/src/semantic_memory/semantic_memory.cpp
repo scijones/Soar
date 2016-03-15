@@ -1239,7 +1239,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add(vis_lti_act);
     
     //Check if spreading activation exists. (returns a 1 if so)
-    vis_lti_check_spread = new soar_module::sqlite_statement(new_db, "SELECT CASE WHEN activation_value IS NULL THEN 0 ELSE 1 END AS activation_val FROM ((SELECT lti_id AS lti_id1, activation_value AS activation_value_lti FROM smem_lti WHERE lti_id1=?) LEFT OUTER JOIN smem_current_spread_activations ON lti_id1=smem_current_spread_activations.lti_id AND activation_value_lti != smem_current_spread_activations.activation_value)");
+    vis_lti_check_spread = new soar_module::sqlite_statement(new_db, "SELECT COUNT(*) FROM smem_current_spread_activations WHERE lti_id=?");
     add(vis_lti_check_spread);
 
     //If we only had base-level, return only base-level activation.
@@ -8375,11 +8375,12 @@ inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti
     return_val->append(", ");
     temp_str.clear();
     to_string(lti_act_total, temp_str, 3, true);
-    temp_str.clear();
     if (lti_act_total >=0)
     {
         return_val->append("+");
     }
+    return_val->append(temp_str);
+    temp_str.clear();
     return_val->append("]");
     return_val->append(")\n");
 
