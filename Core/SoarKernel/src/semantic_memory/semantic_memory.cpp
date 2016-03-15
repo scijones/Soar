@@ -8193,6 +8193,10 @@ void smem_visualize_lti(agent* thisAgent, smem_lti_id lti_id, unsigned int depth
 
 inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti_id, char lti_letter, uint64_t lti_number, double lti_act_base, double lti_act_spread, double lti_act_total, std::string* return_val, std::list<uint64_t>* history = NIL)
 {
+    if (lti_act_spread < 0)
+    {
+        lti_act_spread = 0;
+    }
     std::set< smem_lti_id > next;
 
     std::string temp_str, temp_str2, temp_str3;
@@ -8367,6 +8371,7 @@ inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti
     }
     return_val->append(temp_str);
     return_val->append(", ");
+    temp_str.clear();
     to_string(lti_act_spread, temp_str, 3, true);
     if (lti_act_spread >= 0)
     {
@@ -8374,7 +8379,9 @@ inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti
     }
     return_val->append(temp_str);
     return_val->append(", ");
+    temp_str.clear();
     to_string(lti_act_total, temp_str, 3, true);
+    temp_str.clear();
     if (lti_act_total >=0)
     {
         return_val->append("+");
@@ -8407,12 +8414,23 @@ void smem_print_store(agent* thisAgent, std::string* return_val)
 {
     // id, soar_letter, number
     soar_module::sqlite_statement* q = thisAgent->smem_stmts->vis_lti;
-    soar_module::sqlite_statement* act_q = thisAgent->smem_stmts->vis_lti_act;
+    soar_module::sqlite_statement* act_q;// = thisAgent->smem_stmts->vis_lti_act;
     while (q->execute() == soar_module::row)
     {
+        thisAgent->smem_stmts->vis_lti_check_spread->bind_int(1,q->column_int(0));
+        thisAgent->smem_stmts->vis_lti_check_spread->execute();
+        if (thisAgent->smem_stmts->vis_lti_check_spread->column_int(0))
+        {
+            act_q = thisAgent->smem_stmts->vis_lti_all_act;
+        }
+        else
+        {
+            act_q = thisAgent->smem_stmts->vis_lti_base_act;
+        }
+        thisAgent->smem_stmts->vis_lti_check_spread->reinitialize();
         act_q->bind_int(1, q->column_int(0));
         act_q->execute();
-        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), 0, 0, act_q->column_double(0), return_val);
+        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value())), act_q->column_double(2), return_val);
         act_q->reinitialize();
     }
     q->reinitialize();
