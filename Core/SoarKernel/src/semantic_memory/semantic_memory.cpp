@@ -206,6 +206,9 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
     continue_probability = new soar_module::decimal_param("continue-probability", 0.9, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
     add(continue_probability);
 
+    spreading_decay = new soar_module::decimal_param("spreading-decay", 0.9, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
+    add(spreading_decay);
+
     // spreading direction
     spreading_direction = new soar_module::constant_param<spreading_directions>("spreading-direction", forwards, new soar_module::f_predicate<spreading_directions>());
     spreading_direction->add_mapping(forwards, "forwards");//along the edges
@@ -1176,8 +1179,12 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     //calc_spread = new soar_module::sqlite_statement(new_db,"SELECT lti_id,num_appearances,num_appearances_i_j FROM smem_current_spread WHERE lti_source = ?");
     //add(calc_spread);
 
+    //Checks the time_updated of a given lti_id in the smem_committed_spread table.
+    check_time_updated = new soar_module::sqlite_statement(new_db, "SELECT time_updated FROM smem_committed_spread WHERE lti_id=? LIMIT 1");
+    add(check_time_updated);
+
     //gets the relevant info from currently relevant ltis
-    calc_uncommitted_spread = new soar_module::sqlite_statement(new_db,"SELECT lti_id,num_appearances,num_appearances_i_j,sign,lti_source,time_introduced FROM smem_uncommitted_spread WHERE lti_id = ?");
+    calc_uncommitted_spread = new soar_module::sqlite_statement(new_db,"SELECT lti_id,num_appearances,num_appearances_i_j,sign,lti_source,time_introduced,time_updated FROM smem_uncommitted_spread WHERE lti_id = ?");
     add(calc_uncommitted_spread);
 
     //gets the size of the current spread table.
@@ -1228,6 +1235,9 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add_committed_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_committed_spread (lti_id,num_appearances_i_j,num_appearances,lti_source,time_introduced,time_updated) VALUES (?,?,?,?,?,?)");
     add(add_committed_fingerprint);
 
+    //For spreading that was stale from some lti, we indicate that spread has been appropriately calcualted for that lti.
+    update_committed_fingerprints_from_lti = new soar_module::sqlite_statement(new_db,"UPDATE smem_committed_spread SET time_updated=? WHERE lti_id=?");
+    add(update_committed_fingerprints_from_lti);
     //
 
     //Modified to include spread value.
@@ -3212,10 +3222,11 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->smem_timers->spreading_calc_2_2_1_2->start();
         ////////////////////////////////////////////////////////////////////////////
-        add_uncommitted_fingerprint->bind_int(1,(it->first));
-        add_fingerprint->bind_int(2,(it->second));//time introduced = whatever the smem_context_additions set says it was.
-        add_fingerprint->bind_int(3,0);//time updated = never.
+        add_fingerprint->bind_int(1,(it->second));//time introduced = whatever the smem_context_additions set says it was.
+        add_fingerprint->bind_int(2,0);//time updated = never.
         //The above times are measured in smem cycles. (same for BLA.)
+        add_uncommitted_fingerprint->bind_int(3,(it->first));
+
         add_uncommitted_fingerprint->execute(soar_module::op_reinit);
 
         //In the decay version of spreading, we don't remove the reversal of a committed spread when the element is added back in.
@@ -3293,6 +3304,8 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
     bool still_exists;
     double spread = 0;
     double modified_spread = 0;
+    bool stale_spread;
+    int64_t time_updated;
     soar_module::sqlite_statement* calc_uncommitted_spread = thisAgent->smem_stmts->calc_uncommitted_spread;
     for (smem_lti_set::iterator candidate = current_candidates->begin(); candidate != current_candidates->end(); ++candidate)
     {
@@ -3333,7 +3346,17 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_3_2->start();
                 ////////////////////////////////////////////////////////////////////////////
-
+                stale_spread = false;
+                if (already_in_spread_table)
+                {
+                    //If the element is already in the spread table, we need to check the time of the last update for this element.
+                    //We can then discount old spread appropriately.
+                    thisAgent->smem_stmts->check_time_updated->bind_int(1,*candidate);
+                    thisAgent->smem_stmts->check_time_updated->execute();
+                    time_updated = thisAgent->smem_stmts->check_time_updated->column_int(0);
+                    thisAgent->smem_stmts->check_time_updated->reinitialize();
+                    stale_spread = (thisAgent->smem_max_cycle > time_updated);
+                }
                 if (thisAgent->smem_params->spreading_type->get_value() == smem_param_container::actr)
                 {
                     raw_prob = (((double)(calc_uncommitted_spread->column_int(2)))/(calc_uncommitted_spread->column_int(1)+1));
@@ -3351,7 +3374,7 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                     }
                     //offset = (thisAgent->smem_params->spreading_baseline->get_value())/(calc_spread->column_double(1));
                     offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
-                    additional = raw_prob;//(log(raw_prob)-log(offset));
+                    additional = (thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5) > 0) ? pow(thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5),thisAgent->smem_params->spreading_decay->get_value())*raw_prob : raw_prob;//(log(raw_prob)-log(offset));
                 }
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_3_2->stop();
@@ -3359,7 +3382,14 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_3_3->start();
                 ////////////////////////////////////////////////////////////////////////////
-                spread+=additional;//Now, we've adjusted the activation according to this new addition.
+                if (stale_spread)
+                {
+                    spread = pow(thisAgent->smem_max_cycle - time_updated,thisAgent->smem_params->spreading_decay->get_value())*spread + additional;
+                }
+                else
+                {
+                    spread+=additional;//Now, we've adjusted the activation according to this new addition.
+                }
 
                 thisAgent->smem_stmts->act_lti_child_ct_get->bind_int(1, *candidate);
                 thisAgent->smem_stmts->act_lti_child_ct_get->execute();
@@ -3378,10 +3408,21 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                 {
                     new_base = prev_base;
                 }
+
+                //First, if the spread was stale, we update the time_updated for the stale spreads.
+                if (stale_spread)
+                {
+                    thisAgent->smem_stmts->update_committed_fingerprints_from_lti->bind_int(1,thisAgent->smem_max_cycle);
+                    thisAgent->smem_stmts->update_committed_fingerprints_from_lti->bind_int(2,*candidate);
+                    thisAgent->smem_stmts->update_committed_fingerprints_from_lti->execute(soar_module::op_reinit);
+                }
+                //Then, we insert the new one.
                 thisAgent->smem_stmts->add_committed_fingerprint->bind_int(1,*candidate);
                 thisAgent->smem_stmts->add_committed_fingerprint->bind_double(2,(double)(calc_uncommitted_spread->column_double(2)));
                 thisAgent->smem_stmts->add_committed_fingerprint->bind_double(3,(double)(calc_uncommitted_spread->column_double(1)));
                 thisAgent->smem_stmts->add_committed_fingerprint->bind_int(4,(calc_uncommitted_spread->column_int(4)));
+                thisAgent->smem_stmts->add_committed_fingerprint->bind_int(5,calc_uncommitted_spread->column_int(5));
+                thisAgent->smem_stmts->add_committed_fingerprint->bind_int(6,thisAgent->smem_max_cycle);
                 thisAgent->smem_stmts->add_committed_fingerprint->execute(soar_module::op_reinit);
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_3_3->stop();
@@ -3451,6 +3492,17 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_3_6->start();
                 ////////////////////////////////////////////////////////////////////////////
+                stale_spread = false;
+                if (already_in_spread_table)
+                {
+                    //If the element is already in the spread table, we need to check the time of the last update for this element.
+                    //We can then discount old spread appropriately.
+                    thisAgent->smem_stmts->check_time_updated->bind_int(1,*candidate);
+                    thisAgent->smem_stmts->check_time_updated->execute();
+                    time_updated = thisAgent->smem_stmts->check_time_updated->column_int(0);
+                    thisAgent->smem_stmts->check_time_updated->reinitialize();
+                    stale_spread = (thisAgent->smem_max_cycle > time_updated);
+                }
                 if (thisAgent->smem_params->spreading_type->get_value() == smem_param_container::actr)
                 {
                     raw_prob = (((double)(calc_uncommitted_spread->column_int(2)))/(calc_uncommitted_spread->column_int(1)+1));
@@ -3469,17 +3521,33 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                     //It could be thought of as an overall confidence in spreading itself.
                     offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
                     //additional = (log(raw_prob)-log(offset));
+                    raw_prob = (thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5) > 0) ? pow(thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5),thisAgent->smem_params->spreading_decay->get_value())*raw_prob : raw_prob;
                 }
                 thisAgent->smem_stmts->delete_commit_of_negative_fingerprint->bind_int(1,*candidate);
                 thisAgent->smem_stmts->delete_commit_of_negative_fingerprint->bind_int(2,calc_uncommitted_spread->column_int(4));
                 thisAgent->smem_stmts->delete_commit_of_negative_fingerprint->execute(soar_module::op_reinit);
+                //If the spread was stale, we update the time_updated for the remaining stale spreads.
+                if (stale_spread)
+                {
+                    thisAgent->smem_stmts->update_committed_fingerprints_from_lti->bind_int(1,thisAgent->smem_max_cycle);
+                    thisAgent->smem_stmts->update_committed_fingerprints_from_lti->bind_int(2,*candidate);
+                    thisAgent->smem_stmts->update_committed_fingerprints_from_lti->execute(soar_module::op_reinit);
+                }
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_3_6->stop();
                 ////////////////////////////////////////////////////////////////////////////
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_3_7->start();
                 ////////////////////////////////////////////////////////////////////////////
-                spread-=raw_prob;//additional;//Now, we've adjusted the activation according to this new addition.
+                if (stale_spread)
+                {
+                    spread = spread*pow(thisAgent->smem_max_cycle - time_updated,thisAgent->smem_params->spreading_decay->get_value()) - raw_prob;
+                }
+                else
+                {
+                    spread-=raw_prob;
+                }
+                //spread-=raw_prob;//additional;//Now, we've adjusted the activation according to this new addition.
                 thisAgent->smem_stmts->act_lti_child_ct_get->bind_int(1, *candidate);
                 thisAgent->smem_stmts->act_lti_child_ct_get->execute();
 

@@ -109,6 +109,7 @@ class smem_param_container: public soar_module::param_container
         soar_module::decimal_param* spreading_depth_limit;
         soar_module::decimal_param* spreading_baseline;
         soar_module::decimal_param* continue_probability;
+        soar_module::decimal_param* spreading_decay;
         soar_module::boolean_param* spreading_loop_avoidance;
         enum base_update_choices { bupt_stable, bupt_naive, bupt_incremental };
         soar_module::constant_param<base_update_choices>* base_update;
@@ -449,9 +450,11 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* add_uncommitted_fingerprint;
         //soar_module::sqlite_statement* remove_fingerprint_reversal;
         soar_module::sqlite_statement* delete_committed_fingerprint;
+        soar_module::sqlite_statement* check_time_updated;
         soar_module::sqlite_statement* calc_uncommitted_spread;
         soar_module::sqlite_statement* delete_commit_of_negative_fingerprint;
         soar_module::sqlite_statement* add_committed_fingerprint;
+        soar_module::sqlite_statement* update_committed_fingerprints_from_lti;
 
         smem_statement_container(agent* new_agent);
 
