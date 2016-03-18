@@ -3374,7 +3374,7 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                     }
                     //offset = (thisAgent->smem_params->spreading_baseline->get_value())/(calc_spread->column_double(1));
                     offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
-                    additional = (thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5) > 0) ? pow(thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5),thisAgent->smem_params->spreading_decay->get_value())*raw_prob : raw_prob;//(log(raw_prob)-log(offset));
+                    additional = (thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5) > 0) ? pow(thisAgent->smem_params->spreading_decay->get_value(),thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5))*raw_prob : raw_prob;//(log(raw_prob)-log(offset));
                 }
                 ////////////////////////////////////////////////////////////////////////////
                 thisAgent->smem_timers->spreading_calc_2_2_3_2->stop();
@@ -3384,7 +3384,7 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                 ////////////////////////////////////////////////////////////////////////////
                 if (stale_spread)
                 {
-                    spread = pow(thisAgent->smem_max_cycle - time_updated,thisAgent->smem_params->spreading_decay->get_value())*spread + additional;
+                    spread = pow(thisAgent->smem_params->spreading_decay->get_value(),thisAgent->smem_max_cycle - time_updated)*spread + additional;
                 }
                 else
                 {
@@ -3521,7 +3521,7 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                     //It could be thought of as an overall confidence in spreading itself.
                     offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
                     //additional = (log(raw_prob)-log(offset));
-                    raw_prob = (thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5) > 0) ? pow(thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5),thisAgent->smem_params->spreading_decay->get_value())*raw_prob : raw_prob;
+                    raw_prob = (thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5) > 0) ? pow(thisAgent->smem_params->spreading_decay->get_value(),thisAgent->smem_max_cycle - calc_uncommitted_spread->column_int(5))*raw_prob : raw_prob;
                 }
                 thisAgent->smem_stmts->delete_commit_of_negative_fingerprint->bind_int(1,*candidate);
                 thisAgent->smem_stmts->delete_commit_of_negative_fingerprint->bind_int(2,calc_uncommitted_spread->column_int(4));
@@ -3541,7 +3541,7 @@ void smem_calc_spread(agent* thisAgent, smem_lti_set* current_candidates)
                 ////////////////////////////////////////////////////////////////////////////
                 if (stale_spread)
                 {
-                    spread = spread*pow(thisAgent->smem_max_cycle - time_updated,thisAgent->smem_params->spreading_decay->get_value()) - raw_prob;
+                    spread = spread*pow(thisAgent->smem_params->spreading_decay->get_value(),thisAgent->smem_max_cycle - time_updated) - raw_prob;
                 }
                 else
                 {
