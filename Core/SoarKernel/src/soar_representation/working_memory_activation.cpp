@@ -323,7 +323,7 @@ inline unsigned int wma_history_prev(unsigned int current)
 
 inline bool wma_should_have_decay_element(wme* w)
 {
-    return ((w->preference) && (w->preference->reference_count) && (w->preference->o_supported));
+    return ((w->preference) && (w->preference->reference_count) && (w->preference->o_supported) && (w->preference->inst->prod));
 }
 
 inline double wma_pow(agent* thisAgent, wma_d_cycle cycle_diff)
