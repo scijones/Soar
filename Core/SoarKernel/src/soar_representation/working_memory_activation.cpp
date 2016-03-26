@@ -989,7 +989,7 @@ inline bool wma_forgetting_update_p_queue(agent* thisAgent)
                             }
                             else
                             {
-                                if (wma_forgetting_forget_wme(thisAgent, (*current_p)->this_wme))
+                                if (((*current_p)->this_wme->id->id->smem_lti) && wma_forgetting_forget_wme(thisAgent, (*current_p)->this_wme))
                                 {
                                     return_val = true;
                                 }

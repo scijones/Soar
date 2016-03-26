@@ -358,9 +358,15 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* web_attr_all;
         soar_module::sqlite_statement* web_const_all;
         soar_module::sqlite_statement* web_lti_all;
+        soar_module::sqlite_statement* web_attr_all_spread;
+        soar_module::sqlite_statement* web_const_all_spread;
+        soar_module::sqlite_statement* web_lti_all_spread;
         soar_module::sqlite_statement* web_attr_all_cheap;
         soar_module::sqlite_statement* web_const_all_cheap;
         soar_module::sqlite_statement* web_lti_all_cheap;
+        soar_module::sqlite_statement* web_attr_all_manual;
+        soar_module::sqlite_statement* web_const_all_manual;
+        soar_module::sqlite_statement* web_lti_all_manual;
 
         soar_module::sqlite_statement* web_attr_child;
         soar_module::sqlite_statement* web_const_child;
@@ -448,8 +454,11 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* reverse_old_committed_spread;
         soar_module::sqlite_statement* add_uncommitted_fingerprint;
         soar_module::sqlite_statement* remove_fingerprint_reversal;
+        soar_module::sqlite_statement* prepare_delete_committed_fingerprint;
         soar_module::sqlite_statement* delete_committed_fingerprint;
+        soar_module::sqlite_statement* delete_committed_fingerprint_2;
         soar_module::sqlite_statement* calc_uncommitted_spread;
+        soar_module::sqlite_statement* list_uncommitted_spread;
         soar_module::sqlite_statement* delete_commit_of_negative_fingerprint;
         soar_module::sqlite_statement* add_committed_fingerprint;
 
