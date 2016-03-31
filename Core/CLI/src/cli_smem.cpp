@@ -432,7 +432,9 @@ bool CommandLineInterface::DoSMem(const char pOp, const std::string* pAttr, cons
                             }
                             else
                             {
+    thisAgent->smem_timers->total->start();
                                 smem_calc_spread_trajectories_deterministic(thisAgent);
+    thisAgent->smem_timers->total->stop();
                             }
                         }
                     }

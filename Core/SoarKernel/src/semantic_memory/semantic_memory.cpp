@@ -582,6 +582,12 @@ smem_timer_container::smem_timer_container(agent* new_agent): soar_module::timer
     add(spreading_calc_2_2_2_4);
     spreading_calc_2_2_3 = new smem_timer("spreading_calc_2_2_3", thisAgent, soar_module::timer::four);
     add(spreading_calc_2_2_3);
+    spreading_calc_2_2_3_e_1 = new smem_timer("spreading_calc_2_2_3_e_1", thisAgent, soar_module::timer::four);
+    add(spreading_calc_2_2_3_e_1);
+    spreading_calc_2_2_3_e_2 = new smem_timer("spreading_calc_2_2_3_e_2", thisAgent, soar_module::timer::four);
+    add(spreading_calc_2_2_3_e_2);
+    spreading_calc_2_2_3_e_3 = new smem_timer("spreading_calc_2_2_3_e_3", thisAgent, soar_module::timer::four);
+    add(spreading_calc_2_2_3_e_3);
     spreading_calc_2_2_3_1 = new smem_timer("spreading_calc_2_2_3_1", thisAgent, soar_module::timer::four);
     add(spreading_calc_2_2_3_1);
     spreading_calc_2_2_3_2 = new smem_timer("spreading_calc_2_2_3_2", thisAgent, soar_module::timer::four);
@@ -789,7 +795,7 @@ void smem_statement_container::create_indices()
     //add_structure("CREATE INDEX lti_spreaded ON smem_current_spread (lti_id)");
     //add_structure("CREATE INDEX lti_source ON smem_current_spread (lti_source)");//,lti_id,num_appearances,num_appearances_i_j)");
     //add_structure("CREATE INDEX lti_sink ON smem_uncommitted_spread (lti_id)");
-   // add_structure("CREATE INDEX lti_source ON smem_uncommitted_spread (lti_source)");//,sign) WHERE sign=1");
+    add_structure("CREATE INDEX lti_source ON smem_uncommitted_spread (lti_source)");//,sign) WHERE sign=1");
    // add_structure("CREATE INDEX lti_source_0 ON smem_uncommitted_spread (lti_source,sign) WHERE sign=0");
     //add_structure("CREATE INDEX lti_source_0 ON smem_uncommitted_spread (sign,lti_source)");
     //add_structure("CREATE INDEX lti_count ON smem_trajectory_num (lti_id)");
@@ -944,13 +950,13 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     web_lti_all = new soar_module::sqlite_statement(new_db, "SELECT lti_id AS lti_id1, activation_value AS activation_value_aug FROM smem_augmentations WHERE attribute_s_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=? ORDER BY activation_value_aug DESC");
     add(web_lti_all);
 
-    web_attr_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations LEFT INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=?");
+    web_attr_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=?");
     add(web_attr_all_spread);
     
-    web_const_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations LEFT INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id=smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR "");
+    web_const_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id=smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR "");
     add(web_const_all_spread);
     
-    web_lti_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations LEFT INNER JOIN smem_current_spread_activations ON lti_id1=smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=?");
+    web_lti_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id=smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=?");
     add(web_lti_all_spread);
     
     web_attr_all_cheap = new soar_module::sqlite_statement(new_db, "SELECT lti_id AS lti_id1, activation_value AS activation_value_aug FROM smem_augmentations WHERE attribute_s_id=?");
@@ -1203,7 +1209,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     add(list_uncommitted_spread);
 
     //gets the size of the current spread table.
-    calc_spread_size_debug_cmd = new soar_module::sqlite_statement(new_db,"SELECT COUNT(*) FROM smem_current_spread");
+    calc_spread_size_debug_cmd = new soar_module::sqlite_statement(new_db,"SELECT COUNT(*) FROM smem_committed_spread");
     add(calc_spread_size_debug_cmd);
 
     //delete lti from context table
@@ -3130,7 +3136,7 @@ inline soar_module::sqlite_statement* smem_setup_manual_web_crawl(agent* thisAge
 *
 * */
 
-void smem_calc_spread(agent* thisAgent, std::unordered_set<smem_lti_id>* current_candidates, bool do_manual_crawl, smem_weighted_cue_list::iterator* cand_set=NULL)
+void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidates, bool do_manual_crawl, smem_weighted_cue_list::iterator* cand_set=NULL)
 {
 
     /*
@@ -3347,17 +3353,25 @@ void smem_calc_spread(agent* thisAgent, std::unordered_set<smem_lti_id>* current
     smem_lti_set pruned_candidates;
     soar_module::sqlite_statement* list_uncommitted_spread = thisAgent->smem_stmts->list_uncommitted_spread;
     if (!do_manual_crawl)
-    {
-        while (list_uncommitted_spread->execute() == soar_module::row)
+    {    ////////////////////////////////////////////////////////////////////////////
+    thisAgent->smem_timers->spreading_calc_2_2_3_e_1->start();
+    ////////////////////////////////////////////////////////////////////////////
+        /*while (list_uncommitted_spread->execute() == soar_module::row)
         {//we loop over all spread sinks
             if (current_candidates->find(list_uncommitted_spread->column_int(0))!=current_candidates->end())//and if the sink is a candidate, we will actually calculate on it later.
             {
                 pruned_candidates.insert(list_uncommitted_spread->column_int(0));
             }
-        }
+        }*/
+    ////////////////////////////////////////////////////////////////////////////
+    thisAgent->smem_timers->spreading_calc_2_2_3_e_1->stop();
+    ////////////////////////////////////////////////////////////////////////////
     }
     else
     {//This means that the candidate set was quite large, so we instead manually check the sql store for candidacy.
+            ////////////////////////////////////////////////////////////////////////////
+    thisAgent->smem_timers->spreading_calc_2_2_3_e_2->start();
+    ////////////////////////////////////////////////////////////////////////////
         soar_module::sqlite_statement* q_manual;
         while (list_uncommitted_spread->execute() == soar_module::row)
         {//we loop over all spread sinks
@@ -3368,15 +3382,24 @@ void smem_calc_spread(agent* thisAgent, std::unordered_set<smem_lti_id>* current
             }
             q_manual->reinitialize();
         }
+    ////////////////////////////////////////////////////////////////////////////
+    thisAgent->smem_timers->spreading_calc_2_2_3_e_2->stop();
+    ////////////////////////////////////////////////////////////////////////////
     }
     list_uncommitted_spread->reinitialize();
 
     soar_module::sqlite_statement* calc_uncommitted_spread = thisAgent->smem_stmts->calc_uncommitted_spread;
-    for (smem_lti_set::iterator candidate = pruned_candidates.begin(); candidate != pruned_candidates.end(); ++candidate)//for every sink that has some spread, we calculate
+    smem_lti_set* actual_candidates = ( do_manual_crawl ? &pruned_candidates : current_candidates);
+    for (smem_lti_set::iterator candidate = actual_candidates->begin(); candidate != actual_candidates->end(); ++candidate)//for every sink that has some spread, we calculate
     {
+    ////////////////////////////////////////////////////////////////////////////
+    thisAgent->smem_timers->spreading_calc_2_2_3_e_3->start();
+    ////////////////////////////////////////////////////////////////////////////
         calc_uncommitted_spread->bind_int(1,(*candidate));
         while (calc_uncommitted_spread->execute() == soar_module::row && calc_uncommitted_spread->column_double(2))
-        {// Here, I need to get the previous activation of the lti_id in question and update that.
+        {    ////////////////////////////////////////////////////////////////////////////
+    thisAgent->smem_timers->spreading_calc_2_2_3_e_3->stop();
+    ////////////////////////////////////////////////////////////////////////////// Here, I need to get the previous activation of the lti_id in question and update that.
             //First, I need to get the existing info for this lti_id.
             bool already_in_spread_table = false;
             bool addition = (((int)(calc_uncommitted_spread->column_int(3))) == 1);
@@ -3625,8 +3648,14 @@ void smem_calc_spread(agent* thisAgent, std::unordered_set<smem_lti_id>* current
                 thisAgent->smem_timers->spreading_calc_2_2_3_8->stop();
                 ////////////////////////////////////////////////////////////////////////////
             }
+    ////////////////////////////////////////////////////////////////////////////
+    thisAgent->smem_timers->spreading_calc_2_2_3_e_3->start();
+    ////////////////////////////////////////////////////////////////////////////
         }
         calc_uncommitted_spread->reinitialize();
+    ////////////////////////////////////////////////////////////////////////////
+    thisAgent->smem_timers->spreading_calc_2_2_3_e_3->stop();
+    ////////////////////////////////////////////////////////////////////////////
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->smem_timers->spreading_calc_2_2_3_9->start();
         ////////////////////////////////////////////////////////////////////////////
@@ -5287,7 +5316,7 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             // - set because queries could contain wilds
             // - not in loop because the effects of activation may actually
             //   alter the resultset of the query (isolation???)
-            std::unordered_set< smem_lti_id > to_update;
+            std::set< smem_lti_id > to_update;
             int num_answers = 0;
             while (q->execute() == soar_module::row && num_answers < 400)
             {// This 400 should actually be a measure of how large the spreading table is, but is now hard-coded.
