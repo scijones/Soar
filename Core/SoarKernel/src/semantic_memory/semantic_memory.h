@@ -262,6 +262,7 @@ class smem_timer_container: public soar_module::timer_container
         soar_module::timer* spreading_calc_1_3_5;
         soar_module::timer* spreading_calc_1_4;
         soar_module::timer* spreading_calc_2;
+        soar_module::timer* spreading_calc_2_new_code;
         soar_module::timer* spreading_calc_2_1;
         soar_module::timer* spreading_calc_2_1_det;
         soar_module::timer* spreading_calc_2_2;
@@ -445,6 +446,7 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* likelihood_cond_count_remove;
         soar_module::sqlite_statement* lti_count_num_appearances_remove;
         soar_module::sqlite_statement* likelihood_cond_count_insert;
+        soar_module::sqlite_statement* likelihood_cond_count_find_deterministic;
         soar_module::sqlite_statement* likelihood_cond_count_insert_deterministic;
         soar_module::sqlite_statement* lti_count_num_appearances_insert;
         soar_module::sqlite_statement* calc_spread;

@@ -558,6 +558,8 @@ smem_timer_container::smem_timer_container(agent* new_agent): soar_module::timer
 
     spreading_calc_2 = new smem_timer("spreading_calc_2", thisAgent, soar_module::timer::four);
     add(spreading_calc_2);
+    spreading_calc_2_new_code = new smem_timer("spreading_calc_2_new_code", thisAgent, soar_module::timer::four);
+    add(spreading_calc_2_new_code);
     spreading_calc_2_1 = new smem_timer("spreading_calc_2_1", thisAgent, soar_module::timer::four);
     add(spreading_calc_2_1);
     spreading_calc_2_1_det = new smem_timer("spreading_calc_2_1_det", thisAgent, soar_module::timer::four);
@@ -1189,7 +1191,16 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
 //    std::string temp_string = sqlite_string.str();
   //  likelihood_cond_count_insert_deterministic = new soar_module::sqlite_statement(new_db,temp_string.c_str());
-    likelihood_cond_count_insert_deterministic = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT parent, lti, SUM(count) FROM (SELECT lti_id AS parent, lti1 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti1 !=0 AND lti2 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti2 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti2 !=0 AND lti3 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti3 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti3 !=0 AND lti4 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti4 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti4 !=0 AND lti5 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti5 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti5 !=0 AND lti6 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti6 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti6 !=0 AND lti7 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti7 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti7 !=0 AND lti8 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti8 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti8 !=0 AND lti9 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti9 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti9 !=0 AND lti10 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti10 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti10 !=0 AND lti_id=? GROUP BY lti,parent) GROUP BY parent, lti");
+
+//BIG CHANGE FOR PAPER.
+//    likelihood_cond_count_insert_deterministic = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT parent, lti, SUM(count) FROM (SELECT lti_id AS parent, lti1 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti1 !=0 AND lti2 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti2 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti2 !=0 AND lti3 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti3 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti3 !=0 AND lti4 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti4 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti4 !=0 AND lti5 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti5 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti5 !=0 AND lti6 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti6 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti6 !=0 AND lti7 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti7 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti7 !=0 AND lti8 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti8 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti8 !=0 AND lti9 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti9 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti9 !=0 AND lti10 = 0 AND lti_id=? GROUP BY lti,parent UNION ALL SELECT lti_id AS parent, lti10 AS lti,COUNT(*)*? AS count FROM smem_likelihood_trajectories WHERE lti10 !=0 AND lti_id=? GROUP BY lti,parent) GROUP BY parent, lti");
+   // add(likelihood_cond_count_insert_deterministic);
+
+
+    likelihood_cond_count_find_deterministic = new soar_module::sqlite_statement(new_db,"SELECT lti_id AS parent, lti1 AS lti,1 AS depth FROM smem_likelihood_trajectories WHERE lti1 !=0 AND lti2 = 0 AND lti_id=? UNION ALL SELECT lti1 AS parent, lti2 AS lti,2 AS depth FROM smem_likelihood_trajectories WHERE lti2 !=0 AND lti3 = 0 AND lti_id=? UNION ALL SELECT lti2 AS parent, lti3 AS lti,3 AS depth FROM smem_likelihood_trajectories WHERE lti3 !=0 AND lti4 = 0 AND lti_id=? UNION ALL SELECT lti3 AS parent, lti4 AS lti,4 AS depth FROM smem_likelihood_trajectories WHERE lti4 !=0 AND lti5 = 0 AND lti_id=? UNION ALL SELECT lti4 AS parent, lti5 AS lti,5 AS depth FROM smem_likelihood_trajectories WHERE lti5 !=0 AND lti6 = 0 AND lti_id=? UNION ALL SELECT lti5 AS parent, lti6 AS lti,6 AS depth FROM smem_likelihood_trajectories WHERE lti6 !=0 AND lti7 = 0 AND lti_id=? UNION ALL SELECT lti6 AS parent, lti7 AS lti,7 AS depth FROM smem_likelihood_trajectories WHERE lti7 !=0 AND lti8 = 0 AND lti_id=? UNION ALL SELECT lti7 AS parent, lti8 AS lti,8 AS depth FROM smem_likelihood_trajectories WHERE lti8 !=0 AND lti9 = 0 AND lti_id=? UNION ALL SELECT lti8 AS parent, lti9 AS lti,9 AS depth FROM smem_likelihood_trajectories WHERE lti9 !=0 AND lti10 = 0 AND lti_id=? UNION ALL SELECT lti9 AS parent, lti10 AS lti,10 AS depth FROM smem_likelihood_trajectories WHERE lti10 !=0 AND lti_id=? ORDER BY 3 ASC");
+    add(likelihood_cond_count_find_deterministic);
+
+likelihood_cond_count_insert_deterministic = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_likelihoods (lti_j,lti_i,num_appearances_i_j) VALUES (?,?,?)");
     add(likelihood_cond_count_insert_deterministic);
 
 
@@ -2444,6 +2455,7 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
     int j = 0;
     smem_delete_trajectory_indices(thisAgent);
     //Iterate through all ltis in SMem
+double p1 = thisAgent->smem_params->continue_probability->get_value();
     while (lti_a->execute() == soar_module::row)
     {
         lti_id = lti_a->column_int(0);
@@ -2454,17 +2466,173 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
             //trajectory.push_back(lti_id);
             trajectory_construction_deterministic(thisAgent,lti_id,lti_trajectories,0,true);
         }
-    }
-    lti_a->reinitialize();
-    smem_create_trajectory_indices(thisAgent);
-    for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+}
+for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
     {
         delete to_delete->second;
     }
+    lti_a->reinitialize();
+smem_create_trajectory_indices(thisAgent);
+while (lti_a->execute() == soar_module::row)
+    {
+        lti_id = lti_a->column_int(0);
+double p1 = thisAgent->smem_params->continue_probability->get_value();
+                    for (int i = 1; i < 11; i++)
+                    {
+                        //thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(2*i-1,p1);
+                        thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->bind_int(i,(lti_id));
+                        //p1 = p1 * p1;
+                    }
+                    // At this point, we retrieve the fingerprint associated with a particular node and 
+                        //calculate the spread it gives. We then store that spread map.
+                    //We require a map from an element to the spread.
+                    std::map<smem_lti_id,double> spread_map;
+                    std::map<smem_lti_id,uint64_t> num_children_map;
+                    std::list<uint64_t> depth_list;
+                    std::list<uint64_t> parent_list;
+                    std::list<uint64_t> lti_list;
+                    uint64_t depth = 1;
+                    uint64_t parent;
+                    uint64_t lti;
+                    uint64_t num_at_depth_1 = 0;
+                    p1 = thisAgent->smem_params->continue_probability->get_value();
+                    std::map<smem_lti_id,uint64_t> parent_depth;
+                    typedef std::pair<smem_lti_id,uint64_t> my_key_type;
+                    typedef std::map<my_key_type, double> my_map_type;
+                    my_map_type fan_map_part;
+                    while (thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->execute() == soar_module::row)
+                    {
+                        parent = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(0);
+                        parent_list.push_back(parent);
+                        lti_list.push_back(thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(1));
+                        depth = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(2);
+                        depth_list.push_back(depth);
+                        if (fan_map_part.find(my_key_type(parent,depth-1)) == fan_map_part.end())
+                        {
+                            parent_depth[parent] = depth;
+                            fan_map_part[my_key_type(parent,depth-1)] = 1;
+                        }
+                        else
+                        {
+                            //if (depth == parent_depth[parent])
+                            {
+                                fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
+                            }
+                        }
+                    }
+
+                    std::list<uint64_t>::iterator depth_it = depth_list.begin();
+                    std::list<uint64_t>::iterator parent_it = parent_list.begin();
+                    std::list<uint64_t>::iterator lti_it;
+                    depth = 1;
+
+                    my_map_type fan_map;
+                    for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+                    {
+                        parent = *parent_it;
+                        lti = *lti_it;
+                        depth = *depth_it;
+                        //std::pair<smem_lti_id,uint64_t> current_node;
+                        if (fan_map.find(my_key_type(parent,depth-1))==fan_map.end())
+                        {//This means we are at the first level.
+                            if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+                            {
+                                fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])));
+                            }
+                            else
+                            {
+                                fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                            }
+                        }
+                        else
+                        {
+                            if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+                            {
+                                fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)]));
+                            }
+                            else
+                            {
+                                fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)];
+                            }
+                        }
+if (lti == 307896)
+                        {
+                            int test = 0;
+                        }
+                        ++parent_it;
+                        ++depth_it;
+                    }
+                    depth_it = depth_list.begin();
+                    parent_it = parent_list.begin();
+
+                    for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+                    {//for every row, we have the parent, the lti receiving spread, and the depth of that lti.
+                        //We determine the weight at the first instance of an lti and do not consider looping.
+                        parent = *parent_it;
+                        lti = *lti_it;
+                        depth = *depth_it;
+                        /*if (spread_map.find(parent) == spread_map.end())
+                        {//This refers to the case of direct children of the original source.
+                            spread_map[lti] = p1/num_children_map[parent];
+                        }
+                        else
+                        {*///double test_val = fan_map[my_key_type(lti,depth)];
+                            //double before_spread = 0;
+                            if (spread_map.find(lti) == spread_map.end())
+                            {
+                                if (depth == 1)
+                                {
+                                    spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+                                }
+                                else
+                                {
+                                    spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                                }
+                            }
+                            else
+                            {
+                                if (depth == 1)
+                                {
+                                //before_spread = spread_map[lti];
+                                    spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+                                }
+                                else
+                                {
+                                    spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                                }
+                            }
+                        /*}*/
+                        if (lti == 307896)
+                        {
+                            int test = 0;
+                        }
+                        ++parent_it;
+                        ++depth_it;
+                    }
+                    //thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+                    //once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
+                    for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
+                    {
+                        if (spread_map_it->first == 307896)
+                        {
+                            int test = 0;
+                        }
+                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,lti_id);
+                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
+                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
+                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+                    }
+    }
+    lti_a->reinitialize();
+   // smem_create_trajectory_indices(thisAgent);
+    /*for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+    {
+        delete to_delete->second;
+    }*/
     //I could do a similar sum, but with the restart_p as a coefficient at each depth, but that requires non-int in schema.
     //ACTUALLY - It turns out sqlite will handle reals just fine in an integer column. weird.
-    double p1 = thisAgent->smem_params->continue_probability->get_value();
-    double p2 = p1*p1;
+    //double p1 = thisAgent->smem_params->continue_probability->get_value();
+    /*double p2 = p1*p1;
     double p3 = p2*p1;
     double p4 = p3*p1;
     double p5 = p4*p1;
@@ -2493,6 +2661,10 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
     likelihood_cond_count->prepare();
     likelihood_cond_count->execute(soar_module::op_reinit);
     delete likelihood_cond_count;
+*/////////////////////////////////////////////////////////////////////////////
+                    //thisAgent->smem_timers->spreading_calc_2_new_code->start();
+                    ////////////////////////////////////////////////////////////////////////////
+                    
 
     soar_module::sqlite_statement* lti_count_num_appearances = new soar_module::sqlite_statement(thisAgent->smem_db,
             "INSERT INTO smem_trajectory_num (lti_id, num_appearances) SELECT lti_j, SUM(num_appearances_i_j) FROM smem_likelihoods GROUP BY lti_j");
@@ -3198,15 +3370,161 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
                     trajectory_construction_deterministic(thisAgent,*it,lti_trajectories);
                     ////////////////////////////////////////////////////////////////////////////
                     thisAgent->smem_timers->spreading_calc_2_1_det->stop();
+thisAgent->smem_stats->expansions->set_value(thisAgent->smem_stats->expansions->get_value() + 1);
+                    ////////////////////////////////////////////////////////////////////////////
+                    ////////////////////////////////////////////////////////////////////////////
+                    thisAgent->smem_timers->spreading_calc_2_new_code->start();
                     ////////////////////////////////////////////////////////////////////////////
                     double p1 = thisAgent->smem_params->continue_probability->get_value();
                     for (int i = 1; i < 11; i++)
                     {
-                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(2*i-1,p1);
-                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2*i,(*it));
+                        //thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(2*i-1,p1);
+                        thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->bind_int(i,(*it));
                         p1 = p1 * p1;
                     }
-                    thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+                    // At this point, we retrieve the fingerprint associated with a particular node and 
+                        //calculate the spread it gives. We then store that spread map.
+                    //We require a map from an element to the spread.
+                    std::map<smem_lti_id,double> spread_map;
+                    std::map<smem_lti_id,uint64_t> num_children_map;
+                    std::list<uint64_t> depth_list;
+                    std::list<uint64_t> parent_list;
+                    std::list<uint64_t> lti_list;
+                    uint64_t depth = 1;
+                    uint64_t parent;
+                    uint64_t lti;
+                    uint64_t num_at_depth_1 = 0;
+                    p1 = thisAgent->smem_params->continue_probability->get_value();
+                    std::map<smem_lti_id,uint64_t> parent_depth;
+                    typedef std::pair<smem_lti_id,uint64_t> my_key_type;
+                    typedef std::map<my_key_type, double> my_map_type;
+                    my_map_type fan_map_part;
+                    while (thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->execute() == soar_module::row)
+                    {
+                        parent = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(0);
+                        parent_list.push_back(parent);
+                        lti_list.push_back(thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(1));
+                        depth = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(2);
+                        depth_list.push_back(depth);
+                        if (fan_map_part.find(my_key_type(parent,depth-1)) == fan_map_part.end())
+                        {
+                            parent_depth[parent] = depth;
+                            fan_map_part[my_key_type(parent,depth-1)] = 1;
+                        }
+                        else
+                        {
+                            //if (depth == parent_depth[parent])
+                            {
+                                fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
+                            }
+                        }
+                    }
+
+                    std::list<uint64_t>::iterator depth_it = depth_list.begin();
+                    std::list<uint64_t>::iterator parent_it = parent_list.begin();
+                    std::list<uint64_t>::iterator lti_it;
+                    depth = 1;
+
+                    my_map_type fan_map;
+                    for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+                    {
+                        parent = *parent_it;
+                        lti = *lti_it;
+                        depth = *depth_it;
+                        //std::pair<smem_lti_id,uint64_t> current_node;
+                        if (fan_map.find(my_key_type(parent,depth-1))==fan_map.end())
+                        {//This means we are at the first level.
+                            if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+                            {
+                                fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])));
+                            }
+                            else
+                            {
+                                fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                            }
+                        }
+                        else
+                        {
+                            if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+                            {
+                                fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)]));
+                            }
+                            else
+                            {
+                                fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)];
+                            }
+                        }
+if (lti == 307896)
+                        {
+                            int test = 0;
+                        }
+                        ++parent_it;
+                        ++depth_it;
+                    }
+                    depth_it = depth_list.begin();
+                    parent_it = parent_list.begin();
+
+                    for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+                    {//for every row, we have the parent, the lti receiving spread, and the depth of that lti.
+                        //We determine the weight at the first instance of an lti and do not consider looping.
+                        parent = *parent_it;
+                        lti = *lti_it;
+                        depth = *depth_it;
+                        /*if (spread_map.find(parent) == spread_map.end())
+                        {//This refers to the case of direct children of the original source.
+                            spread_map[lti] = p1/num_children_map[parent];
+                        }
+                        else
+                        {*///double test_val = fan_map[my_key_type(lti,depth)];
+                            //double before_spread = 0;
+                            if (spread_map.find(lti) == spread_map.end())
+                            {
+                                if (depth == 1)
+                                {
+                                    spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+                                }
+                                else
+                                {
+                                    spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                                }
+                            }
+                            else
+                            {
+                                if (depth == 1)
+                                {
+                                //before_spread = spread_map[lti];
+                                    spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+                                }
+                                else
+                                {
+                                    spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                                }
+                            }
+                        /*}*/
+                        if (lti == 307896)
+                        {
+                            int test = 0;
+                        }
+                        ++parent_it;
+                        ++depth_it;
+                    }
+                    //thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+                    //once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
+                    for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
+                    {
+                        if (spread_map_it->first == 307896)
+                        {
+                            int test = 0;
+                        }
+                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,*it);
+                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
+                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
+                        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+                    }
+                    ////////////////////////////////////////////////////////////////////////////
+                    thisAgent->smem_timers->spreading_calc_2_new_code->stop();
+                    ////////////////////////////////////////////////////////////////////////////
+
                     thisAgent->smem_stmts->lti_count_num_appearances_insert->bind_int(1,(*it));
                     thisAgent->smem_stmts->lti_count_num_appearances_insert->execute(soar_module::op_reinit);
                 }
@@ -3402,6 +3720,7 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     ////////////////////////////////////////////////////////////////////////////// Here, I need to get the previous activation of the lti_id in question and update that.
             //First, I need to get the existing info for this lti_id.
             bool already_in_spread_table = false;
+thisAgent->smem_stats->stores->set_value(thisAgent->smem_stats->stores->get_value() + 1);
             bool addition = (((int)(calc_uncommitted_spread->column_int(3))) == 1);
             if (addition)
             {
@@ -7578,7 +7897,7 @@ void smem_respond_to_cmd(agent* thisAgent, bool store_only)
                             smem_install_memory(thisAgent, state, retrieve->id->smem_lti, retrieve, true, meta_wmes, retrieval_wmes, wm_install, depth);
 
                             // add one to the expansions stat
-                            thisAgent->smem_stats->expansions->set_value(thisAgent->smem_stats->expansions->get_value() + 1);
+                            //thisAgent->smem_stats->expansions->set_value(thisAgent->smem_stats->expansions->get_value() + 1);
                         }
                     }
                     // query
@@ -7619,7 +7938,7 @@ void smem_respond_to_cmd(agent* thisAgent, bool store_only)
                             smem_buffer_add_wme(thisAgent, meta_wmes, state->id->smem_result_header, thisAgent->smem_sym_success, (*sym_p));
 
                             // add one to the store stat
-                            thisAgent->smem_stats->stores->set_value(thisAgent->smem_stats->stores->get_value() + 1);
+                           // thisAgent->smem_stats->stores->set_value(thisAgent->smem_stats->stores->get_value() + 1);
                         }
                         
                         // commit transaction (if not lazy)
