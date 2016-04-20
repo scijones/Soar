@@ -92,7 +92,7 @@ class Explanation_Based_Chunker
         /* Methods used during instantiation creation to generate identities used by the
          * explanation trace. */
         void add_explanation_to_condition(rete_node* node, condition* cond,
-                                          wme* w, node_varnames* nvn, uint64_t pI_id,
+                                          node_varnames* nvn, uint64_t pI_id,
                                           AddAdditionalTestsMode additional_tests);
         uint64_t get_new_inst_id() { increment_counter(inst_id_counter); return inst_id_counter; };
         uint64_t get_instantiation_count() { return inst_id_counter; };
@@ -111,8 +111,7 @@ class Explanation_Based_Chunker
         uint64_t get_chunk_count() { return chunk_count; };
         void     set_chunk_count(uint64_t pChunkCount) { chunk_count = pChunkCount; };
         char*    get_chunk_name_prefix() { return chunk_name_prefix; };
-        void     set_chunk_name_prefix(const char* pChunk_name_prefix)
-                 { free(chunk_name_prefix); strcpy(chunk_name_prefix, pChunk_name_prefix); };
+        void     set_chunk_name_prefix(const char* pChunk_name_prefix);
 
         /* Determines whether learning is on for a particular instantiation
          * based on the global learning settings and whether the state chunky */
@@ -126,11 +125,11 @@ class Explanation_Based_Chunker
 
         /* RL templates utilize the EBChunker variablization code when building
          * template instances.  We make these two methods public to support that. */
-        void variablize_rl_condition_list(condition* top_cond, bool pInNegativeCondition = false);
-        action* make_variablized_rl_action(Symbol* id_sym, Symbol* attr_sym, Symbol* val_sym, Symbol* ref_sym);
+        void        variablize_condition_list   (condition* top_cond, bool pInNegativeCondition = false);
+        action*     variablize_rl_action        (action* pRLAction, struct token_struct* tok, wme* w, double & initial_value);
 
         /* Debug printing methods */
-        void print_variablization_tables(TraceMode mode, int whichTable = 0);
+        void print_variablization_table(TraceMode mode);
         void print_tables(TraceMode mode);
         void print_o_id_tables(TraceMode mode);
         void print_attachment_points(TraceMode mode);
@@ -158,8 +157,8 @@ class Explanation_Based_Chunker
         uint64_t            chunks_this_d_cycle;
 
         /* String that every chunk name begins with */
-        char                chunk_name_prefix[kChunkNamePrefixMaxLength];
-        char                justification_name_prefix[kChunkNamePrefixMaxLength];
+        char*               chunk_name_prefix;
+        char*               justification_name_prefix;
 
         /* Variables used by dependency analysis methods */
         ::list*             grounds;
@@ -197,20 +196,20 @@ class Explanation_Based_Chunker
          *    instantiation creation, backtracing and chunk formation.  The data
          *    they store is temporary and cleared after use. -- */
 
-        std::unordered_map< uint64_t, std::unordered_map< Symbol*, uint64_t > >*    rulesym_to_identity_map;
-        std::unordered_map< uint64_t, Symbol* >*                                    o_id_to_ovar_debug_map;
-        std::unordered_map< uint64_t, uint64_t >*                                   unification_map;
+        inst_to_id_map_type*            instantiation_identities;
+        id_to_sym_map_type*             o_id_to_var_map;
+        id_to_sym_map_type*             id_to_rule_sym_debug_map;
 
-        /* -- Look-up tables for LHS variablization -- */
-        std::unordered_map< uint64_t, Symbol* >*   o_id_to_var_map;
-        std::unordered_map< Symbol*, Symbol* >*    sym_to_var_map;
+        id_to_id_map_type*              unification_map;
+        sym_to_id_map_type*             identities_for_rhs_substate_symbols;
+        identity_triple*                local_singleton_superstate_identity;
 
-        std::list< constraint* >* constraints;
-        std::unordered_map< uint64_t, attachment_point* >* attachment_points;
+        constraint_list*                constraints;
+        attachment_points_map_type*     attachment_points;
 
         /* -- Table of previously seen conditions.  Used to determine whether to
          *    merge or eliminate positive conditions on the LHS of a chunk. -- */
-        std::unordered_map< Symbol*, std::unordered_map< Symbol*, std::unordered_map< Symbol*, condition*> > >* cond_merge_map;
+        triple_merge_map*               cond_merge_map;
 
         /* -- A counter for variablization and instantiation id's. 0 is the default
          *    value and not considered a valid id. -- */
@@ -228,8 +227,8 @@ class Explanation_Based_Chunker
         /* Explanation/identity generation methods */
         void            add_identity_to_id_test(condition* cond, byte field_num, rete_node_level levels_up);
         void            add_constraint_to_explanation(test* dest_test_address, test new_test, uint64_t pI_id, bool has_referent = true);
-        void            add_explanation_to_RL_condition(rete_node* node, condition* cond,
-                                                        wme* w, node_varnames* nvn, uint64_t pI_id, AddAdditionalTestsMode additional_tests);
+        void            add_explanation_to_RL_condition(rete_node* node, condition* cond, node_varnames* nvn,
+                                                        uint64_t pI_id, AddAdditionalTestsMode additional_tests);
         /* Chunk building methods */
         Symbol*         generate_chunk_name(instantiation* inst, bool pIsChunk);
         void            set_up_rule_name(bool pForChunk);
@@ -277,10 +276,9 @@ class Explanation_Based_Chunker
         void add_identity_unification(uint64_t pOld_o_id, uint64_t pNew_o_id);
         void update_unification_table(uint64_t pOld_o_id, uint64_t pNew_o_id, uint64_t pOld_o_id_2 = 0);
         void create_consistent_identity_for_result_element(preference* result, uint64_t pNew_i_id, WME_Field field);
-        bool unify_backtraced_dupe_conditions(condition* ground_cond, condition* new_cond);
-        void unify_backtraced_conditions(condition* parent_cond,
-        const identity_triple o_ids_to_replace,
-        const rhs_triple rhs_funcs);
+        void unify_backtraced_conditions(condition* parent_cond, const identity_triple o_ids_to_replace, const rhs_triple rhs_funcs);
+        void add_singleton_unification_if_needed(condition* pCond);
+        void add_local_singleton_unification_if_needed(condition* pCond);
         void literalize_RHS_function_args(const rhs_value rv);
         void merge_conditions(condition* top_cond);
 
@@ -298,17 +296,15 @@ class Explanation_Based_Chunker
         void attach_relational_test(test pEq_test, test pRelational_test);
 
         /* Variablization methods */
-        void variablize_condition_list(condition* top_cond, bool pInNegativeCondition = false);
+        action* variablize_result_into_actions(preference* result, bool variablize);
         action* variablize_results_into_actions(preference* result, bool variablize);
         void variablize_lhs_symbol(Symbol** sym, uint64_t pIdentity);
         void variablize_rhs_symbol(rhs_value pRhs_val);
         void variablize_equality_tests(test t);
-        void variablize_rl_test(test chunk_test);
         bool variablize_test_by_lookup(test t, bool pSkipTopLevelEqualities);
         void variablize_tests_by_lookup(test t, bool pSkipTopLevelEqualities);
         void store_variablization(Symbol* instantiated_sym, Symbol* variable, uint64_t pIdentity);
-        Symbol* get_variablization_for_identity(uint64_t index_id);
-        Symbol* get_variablization_for_sti(Symbol* index_sym);
+        Symbol* get_variablization(uint64_t index_id);
 
         /* Condition polishing methods */
         void        remove_ungrounded_sti_from_test_and_cache_eq_test(test* t);
@@ -327,6 +323,7 @@ class Explanation_Based_Chunker
         void clear_attachment_map();
         void clear_cached_constraints();
         void clear_o_id_substitution_map();
+        void clear_singletons();
         void clear_data();
 
 };

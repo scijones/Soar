@@ -36,9 +36,9 @@ void Explanation_Based_Chunker::print_merge_map(TraceMode mode)
         outputManager->printa_sf(thisAgent, "EMPTY MAP\n");
     }
 
-    std::unordered_map< Symbol*, std::unordered_map< Symbol*, std::unordered_map< Symbol*, condition*> > >::iterator iter_id;
-    std::unordered_map< Symbol*, std::unordered_map< Symbol*, condition*> >::iterator iter_attr;
-    std::unordered_map< Symbol*, condition*>::iterator iter_value;
+    triple_merge_map::iterator          iter_id;
+    sym_to_sym_to_cond_map::iterator    iter_attr;
+    sym_to_cond_map::iterator           iter_value;
 
     for (iter_id = cond_merge_map->begin(); iter_id != cond_merge_map->end(); ++iter_id)
     {
@@ -62,15 +62,15 @@ void Explanation_Based_Chunker::print_ovar_to_o_id_map(TraceMode mode)
     outputManager->printa_sf(thisAgent, "        ovar_to_o_id_map Map\n");
     outputManager->printa_sf(thisAgent, "------------------------------------\n");
 
-    if (rulesym_to_identity_map->size() == 0)
+    if (instantiation_identities->size() == 0)
     {
         outputManager->printa_sf(thisAgent, "EMPTY MAP\n");
     }
 
-    std::unordered_map< uint64_t, std::unordered_map< Symbol*, uint64_t > >::iterator iter_inst;
-    std::unordered_map< Symbol*, uint64_t > ::iterator iter_sym;
+    inst_to_id_map_type::iterator iter_inst;
+    sym_to_id_map_type::iterator iter_sym;
 
-    for (iter_inst = rulesym_to_identity_map->begin(); iter_inst != rulesym_to_identity_map->end(); ++iter_inst)
+    for (iter_inst = instantiation_identities->begin(); iter_inst != instantiation_identities->end(); ++iter_inst)
     {
         outputManager->printa_sf(thisAgent, "o_id's for i%u: \n", iter_inst->first);
         for (iter_sym = iter_inst->second.begin(); iter_sym != iter_inst->second.end(); ++iter_sym)
@@ -95,7 +95,7 @@ void Explanation_Based_Chunker::print_o_id_substitution_map(TraceMode mode)
         outputManager->printa_sf(thisAgent, "EMPTY MAP\n");
     }
 
-    std::unordered_map< uint64_t, uint64_t >::iterator iter;
+    id_to_id_map_type::iterator iter;
 
     for (iter = unification_map->begin(); iter != unification_map->end(); ++iter)
     {
@@ -114,14 +114,14 @@ void Explanation_Based_Chunker::print_o_id_to_ovar_debug_map(TraceMode mode)
     outputManager->printa_sf(thisAgent, "     o_id_to_ovar_debug_map Map\n");
     outputManager->printa_sf(thisAgent, "------------------------------------\n");
 
-    if (o_id_to_ovar_debug_map->size() == 0)
+    if (id_to_rule_sym_debug_map->size() == 0)
     {
         outputManager->printa_sf(thisAgent, "EMPTY MAP\n");
     }
 
-    std::unordered_map< uint64_t, Symbol* >::iterator iter;
+    id_to_sym_map_type::iterator iter;
 
-    for (iter = o_id_to_ovar_debug_map->begin(); iter != o_id_to_ovar_debug_map->end(); ++iter)
+    for (iter = id_to_rule_sym_debug_map->begin(); iter != id_to_rule_sym_debug_map->end(); ++iter)
     {
         outputManager->printa_sf(thisAgent, "   o%u = %y\n",  iter->first, iter->second);
     }
@@ -165,33 +165,18 @@ void Explanation_Based_Chunker::print_constraints(TraceMode mode)
 }
 /* -- A utility function to print all data stored in the variablization manager.  Used only for debugging -- */
 
-void Explanation_Based_Chunker::print_variablization_tables(TraceMode mode, int whichTable)
+void Explanation_Based_Chunker::print_variablization_table(TraceMode mode)
 {
     if (!Output_Manager::Get_OM().is_debug_mode_enabled(mode)) return;
     outputManager->printa_sf(thisAgent, "------------------------------------\n");
-    if ((whichTable == 0) || (whichTable == 1) || (whichTable == 3))
+    outputManager->printa_sf(thisAgent, "== Identity Set -> Variablization ==\n");
+    if (o_id_to_var_map->size() == 0)
     {
-        outputManager->printa_sf(thisAgent, "== Symbol -> Variablization ==\n");
-        if (sym_to_var_map->size() == 0)
-        {
-            outputManager->printa_sf(thisAgent, "EMPTY MAP\n");
-        }
-        for (std::unordered_map< Symbol*, Symbol* >::iterator it = (*sym_to_var_map).begin(); it != (*sym_to_var_map).end(); ++it)
-        {
-            outputManager->printa_sf(thisAgent, "%y -> %y\n", it->first, it->second);
-        }
+        outputManager->printa_sf(thisAgent, "EMPTY MAP\n");
     }
-    if ((whichTable == 0) || (whichTable == 2) || (whichTable == 3))
+    for (id_to_sym_map_type::iterator it = (*o_id_to_var_map).begin(); it != (*o_id_to_var_map).end(); ++it)
     {
-        outputManager->printa_sf(thisAgent, "== O_ID -> Variablization ==\n");
-        if (o_id_to_var_map->size() == 0)
-        {
-            outputManager->printa_sf(thisAgent, "EMPTY MAP\n");
-        }
-        for (std::unordered_map< uint64_t, Symbol* >::iterator it = (*o_id_to_var_map).begin(); it != (*o_id_to_var_map).end(); ++it)
-        {
-            outputManager->printa_sf(thisAgent, "o%u -> %y\n", it->first, it->second);
-        }
+        outputManager->printa_sf(thisAgent, "o%u -> %y\n", it->first, it->second);
     }
     outputManager->printa_sf(thisAgent, "------------------------------------\n");
 }
@@ -199,6 +184,6 @@ void Explanation_Based_Chunker::print_variablization_tables(TraceMode mode, int 
 void Explanation_Based_Chunker::print_tables(TraceMode mode)
 {
     if (!Output_Manager::Get_OM().is_debug_mode_enabled(mode)) return;
-    print_variablization_tables(mode);
+    print_variablization_table(mode);
     print_o_id_tables(mode);
 }

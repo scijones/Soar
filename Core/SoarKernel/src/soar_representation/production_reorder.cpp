@@ -14,6 +14,7 @@
  *
  * =======================================================================
  */
+#include <run_soar.h>
 #include "production.h"
 #include "production_reorder.h"
 
@@ -23,7 +24,6 @@
 #include "symbol.h"
 #include "test.h"
 #include "debug.h"
-#include "init_soar.h"
 #include "mem.h"
 #include "print.h"
 #include "xml.h"
@@ -627,7 +627,8 @@ void restore_and_deallocate_saved_tests(agent* thisAgent,
             print(thisAgent,  "\nWarning:  in production %s,\n",
                   thisAgent->name_of_production_being_reordered);
             print(thisAgent,  "      ignoring test(s) whose referent is unbound:\n");
-//            print_saved_test_list(thisAgent, tests_to_restore);
+            // dprint_saved_test_list(DT_DEBUG, tests_to_restore);
+            // print_saved_test_list(thisAgent, tests_to_restore);
             // TODO: XML tagged output -- how to create this string?
             // KJC TODO:  need a tagged output version of print_saved_test_list
 
