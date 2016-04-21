@@ -54,6 +54,10 @@ class smem_param_container: public soar_module::param_container
         enum merge_choices { merge_none, merge_add };
         enum act_choices { act_recency, act_frequency, act_base };
 
+        enum spreading_directions { forwards, backwards, both };
+        enum spreading_times { query_time, context_change };
+        enum spreading_traversals { random, deterministic };
+
         soar_module::boolean_param* learning;
         soar_module::constant_param<db_choices>* database;
         smem_path_param* path;
@@ -70,6 +74,7 @@ class smem_param_container: public soar_module::param_container
 
         soar_module::constant_param<merge_choices>* merge;
         soar_module::boolean_param* activate_on_query;
+        soar_module::boolean_param* activate_on_add;
         soar_module::constant_param<act_choices>* activation_mode;
         soar_module::decimal_param* base_decay;
 
@@ -79,6 +84,17 @@ class smem_param_container: public soar_module::param_container
         soar_module::int_set_param* base_incremental_threshes;
 
         soar_module::boolean_param* mirroring;
+
+        soar_module::boolean_param* spreading;
+        soar_module::constant_param<spreading_directions>* spreading_direction;
+        soar_module::constant_param<spreading_times>* spreading_time;
+        soar_module::constant_param<spreading_traversals>* spreading_traversal;
+        soar_module::decimal_param* spreading_number_trajectories;
+        soar_module::decimal_param* spreading_limit;
+        soar_module::decimal_param* spreading_depth_limit;
+        soar_module::decimal_param* spreading_baseline;
+        soar_module::decimal_param* spreading_continue_probability;
+        soar_module::boolean_param* spreading_loop_avoidance;
 
         smem_param_container(agent* new_agent);
 };
@@ -243,6 +259,15 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* web_attr_all;
         soar_module::sqlite_statement* web_const_all;
         soar_module::sqlite_statement* web_lti_all;
+        soar_module::sqlite_statement* web_attr_all_spread;
+        soar_module::sqlite_statement* web_const_all_spread;
+        soar_module::sqlite_statement* web_lti_all_spread;
+        soar_module::sqlite_statement* web_attr_all_cheap;
+        soar_module::sqlite_statement* web_const_all_cheap;
+        soar_module::sqlite_statement* web_lti_all_cheap;
+        soar_module::sqlite_statement* web_attr_all_manual;
+        soar_module::sqlite_statement* web_const_all_manual;
+        soar_module::sqlite_statement* web_lti_all_manual;
 
         soar_module::sqlite_statement* web_attr_child;
         soar_module::sqlite_statement* web_const_child;
@@ -269,15 +294,71 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* act_lti_child_ct_get;
         soar_module::sqlite_statement* act_lti_set;
         soar_module::sqlite_statement* act_lti_get;
+        soar_module::sqlite_statement* act_lti_fake_set;
+        soar_module::sqlite_statement* act_lti_fake_insert;
+        soar_module::sqlite_statement* act_lti_fake_delete;
+        soar_module::sqlite_statement* act_lti_fake_get;
 
         soar_module::sqlite_statement* history_get;
         soar_module::sqlite_statement* history_push;
         soar_module::sqlite_statement* history_add;
+        soar_module::sqlite_statement* prohibit_set;
+        soar_module::sqlite_statement* prohibit_add;
+        soar_module::sqlite_statement* prohibit_check;
+        soar_module::sqlite_statement* prohibit_reset;
+        soar_module::sqlite_statement* prohibit_clean;
+        soar_module::sqlite_statement* prohibit_remove;
+        soar_module::sqlite_statement* history_remove;
 
         soar_module::sqlite_statement* vis_lti;
         soar_module::sqlite_statement* vis_lti_act;
         soar_module::sqlite_statement* vis_value_const;
         soar_module::sqlite_statement* vis_value_lti;
+        soar_module::sqlite_statement* vis_lti_check_spread;
+        soar_module::sqlite_statement* vis_lti_base_act;
+        soar_module::sqlite_statement* vis_lti_all_act;
+        soar_module::sqlite_statement* vis_act;
+
+        soar_module::sqlite_statement* web_val_parent;
+        soar_module::sqlite_statement* web_val_parent_2;
+        soar_module::sqlite_statement* web_val_child;
+        soar_module::sqlite_statement* web_val_both;
+        soar_module::sqlite_statement* lti_all;
+        soar_module::sqlite_statement* trajectory_add;
+        soar_module::sqlite_statement* trajectory_remove;
+        soar_module::sqlite_statement* trajectory_remove_lti;
+        soar_module::sqlite_statement* trajectory_check_invalid;
+        soar_module::sqlite_statement* trajectory_remove_invalid;
+        soar_module::sqlite_statement* trajectory_remove_all;
+        soar_module::sqlite_statement* trajectory_find_invalid;
+        soar_module::sqlite_statement* trajectory_get;
+        soar_module::sqlite_statement* trajectory_invalidate_from_lti;
+        soar_module::sqlite_statement* trajectory_invalidate_edge;
+        soar_module::sqlite_statement* trajectory_size_debug_cmd;
+
+        soar_module::sqlite_statement* likelihood_cond_count_remove;
+        soar_module::sqlite_statement* lti_count_num_appearances_remove;
+        soar_module::sqlite_statement* likelihood_cond_count_insert;
+        soar_module::sqlite_statement* likelihood_cond_count_find_deterministic;
+        soar_module::sqlite_statement* likelihood_cond_count_insert_deterministic;
+        soar_module::sqlite_statement* lti_count_num_appearances_insert;
+        soar_module::sqlite_statement* calc_spread;
+        soar_module::sqlite_statement* calc_spread_size_debug_cmd;
+        soar_module::sqlite_statement* delete_old_context;
+        soar_module::sqlite_statement* delete_old_spread;
+        soar_module::sqlite_statement* add_new_context;
+        soar_module::sqlite_statement* add_fingerprint;
+        soar_module::sqlite_statement* delete_old_uncommitted_spread;
+        soar_module::sqlite_statement* reverse_old_committed_spread;
+        soar_module::sqlite_statement* add_uncommitted_fingerprint;
+        soar_module::sqlite_statement* remove_fingerprint_reversal;
+        soar_module::sqlite_statement* prepare_delete_committed_fingerprint;
+        soar_module::sqlite_statement* delete_committed_fingerprint;
+        soar_module::sqlite_statement* delete_committed_fingerprint_2;
+        soar_module::sqlite_statement* calc_uncommitted_spread;
+        soar_module::sqlite_statement* list_uncommitted_spread;
+        soar_module::sqlite_statement* delete_commit_of_negative_fingerprint;
+        soar_module::sqlite_statement* add_committed_fingerprint;
 
         smem_statement_container(agent* new_agent);
 
@@ -323,12 +404,14 @@ typedef uint64_t smem_hash_id;
 // represents a collection of long-term identifiers
 typedef std::list<smem_lti_id> smem_lti_list;
 typedef std::set<smem_lti_id> smem_lti_set;
+typedef std::map<smem_lti_id, uint64_t> smem_lti_map;
+typedef std::unordered_map<smem_lti_id, int64_t> smem_lti_unordered_map;
 
 // a list of symbols
 typedef std::list<Symbol*> smem_sym_list;
 
 // ways to store an identifier
-enum smem_storage_type { store_level, store_recursive };
+enum smem_storage_type { store_level, store_recursive, store_mirrored };
 
 // represents a list of wmes
 typedef std::list<wme*> smem_wme_list;
@@ -463,6 +546,9 @@ extern void smem_attach(agent* thisAgent);
 extern bool smem_parse_chunks(agent* thisAgent, const char* chunks, std::string** err_msg);
 extern bool smem_parse_cues(agent* thisAgent, const char* chunks, std::string** err_msg, std::string** result_message, uint64_t number_to_retrieve);
 extern bool smem_parse_remove(agent* thisAgent, const char* chunks, std::string** err_msg, std::string** result_message, bool force = false);
+
+extern bool smem_calc_spread_trajectories(agent* thisAgent);
+extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent);
 
 extern void smem_visualize_store(agent* thisAgent, std::string* return_val);
 extern void smem_visualize_lti(agent* thisAgent, smem_lti_id lti_id, unsigned int depth, std::string* return_val);
