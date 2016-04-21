@@ -13,12 +13,12 @@
  * =======================================================================
  */
 
+#include <run_soar.h>
 #include "print.h"
 
 #include "agent.h"
 #include "callback.h"
 #include "condition.h"
-#include "init_soar.h"
 #include "instantiation.h"
 #include "output_manager.h"
 #include "preference.h"
@@ -1023,17 +1023,8 @@ void print_instantiation_with_wmes(agent* thisAgent, instantiation* inst,
         xml_begin_tag(thisAgent, kTagProduction);
     }
 
-    if (inst->prod)
-    {
-        print_with_symbols(thisAgent, "%y", inst->prod_name);
-        xml_att_val(thisAgent, kProduction_Name, inst->prod_name->to_string(true));
-    }
-    else
-    {
-        print(thisAgent, "[dummy production]");
-        xml_att_val(thisAgent, kProduction_Name, "[dummy_production]");
-
-    }
+    print_with_symbols(thisAgent, "%y", inst->prod_name);
+    xml_att_val(thisAgent, kProduction_Name, inst->prod_name->to_string(true));
 
     print(thisAgent, "\n");
 

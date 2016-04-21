@@ -69,9 +69,16 @@ void Explanation_Logger::initialize_counters()
 }
 void Explanation_Logger::clear_explanations()
 {
+    //debug_trace_set(DT_ID_LEAKING, true);
+    //debug_trace_set(DT_EXPLAIN, true);
+
     dprint(DT_EXPLAIN, "Explanation logger clearing chunk records...\n");
     for (std::unordered_map< Symbol*, chunk_record* >::iterator it = (*chunks).begin(); it != (*chunks).end(); ++it)
     {
+        if (it->second->original_production)
+        {
+            it->second->original_production->save_for_justification_explanation = false;
+        }
         symbol_remove_ref(thisAgent, it->first);
         delete it->second;
     }
@@ -81,6 +88,10 @@ void Explanation_Logger::clear_explanations()
     dprint(DT_EXPLAIN, "Explanation logger clearing instantiation records...\n");
     for (std::unordered_map< uint64_t, instantiation_record* >::iterator it = (*instantiations).begin(); it != (*instantiations).end(); ++it)
     {
+        if (it->second->original_production)
+        {
+            it->second->original_production->save_for_justification_explanation = false;
+        }
         delete it->second;
     }
     instantiations->clear();
@@ -105,10 +116,16 @@ void Explanation_Logger::clear_explanations()
         delete (*it);
     }
     all_excised_productions->clear();
+    dprint(DT_EXPLAIN, "Explanation logger done clear_explanations...\n");
+    //debug_trace_set(DT_ID_LEAKING, false);
+    //debug_trace_set(DT_EXPLAIN, false);
+
 }
 
 Explanation_Logger::~Explanation_Logger()
 {
+    //debug_trace_set(DT_ID_LEAKING, true);
+    //debug_trace_set(DT_EXPLAIN, true);
     dprint(DT_EXPLAIN, "Deleting explanation logger.\n");
 
     current_recording_chunk = NULL;
@@ -120,6 +137,9 @@ Explanation_Logger::~Explanation_Logger()
     delete all_conditions;
     delete all_actions;
     delete instantiations;
+    dprint(DT_EXPLAIN, "Done deleting explanation logger.\n");
+    //debug_trace_set(DT_ID_LEAKING, false);
+    //debug_trace_set(DT_EXPLAIN, false);
 }
 
 void Explanation_Logger::re_init()
@@ -144,6 +164,13 @@ void Explanation_Logger::add_chunk_record(instantiation* pBaseInstantiation)
     }
 
     current_recording_chunk = new chunk_record(thisAgent, chunk_id_count++);
+    //dprint(DT_DEBUG, "Chunk number %u from prod %y\n", chunk_id_count, pBaseInstantiation->prod_name);
+    //if (this->chunk_id_count == 35)
+    //{
+    //    dprint(DT_DEBUG, "Chunk found.\n");
+    //    debug_trace_set(DT_RHS_VARIABLIZATION, true);
+    //    debug_trace_set(DT_VARIABLIZATION_MANAGER, true);
+    //}
 }
 
 void Explanation_Logger::end_chunk_record()
@@ -194,6 +221,8 @@ void Explanation_Logger::add_result_instantiations(instantiation* pBaseInst, pre
 
 void Explanation_Logger::record_chunk_contents(production* pProduction, condition* lhs, action* rhs, preference* results, id_to_id_map_type* pIdentitySetMappings, instantiation* pBaseInstantiation, instantiation* pChunkInstantiation)
 {
+    //debug_trace_set(DT_ID_LEAKING, true);
+    //debug_trace_set(DT_EXPLAIN, true);
     if (current_recording_chunk)
     {
         dprint(DT_EXPLAIN, "Recording chunk contents for %y (c%u).  Backtrace number: %d\n", pProduction->name, current_recording_chunk->chunkID, backtrace_number);
@@ -201,9 +230,12 @@ void Explanation_Logger::record_chunk_contents(production* pProduction, conditio
         chunks->insert({pProduction->name, current_recording_chunk});
         chunks_by_ID->insert({current_recording_chunk->chunkID, current_recording_chunk});
         symbol_add_ref(thisAgent, pProduction->name);
+        dprint(DT_EXPLAIN, "Explanation logger done record_chunk_contents...\n");
     } else {
         dprint(DT_EXPLAIN, "Not recording chunk contents for %y because it is not being watched.\n", pProduction->name);
     }
+    //debug_trace_set(DT_EXPLAIN, false);
+    //debug_trace_set(DT_ID_LEAKING, false);
 }
 
 condition_record* Explanation_Logger::add_condition(condition_record_list* pCondList, condition* pCond, instantiation_record* pInst , bool pMakeNegative)
@@ -352,15 +384,6 @@ instantiation_record* Explanation_Logger::get_instantiation(instantiation* pInst
 }
 
 
-void Explanation_Logger::record_dependencies()
-{
-
-    assert(current_discussed_chunk);
-
-    current_discussed_chunk->generate_dependency_paths();
-
-}
-
 bool Explanation_Logger::toggle_production_watch(production* pProduction)
 {
     if (pProduction->explain_its_chunks)
@@ -402,8 +425,8 @@ bool Explanation_Logger::explain_chunk(const std::string* pStringParameter)
         chunk_record* lFoundChunk = get_chunk_record(sym);
         if (lFoundChunk)
         {
-            discuss_chunk(lFoundChunk);
-            return true;
+                    discuss_chunk(lFoundChunk);
+                    return true;
         }
 
         outputManager->printa_sf(thisAgent, "Soar has not recorded an explanation for %s.\nType 'explain -l' to see a list of all chunk formations Soar has recorded.\n", pStringParameter->c_str());
@@ -420,7 +443,7 @@ void Explanation_Logger::discuss_chunk(chunk_record* pChunkRecord)
 {
     if (current_discussed_chunk != pChunkRecord)
     {
-        outputManager->printa_sf(thisAgent, "Now explaining %y.  - Note that future explain commands are now relative to the problem-solving that led to that chunk.\n\n", pChunkRecord->name);
+        outputManager->printa_sf(thisAgent, "Now explaining %y.\n  - Note that future explain commands are now relative to the problem-solving that led to that chunk.\n\n", pChunkRecord->name);
         if (current_discussed_chunk)
         {
             clear_chunk_from_instantiations();
@@ -435,7 +458,10 @@ void Explanation_Logger::discuss_chunk(chunk_record* pChunkRecord)
 
 void Explanation_Logger::save_excised_production(production* pProd)
 {
-    dprint(DT_EXPLAIN_CONDS, "Explanation logger adding production record for excised production: %y\n", pProd->name);
+    //debug_trace_set(DT_ID_LEAKING, true);
+    //debug_trace_set(DT_EXPLAIN, true);
+
+    dprint(DT_EXPLAIN, "Explanation logger adding production record for excised production: %y\n", pProd->name);
     production_record* lProductionRecord = new production_record(thisAgent, pProd);
     all_excised_productions->insert(lProductionRecord);
 
@@ -462,6 +488,9 @@ void Explanation_Logger::save_excised_production(production* pProd)
             it->second->excised_production = lProductionRecord;
         }
     }
+    dprint(DT_EXPLAIN, "Explanation logger done adding production record for excised production: %y\n", pProd->name);
+    //debug_trace_set(DT_ID_LEAKING, false);
+    //debug_trace_set(DT_EXPLAIN, false);
 }
 
 bool Explanation_Logger::print_chunk_explanation_for_id(uint64_t pChunkID)
@@ -540,15 +569,15 @@ bool Explanation_Logger::explain_item(const std::string* pObjectTypeString, cons
         {
             outputManager->printa_sf(thisAgent, "The chunk ID must be a number.  Use 'explain [chunk-name] to explain by name.'\n");
         }
-        lSuccess = print_chunk_explanation_for_id(lObjectID);
-    } else if (lFirstChar == 'i')
+            lSuccess = print_chunk_explanation_for_id(lObjectID);
+        } else if (lFirstChar == 'i')
     {
         if (!from_string(lObjectID, pObjectIDString->c_str()))
         {
             outputManager->printa_sf(thisAgent, "The instantiation ID must be a number.\n");
         }
-        lSuccess = print_instantiation_explanation_for_id(lObjectID);
-    } else if (lFirstChar == 'l')
+            lSuccess = print_instantiation_explanation_for_id(lObjectID);
+        } else if (lFirstChar == 'l')
     {
         if (!from_string(lObjectID, pObjectIDString->c_str()))
         {

@@ -58,7 +58,7 @@ bool CommandLineInterface::DoExplain(ExplainBitset options, const std::string* p
     }
     else
     {
-        if (options.test(EXPLAIN_FORMATION))
+            if (options.test(EXPLAIN_FORMATION))
         {
             thisAgent->explanationLogger->print_formation_explanation();
         }
@@ -82,20 +82,20 @@ bool CommandLineInterface::DoExplain(ExplainBitset options, const std::string* p
         {
             thisAgent->explanationLogger->switch_to_explanation_trace(false);
         }
-    }
+        }
 
     /* Handle global stats command*/
     if (options.test(EXPLAIN_GLOBAL_STATS))
     {
-        thisAgent->explanationLogger->print_explainer_stats();
-        return true;
+            thisAgent->explanationLogger->print_explainer_stats();
+            return true;
     }
 
     /* Handle global stats command*/
     if (options.test(EXPLAIN_LIST_ALL))
     {
-        thisAgent->explanationLogger->print_all_chunks();
-        return true;
+            thisAgent->explanationLogger->print_all_chunks();
+            return true;
     }
 
     /* Handle global stats command*/
@@ -114,8 +114,8 @@ bool CommandLineInterface::DoExplain(ExplainBitset options, const std::string* p
     {
         if (pStringParameter->empty())
         {
-            thisAgent->explanationLogger->print_explain_summary();
-            return true;
+                    thisAgent->explanationLogger->print_explain_summary();
+                    return true;
         } else if (pStringParameter2->empty()) {
             return thisAgent->explanationLogger->explain_chunk(pStringParameter);
         } else {

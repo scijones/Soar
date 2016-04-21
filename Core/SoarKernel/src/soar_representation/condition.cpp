@@ -11,11 +11,11 @@
  * =======================================================================
  */
 
+#include <run_soar.h>
 #include "condition.h"
 
 #include "agent.h"
 #include "explain.h"
-#include "init_soar.h"
 #include "debug.h"
 #include "test.h"
 #include "memory_manager.h"
@@ -338,7 +338,7 @@ void add_identities_in_test(agent* thisAgent, test pTest, test pInstantiatedTest
             add_identities_in_test(thisAgent, static_cast<test>(c->first), static_cast<test>(c2->first), pID_Set, pID_Set_Map);
         }
     } else if (test_has_referent(pTest)) {
-        if (pTest->identity && !pInstantiatedTest->data.referent->is_sti())
+        if (pTest->identity)
         {
             if (pID_Set->find(pTest->identity) == pID_Set->end())
             {
@@ -380,6 +380,7 @@ void add_identities_in_condition_list(agent* thisAgent, condition* lhs, id_set* 
             add_identities_in_test(thisAgent, id_test_without_goal_test, lCond->counterpart->data.tests.id_test, pID_Set, pID_Set_Map);
             add_identities_in_test(thisAgent, lCond->data.tests.attr_test, lCond->counterpart->data.tests.attr_test, pID_Set, pID_Set_Map);
             add_identities_in_test(thisAgent, lCond->data.tests.value_test, lCond->counterpart->data.tests.value_test, pID_Set, pID_Set_Map);
+            deallocate_test(thisAgent, id_test_without_goal_test);
         }
     }
 }
