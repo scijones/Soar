@@ -31,6 +31,7 @@
 #include "working_memory.h"
 #include "working_memory_activation.h"
 #include "xml.h"
+#include "soar_rand.h"
 
 #include <list>
 #include <map>
@@ -80,6 +81,10 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
     // learning
     learning = new soar_module::boolean_param("learning", off, new soar_module::f_predicate<boolean>());
     add(learning);
+
+    // spreading
+    spreading = new soar_module::boolean_param("spreading", off, new soar_module::f_predicate<boolean>());
+    add(spreading);
 
     // database
     database = new soar_module::constant_param<db_choices>("database", memory, new soar_module::f_predicate<db_choices>());
@@ -142,6 +147,9 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
     activate_on_query = new soar_module::boolean_param("activate-on-query", on, new soar_module::f_predicate<boolean>());
     add(activate_on_query);
 
+    activate_on_add = new soar_module::boolean_param("activate-on-add", off, new soar_module::f_predicate<boolean>());
+    add(activate_on_add);
+
     // activation_mode
     activation_mode = new soar_module::constant_param<act_choices>("activation-mode", act_recency, new soar_module::f_predicate<act_choices>());
     activation_mode->add_mapping(act_recency, "recency");
@@ -167,6 +175,45 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
     // mirroring
     mirroring = new soar_module::boolean_param("mirroring", off, new smem_db_predicate< boolean >(thisAgent));
     add(mirroring);
+
+    // spreading_baseline - This determines how far 1 occurence in a fingerprint is from zero occurances in a fingerprint
+    // Think of it as a measure of the confidence we have that our spreading model is capturing all relevant nodes
+    // It's somewhat related to epsilon greedy.
+    spreading_baseline = new soar_module::decimal_param("spreading-baseline", 0.1, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
+    add(spreading_baseline);
+
+    // When doing random spreading, how many samples are taken for a given source node?
+    spreading_number_trajectories = new soar_module::decimal_param("spreading-number-trajectories", 16, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
+    add(speading_number_trajectories);
+
+    spreading_continue_probability = new soar_module::decimal_param("spreading-continue-probability", 0.9, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
+    add(spreading_continue_probability);
+
+    spreading_direction = new soar_module::constant_param<spreading_directions>("spreading-direction", forwards, new soar_module::f_predicate<spreading_directions>());
+    spreading_direction->add_mapping(forwards, "forwards");//along the edges
+    spreading_direction->add_mapping(backwards, "backwards");//against the direction of the edges - what act-r does
+    spreading_direction->add_mapping(both, "both");//bidirectional
+    add(spreading_direction);
+
+    spreading_time = new soar_module::constant_param<spreading_times>("spreading-time", query_time, new soar_module::f_predicate<spreading_times>());
+    spreading_time->add_mapping(query_time, "query-time");//don't bother doing spread at all until a query
+    spreading_time->add_mapping(context_change, "context-change");//do spread according to when the context changes
+    add(spreading_time);
+
+    spreading_traversal = new soar_module::constant_param<spreading_traversals>("spreading-traversal", deterministic, new soar_module::f_predicate<spreading_traversals>());
+    spreading_traversal->add_mapping(random, "random");
+    spreading_traversal->add_mapping(deterministic, "deterministic");
+    add(spreading_traversal);
+
+    spreading_limit = new soar_module::decimal_param("spreading-limit", 30, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
+    add(spreading_limit);
+
+    //general limit to the depth of spreading. Must be <= 10.
+    spreading_depth_limit = new soar_module::decimal_param("spreading-depth-limit", 10, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
+    add(spreading_depth_limit);
+
+    spreading_loop_avoidance = new soar_module::boolean_param("spreading-loop-avoidance", off, new soar_module::f_predicate<boolean>());
+    add(spreading_loop_avoidance);
 }
 
 //
@@ -413,14 +460,35 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_symbols_integer (s_id INTEGER PRIMARY KEY, symbol_value INTEGER)");
     add_structure("CREATE TABLE smem_symbols_float (s_id INTEGER PRIMARY KEY, symbol_value REAL)");
     add_structure("CREATE TABLE smem_symbols_string (s_id INTEGER PRIMARY KEY, symbol_value TEXT)");
-    add_structure("CREATE TABLE smem_lti (lti_id INTEGER PRIMARY KEY, soar_letter INTEGER, soar_number INTEGER, total_augmentations INTEGER, activation_value REAL, activations_total INTEGER, activations_last INTEGER, activations_first INTEGER)");
-    add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER)");
+    add_structure("CREATE TABLE smem_lti (lti_id INTEGER PRIMARY KEY, soar_letter INTEGER, soar_number INTEGER, total_augmentations INTEGER, activation_base_level REAL, activations_total REAL, activations_last INTEGER, activations_first INTEGER, activation_spread REAL, activation_value REAL)");
+    add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER, touch1 REAL, touch2 REAL, touch3 REAL, touch4 REAL, touch5 REAL, touch6 REAL, touch7 REAL, touch8 REAL, touch9 REAL, touch10 REAL)");
     add_structure("CREATE TABLE smem_augmentations (lti_id INTEGER, attribute_s_id INTEGER, value_constant_s_id INTEGER, value_lti_id INTEGER, activation_value REAL)");
     add_structure("CREATE TABLE smem_attribute_frequency (attribute_s_id INTEGER PRIMARY KEY, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_wmes_constant_frequency (attribute_s_id INTEGER, value_constant_s_id INTEGER, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_wmes_lti_frequency (attribute_s_id INTEGER, value_lti_id INTEGER, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_ascii (ascii_num INTEGER PRIMARY KEY, ascii_chr TEXT)");
     // adding an ascii table just to make lti queries easier when inspecting database
+    add_structure("CREATE TABLE smem_constants_store (smem_act_max REAL, smem_act_low REAL)");
+    add_structure("INSERT OR IGNORE INTO smem_constants_store (smem_act_max, smem_act_low) VALUES (9223372036854775807, -1000000000)");
+    add_structure("INSERT OR IGNORE INTO smem_constants_store (smem_act_max, smem_act_low) VALUES (9223372036854775808, -1000000000)");
+    add_structure("CREATE TABLE smem_likelihood_trajectories (lti_id INTEGER, lti1 INTEGER, lti2 INTEGER, lti3 INTEGER, lti4 INTEGER, lti5 INTEGER, lti6 INTEGER, lti7 INTEGER, lti8 INTEGER, lti9 INTEGER, lti10 INTEGER, valid_bit INTEGER)");
+    //This is bookkeeping. It contains counts of how often certain ltis show up in the fingerprints of other ltis.
+    add_structure("CREATE TABLE smem_likelihoods (lti_j INTEGER, lti_i INTEGER, num_appearances_i_j REAL, PRIMARY KEY (lti_j,lti_i)) WITHOUT ROWID");
+    //The above (smem_likelihoods) needs to have integers changed to real in order to support deterministic spreading.
+    /*
+     * This keeps track of how often an lti shows up in fingerprints at all when used for ACT-R activation and it keeps track of fingerprint size in Soar (personalized pagerank) activation
+     */
+    add_structure("CREATE TABLE smem_trajectory_num (lti_id INTEGER PRIMARY KEY, num_appearances REAL)");
+    // This contains the counts needed to calculation spreading activation values for ltis in working memory.
+    add_structure("CREATE TABLE smem_current_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, PRIMARY KEY (lti_source, lti_id)) WITHOUT ROWID");
+    // This keeps track of the context.
+    add_structure("CREATE TABLE smem_current_context (lti_id INTEGER PRIMARY KEY)");
+    add_structure("CREATE TABLE smem_uncommitted_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, sign INTEGER, PRIMARY KEY(lti_id,lti_source,num_appearances_i_j,num_appearances,sign)) WITHOUT ROWID");
+    add_structure("CREATE TABLE smem_committed_spread (lti_id INTEGER,num_appearances_i_j REAL,num_appearances REAL, lti_source INTEGER, PRIMARY KEY(lti_source,lti_id)) WITHOUT ROWID");
+    add_structure("CREATE TABLE smem_current_spread_activations (lti_id INTEGER PRIMARY KEY, activation_base_level REAL,activation_spread REAL,activation_value REAL)");
+    add_structure("CREATE TABLE smem_to_delete (lti_id INTEGER PRIMARY KEY)");
+    //Also adding in prohibit tracking in order to meaningfully use BLA with "activate-on-query".
+    add_structure("CREATE TABLE smem_prohibited (lti_id INTEGER PRIMARY KEY, prohibited INTEGER, dirty INTEGER)");
     {
         add_structure("INSERT OR IGNORE INTO smem_ascii (ascii_num, ascii_chr) VALUES (65,'A')");
         add_structure("INSERT OR IGNORE INTO smem_ascii (ascii_num, ascii_chr) VALUES (66,'B')");
@@ -457,6 +525,7 @@ void smem_statement_container::create_indices()
     add_structure("CREATE UNIQUE INDEX smem_symbols_float_const ON smem_symbols_float (symbol_value)");
     add_structure("CREATE UNIQUE INDEX smem_symbols_str_const ON smem_symbols_string (symbol_value)");
     add_structure("CREATE UNIQUE INDEX smem_lti_letter_num ON smem_lti (soar_letter, soar_number)");
+    add_structure("CREATE UNIQUE INDEX smem_lti_id_letter_num ON smem_lti (lti_id, soar_letter, soar_number)");
     add_structure("CREATE INDEX smem_lti_t ON smem_lti (activations_last)");
     add_structure("CREATE INDEX smem_augmentations_parent_attr_val_lti ON smem_augmentations (lti_id, attribute_s_id, value_constant_s_id, value_lti_id)");
     add_structure("CREATE INDEX smem_augmentations_attr_val_lti_cycle ON smem_augmentations (attribute_s_id, value_constant_s_id, value_lti_id, activation_value)");
