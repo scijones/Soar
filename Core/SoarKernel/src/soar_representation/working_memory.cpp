@@ -251,12 +251,52 @@ void do_buffered_wm_changes(agent* thisAgent)
     dprint(DT_WME_CHANGES, "...adding wmes_to_add to rete.\n");
     for (c = thisAgent->wmes_to_add; c != NIL; c = c->rest)
     {
+        w = (wme_struct*)(c->first);
+        //This is for spreading (keeping track of context).
+        if (w->id->symbol_type == IDENTIFIER_SYMBOL_TYPE && w->id->id->smem_lti)//test for lti, if so, either add or increment count in context map vector.
+        {
+            if (thisAgent->smem_in_wmem->find(w->id->id->smem_lti)==thisAgent->smem_in_wmem->end())
+            {
+                (*(thisAgent->smem_in_wmem))[w->id->id->smem_lti] = (uint64_t)1;
+                //Here, I should also add to a data structure containing "ltis to add to context".
+                //thisAgent->smem_context_additions->insert(w->id->id->smem_lti);
+                //edge case? - I should remove ltis from "ltis to remove from context".
+                if (thisAgent->smem_context_removals->find(w->id->id->smem_lti)!=thisAgent->smem_context_removals->end())
+                {
+                    thisAgent->smem_context_removals->erase(w->id->id->smem_lti);
+                }
+            }
+            else
+            {
+                (*(thisAgent->smem_in_wmem))[w->id->id->smem_lti] = (*(thisAgent->smem_in_wmem))[w->id->id->smem_lti] + 1;
+            }
+        }
         dprint(DT_WME_CHANGES, "...adding %w to rete\n", static_cast<wme_struct*>(c->first));
         add_wme_to_rete(thisAgent, static_cast<wme_struct*>(c->first));
     }
     dprint(DT_WME_CHANGES, "...removing wmes_to_remove from rete.\n");
     for (c = thisAgent->wmes_to_remove; c != NIL; c = c->rest)
     {
+        w = (wme_struct*)(c->first);
+        if(thisAgent->smem_in_wmem->find(w->id->id->smem_lti)!=thisAgent->smem_in_wmem->end())
+        {
+            if ((*(thisAgent->smem_in_wmem))[w->id->id->smem_lti]==1)
+            {
+                thisAgent->smem_in_wmem->erase(w->id->id->smem_lti);
+                if (thisAgent->smem_context_additions->find(w->id->id->smem_lti)!=thisAgent->smem_context_additions->end())
+                {
+                    thisAgent->smem_context_additions->erase(w->id->id->smem_lti);
+                }
+                else
+                {
+                    thisAgent->smem_context_removals->insert(w->id->id->smem_lti);
+                }
+            }
+            else
+            {
+                (*(thisAgent->smem_in_wmem))[w->id->id->smem_lti] = (*(thisAgent->smem_in_wmem))[w->id->id->smem_lti] - 1;
+            }
+        }
         dprint(DT_WME_CHANGES, "...removing %w from rete.\n", static_cast<wme_struct*>(c->first));
         remove_wme_from_rete(thisAgent, static_cast<wme_struct*>(c->first));
     }

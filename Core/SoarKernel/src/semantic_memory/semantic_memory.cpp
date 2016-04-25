@@ -184,7 +184,7 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
 
     // When doing random spreading, how many samples are taken for a given source node?
     spreading_number_trajectories = new soar_module::decimal_param("spreading-number-trajectories", 16, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
-    add(speading_number_trajectories);
+    add(spreading_number_trajectories);
 
     spreading_continue_probability = new soar_module::decimal_param("spreading-continue-probability", 0.9, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
     add(spreading_continue_probability);
@@ -1523,19 +1523,764 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
-inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time_now, uint64_t n = 0, uint64_t activations_first = 0)
+//When used in intial construction, it just goes to a depth of 1 (immediate children), but one can use for
+//a full traversal, if wanted.
+void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories,int depth = 10)
+{
+    if (lti_trajectories.find(lti_id)==lti_trajectories.end())
+    {
+        soar_module::sqlite_statement* children_q;
+        if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::backwards)
+        {
+            children_q = thisAgent->smem_stmts->web_val_parent_2;
+        }
+        else if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::both)
+        {
+            children_q = thisAgent->smem_stmts->web_val_both;
+        }
+        else
+        {
+            children_q = thisAgent->smem_stmts->web_val_child;//web_val_child;//web_val_parent_2;
+        }
+        std::list<smem_lti_id> children;
+
+        //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
+        if (children_q->get_status() == soar_module::unprepared)
+        {
+            //assert(false);//testing if I still need this.
+            // ^ assertion failed. - I do.
+            children_q->prepare();
+        }
+        children_q->bind_int(1, lti_id);
+        children_q->bind_int(2, lti_id);
+        lti_trajectories[lti_id] = new std::list<smem_lti_id>;
+        while(children_q->execute() == soar_module::row)
+        {
+            if (children_q->column_int(0) == lti_id)
+            {
+                continue;
+            }
+            (lti_trajectories[lti_id])->push_back(children_q->column_int(0));
+            children.push_back(children_q->column_int(0));
+        }
+        (lti_trajectories[lti_id])->sort();
+        children_q->reinitialize();
+        if (depth > 1)
+        {
+            for(std::list<smem_lti_id>::iterator child_iterator = children.begin(); child_iterator!=children.end(); child_iterator++)
+            {
+                child_spread(thisAgent, *child_iterator, lti_trajectories, depth-1);
+            }
+        }
+    }
+}
+
+void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories, int depth = 0, bool initial = false)
+{
+    //smem_lti_id lti_id = trajectory.back();
+    //child_spread(thisAgent, lti_id, lti_trajectories,1);//This just gets the children of the current lti_id.
+    if (!initial)
+    {
+        thisAgent->smem_stmts->trajectory_remove_lti->bind_int(1,lti_id);
+        thisAgent->smem_stmts->trajectory_remove_lti->execute(soar_module::op_reinit);
+    }
+    //If we reach here, the element is not at maximum depth and is not inherently terminal, so recursion continues.
+    std::list<smem_lti_id>::iterator lti_iterator;
+    std::list<smem_lti_id>::iterator lti_begin;// = lti_trajectories[lti_id]->begin();
+    std::list<smem_lti_id>::iterator lti_end;// = lti_trajectories[lti_id]->end();
+    std::queue<std::list<smem_lti_id>*> lti_traversal_queue;
+    /* I'll make this better later. For now, I want it to work. I'm keeping two things.
+     * I want a way to do a breadth-first traversal, and I also want to keep track of the
+     * current path that has been traversed. As such, I need a queue of lists.
+     */
+    // Start with the given lti_id
+    bool ever_added = false;
+    smem_lti_id current_lti;
+    uint64_t depth_limit = (uint64_t) thisAgent->smem_params->spreading_depth_limit->get_value();
+    uint64_t limit = (uint64_t) thisAgent->smem_params->spreading_limit->get_value();
+    uint64_t count = 0;
+    std::list<smem_lti_id>* current_lti_list = new std::list<smem_lti_id>;
+    current_lti_list->push_back(lti_id);
+    lti_traversal_queue.push(current_lti_list);
+    //There is a limit to the size of the stored info.
+
+    //
+    std::list<smem_lti_id>::iterator old_list_iterator;
+    std::list<smem_lti_id>::iterator old_list_iterator_begin;
+    std::list<smem_lti_id>::iterator old_list_iterator_end;
+    std::list<smem_lti_id>::iterator new_list_iterator;
+    std::list<smem_lti_id>::iterator new_list_iterator_begin;
+    std::list<smem_lti_id>::iterator new_list_iterator_end;
+    std::set<smem_lti_id> visited;
+    bool good_lti = true;
+    depth = 0;
+    while (!lti_traversal_queue.empty() && count < limit)
+    {
+        // Find all of the children of the current lti_id. (current = end of the current list from the queue)
+        current_lti_list = lti_traversal_queue.front();
+        current_lti = current_lti_list->back();
+        //if (lti_trajectories.find(current_lti)==lti_trajectories.end())
+        {
+            child_spread(thisAgent, current_lti, lti_trajectories,1);//This just gets the children of the current lti_id.
+        }
+        lti_begin = lti_trajectories[current_lti]->begin();//first child
+        lti_end = lti_trajectories[current_lti]->end();//last child
+        old_list_iterator_begin = current_lti_list->begin();
+        old_list_iterator_end = current_lti_list->end();
+        //assert(lti_begin != lti_end);
+        for (lti_iterator = lti_begin; lti_iterator != lti_end && count < limit; ++lti_iterator)
+        {
+            good_lti = true;
+            //First, we make a new copy of the list to add to the queue.
+            std::list<smem_lti_id>* new_list = new std::list<smem_lti_id>;
+            //We copy the contents of the old list.
+            for (old_list_iterator = old_list_iterator_begin; old_list_iterator != old_list_iterator_end; ++old_list_iterator)
+            {
+                new_list->push_back((*old_list_iterator));
+                if (thisAgent->smem_params->spreading_loop_avoidance->get_value() == on)
+                {
+                    visited.insert((*old_list_iterator));
+                }
+            }
+            if (thisAgent->smem_params->spreading_loop_avoidance->get_value() == on)
+            {
+                good_lti = (visited.find(*lti_iterator) == visited.end());
+            }
+            if (good_lti)
+            {
+                //Add the new element to the list.
+                new_list->push_back((*lti_iterator));
+
+                //Now we have a new traversal to add.
+                new_list_iterator_begin = new_list->begin();
+                new_list_iterator_end = new_list->end();
+                depth = 0;
+                for (new_list_iterator = new_list_iterator_begin; new_list_iterator != new_list_iterator_end; ++new_list_iterator)
+                {
+                    thisAgent->smem_stmts->trajectory_add->bind_int(++depth, *new_list_iterator);
+                }
+                while (depth < 11 && depth < depth_limit+2)
+                {
+                    thisAgent->smem_stmts->trajectory_add->bind_int(++depth, 0);
+                }
+                thisAgent->smem_stmts->trajectory_add->execute(soar_module::op_reinit);
+                ever_added = true;
+                ++count;
+
+                //If there's room for more, we add it so that we can continue building.
+                if (new_list->size() < depth_limit+1 && count < limit) {
+                    lti_traversal_queue.push(new_list);
+                }
+                else
+                {
+                    delete new_list;//Before ever adding it, we just delete it instead.
+                    //The other way to delete is to get added, then to get deleted after a traversal of children.
+                }
+            }
+            else
+            {
+                delete new_list;
+            }
+        }
+        lti_traversal_queue.pop();//Get rid of the old list.
+        delete current_lti_list;//No longer need it altogether.
+    }
+    //If we quit the above loop by hitting the limit, we need to delete the old lists that are left.
+    while (!lti_traversal_queue.empty())
+    {
+        delete ((lti_traversal_queue.front()));
+        lti_traversal_queue.pop();
+    }
+    if (!ever_added)
+    {
+        thisAgent->smem_stmts->trajectory_add->bind_int(1,lti_id);
+        thisAgent->smem_stmts->trajectory_add->bind_int(2,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(3,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(4,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(5,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(6,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(7,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(8,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(9,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(10,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(11,0);
+        thisAgent->smem_stmts->trajectory_add->bind_int(12,1);
+        thisAgent->smem_stmts->trajectory_add->execute(soar_module::op_reinit);
+    }
+}
+
+//This is a random construction of trajectories with depth up to 10 (or something).
+void trajectory_construction(agent* thisAgent, std::list<smem_lti_id>& trajectory, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories, uint64_t depth)
+{
+    smem_lti_id lti_id = trajectory.back();
+    child_spread(thisAgent, lti_id, lti_trajectories,1);//This just gets the children of the current lti_id.
+
+    //If we have the noloop option on, this set terminates the additions early to avoid loops.
+    std::set<smem_lti_id> added_ltis;
+    //I should iterate through the tree stored in the map and recursively construct trajectories to add to the table in smem.
+    if (depth==0)
+    {
+    //A depth of 0 indicates that we have ten elements in the trajectory list, so we have hit the depth limit and should add to the table.
+        bool valid_addition = true;
+        for (std::list<smem_lti_id>::iterator trajectory_iterator = trajectory.begin(); trajectory_iterator != trajectory.end(); trajectory_iterator++)
+        {
+            if (thisAgent->smem_params->spreading_loop_avoidance->get_value() == on && valid_addition)
+            {
+                valid_addition = (added_ltis.find(*trajectory_iterator)==added_ltis.end());
+                added_ltis.insert(*trajectory_iterator);
+            }
+            if (valid_addition)
+            {
+                thisAgent->smem_stmts->trajectory_add->bind_int(++depth, *trajectory_iterator);
+            }
+            else
+            {
+                thisAgent->smem_stmts->trajectory_add->bind_int(++depth, 0);
+            }
+        }
+        thisAgent->smem_stmts->trajectory_add->execute(soar_module::op_reinit);
+        return;
+    }
+    //probability constant here can be set via command.
+    if ((lti_trajectories.find(lti_id)==lti_trajectories.end() || lti_trajectories[lti_id]->size() == 0)||(SoarRand()>thisAgent->smem_params->spreading_continue_probability->get_value() && ((uint64_t)thisAgent->smem_params->spreading_depth_limit->get_value()) != depth))
+    {
+    //If the element is not in the trajectory map, it was a terminal node and the list should end here. The rest of the values will be 0.
+        int i = 0;
+        bool valid_addition = true;
+        for (std::list<smem_lti_id>::iterator trajectory_iterator = trajectory.begin(); trajectory_iterator != trajectory.end() && valid_addition; trajectory_iterator++)
+        {
+            i++;
+            if (thisAgent->smem_params->spreading_loop_avoidance->get_value() == on
+                    && added_ltis.find(*trajectory_iterator)!=added_ltis.end())
+            {
+                valid_addition = false;
+                thisAgent->smem_stmts->trajectory_add->bind_int(i, 0);
+            }
+            else
+            {
+                //std::cout << *trajectory_iterator << std::endl;
+                thisAgent->smem_stmts->trajectory_add->bind_int(i, *trajectory_iterator);
+            }
+            if (thisAgent->smem_params->spreading_loop_avoidance->get_value() == on)
+            {
+                added_ltis.insert(*trajectory_iterator);
+            }
+        }
+        for (int j = i+1; j < 12; j++)
+        {
+                    //  std::cout << j << std::endl;
+            thisAgent->smem_stmts->trajectory_add->bind_int(j, 0);
+        }
+        thisAgent->smem_stmts->trajectory_add->execute(soar_module::op_reinit);
+        return;
+    }
+
+    //If we reach here, the element is not at maximum depth and is not inherently terminal, so recursion continues.
+    std::list<smem_lti_id>::iterator lti_iterator = lti_trajectories[lti_id]->begin();
+    uint64_t index = SoarRandInt(lti_trajectories[lti_id]->size()-1);
+    assert(lti_trajectories.find(lti_id)!=lti_trajectories.end());
+    assert(lti_trajectories[lti_id]->size() > 0);
+    for (int i = 0; i < index; ++i)
+    {
+        ++lti_iterator;
+    }
+    smem_lti_id next = *lti_iterator;
+    {
+        trajectory.push_back(*lti_iterator);
+        trajectory_construction(thisAgent, trajectory, lti_trajectories, depth-1);
+    }
+}
+
+void smem_delete_trajectory_indices(agent* thisAgent)
+{
+    soar_module::sqlite_statement* trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX trajectory_lti");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+//    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+//            "DROP INDEX trajectory_valid");
+//    trajectory_index_delete->prepare();
+//    trajectory_index_delete->execute(soar_module::op_reinit);
+//    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t1");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t2");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t3");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t4");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t5");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t6");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t7");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t8");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t9");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t10");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t12");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t23");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t34");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t45");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t56");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t67");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t78");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t89");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_t910");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "DROP INDEX lti_tid10");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+}
+
+void smem_create_trajectory_indices(agent* thisAgent)
+{
+    soar_module::sqlite_statement* trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX trajectory_lti ON smem_likelihood_trajectories (lti_id,valid_bit)");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+//    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+//            "CREATE INDEX trajectory_valid ON smem_likelihood_trajectories (valid_bit,lti_id)");
+//    trajectory_index_delete->prepare();
+//    trajectory_index_delete->execute(soar_module::op_reinit);
+//    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t1 ON smem_likelihood_trajectories (lti_id,lti1) WHERE lti1 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t2 ON smem_likelihood_trajectories (lti1,lti2) WHERE lti2 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t3 ON smem_likelihood_trajectories (lti2,lti3) WHERE lti3 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t4 ON smem_likelihood_trajectories (lti3,lti4) WHERE lti4 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t5 ON smem_likelihood_trajectories (lti4,lti5) WHERE lti5 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t6 ON smem_likelihood_trajectories (lti5,lti6) WHERE lti6 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t7 ON smem_likelihood_trajectories (lti6,lti7) WHERE lti7 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t8 ON smem_likelihood_trajectories (lti7,lti8) WHERE lti8 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t9 ON smem_likelihood_trajectories (lti8,lti9) WHERE lti9 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t10 ON smem_likelihood_trajectories (lti9,lti10) WHERE lti10 != 0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t12 ON smem_likelihood_trajectories (lti_id,lti1) WHERE lti2=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t23 ON smem_likelihood_trajectories (lti_id,lti2) WHERE lti3=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t34 ON smem_likelihood_trajectories (lti_id,lti3) WHERE lti4=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t45 ON smem_likelihood_trajectories (lti_id,lti4) WHERE lti5=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t56 ON smem_likelihood_trajectories (lti_id,lti5) WHERE lti6=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t67 ON smem_likelihood_trajectories (lti_id,lti6) WHERE lti7=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t78 ON smem_likelihood_trajectories (lti_id,lti7) WHERE lti8=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t89 ON smem_likelihood_trajectories (lti_id,lti8) WHERE lti9=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_t910 ON smem_likelihood_trajectories (lti_id,lti9) WHERE lti10=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+    trajectory_index_delete = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX lti_tid10 ON smem_likelihood_trajectories (lti_id,lti10) WHERE lti10!=0");
+    trajectory_index_delete->prepare();
+    trajectory_index_delete->execute(soar_module::op_reinit);
+    delete trajectory_index_delete;
+}
+
+extern bool smem_calc_spread_trajectories(agent* thisAgent)
+{//This is written to be a batch process when spreading is turned on. It will take a long time.
+    smem_attach(thisAgent);
+    /*soar_module::sqlite_statement* initialization_act_r = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "CREATE INDEX smem_augmentations_lti_id ON smem_augmentations (value_lti_id, lti_id)");
+    initialization_act_r->prepare();
+    initialization_act_r->execute(soar_module::op_reinit);
+    delete initialization_act_r;*/
+
+    soar_module::sqlite_statement* children_q;// = thisAgent->smem_stmts->web_val_child;
+    if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::backwards)
+    {
+        children_q = thisAgent->smem_stmts->web_val_parent_2;
+    }
+    else if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::both)
+    {
+        children_q = thisAgent->smem_stmts->web_val_both;
+    }
+    else
+    {
+        children_q = thisAgent->smem_stmts->web_val_child;//web_val_child;//web_val_parent_2;
+    }
+    soar_module::sqlite_statement* lti_a = thisAgent->smem_stmts->lti_all;
+    smem_lti_id lti_id;
+    std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
+    int j = 0;
+    smem_delete_trajectory_indices(thisAgent);
+    //Iterate through all ltis in SMem
+    while (lti_a->execute() == soar_module::row)
+    {
+        lti_id = lti_a->column_int(0);
+        //Make the fingerprint for this lti.
+        //TODO - This isn't the only place, but I've HARD-CODED the number of trajectories here.
+        for (int i = 0; i < thisAgent->smem_params->spreading_number_trajectories->get_value(); ++i)
+        {
+        //assert(thisAgent->smem_params->number_trajectories->get_value()!=10);
+        //assert(i!=8);
+            std::list<smem_lti_id> trajectory;
+            trajectory.push_back(lti_id);
+            trajectory_construction(thisAgent,trajectory,lti_trajectories,thisAgent->smem_params->spreading_depth_limit->get_value());
+        }
+    }
+    lti_a->reinitialize();
+    smem_create_trajectory_indices(thisAgent);
+    for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+    {
+        delete to_delete->second;
+    }
+
+    soar_module::sqlite_statement* likelihood_cond_count = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "INSERT INTO smem_likelihoods (lti_j, lti_i, num_appearances_i_j) SELECT parent, lti, SUM(count) FROM (SELECT lti_id AS parent, lti1 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti1 !=0 GROUP BY lti, parent UNION ALL SELECT lti_id AS parent, lti2 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti2 !=0 GROUP BY lti, parent UNION ALL SELECT lti_id AS parent, lti3 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti3 !=0 GROUP BY lti, parent UNION ALL SELECT lti_id AS parent, lti4 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti4 !=0 GROUP BY lti, parent UNION ALL SELECT lti_id AS parent, lti5 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti5 !=0 GROUP BY lti, parent UNION ALL SELECT lti_id AS parent, lti6 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti6 !=0 GROUP BY lti, parent UNION ALL SELECT lti_id AS parent, lti7 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti7 !=0 GROUP BY lti, parent UNION ALL SELECT lti_id AS parent, lti8 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti8 !=0 GROUP BY lti, parent UNION ALL SELECT lti_id AS parent, lti9 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti9 !=0 GROUP BY lti, parent UNION ALL SELECT lti_id AS parent, lti10 AS lti,COUNT(*) AS count FROM smem_likelihood_trajectories WHERE lti10 !=0 GROUP BY lti, parent) GROUP BY parent, lti");
+    likelihood_cond_count->prepare();
+    likelihood_cond_count->execute(soar_module::op_reinit);
+    delete likelihood_cond_count;
+
+    soar_module::sqlite_statement* lti_count_num_appearances = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "INSERT INTO smem_trajectory_num (lti_id, num_appearances) SELECT lti_j, SUM(num_appearances_i_j) FROM smem_likelihoods GROUP BY lti_j");
+    lti_count_num_appearances->prepare();
+    lti_count_num_appearances->execute(soar_module::op_reinit);
+    delete lti_count_num_appearances;
+    return true;
+}
+
+extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
+{//This is written to be a batch process when spreading is turned on. It will take a long time.
+    smem_attach(thisAgent);
+    soar_module::sqlite_statement* lti_a = thisAgent->smem_stmts->lti_all;
+    smem_lti_id lti_id;
+    std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
+    int j = 0;
+    //It is very inefficient to update these indexes continuously so we delete and then recreate them.
+    smem_delete_trajectory_indices(thisAgent);
+    //Iterate through all ltis in SMem
+    double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
+    while (lti_a->execute() == soar_module::row)
+    {
+        lti_id = lti_a->column_int(0);
+        //Make the fingerprint for this lti.
+        {
+            trajectory_construction_deterministic(thisAgent,lti_id,lti_trajectories,0,true);
+        }
+    }
+    for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+    {
+        delete to_delete->second;
+    }
+    lti_a->reinitialize();
+    smem_create_trajectory_indices(thisAgent);
+    //At this point, we've created fingerprints for all of the ltis. However, we have not propagated any spreading values.
+    //We have recreated the indexing that allows easy access to and invalidation of fingerprints.
+
+
+    while (lti_a->execute() == soar_module::row)
+    {
+        lti_id = lti_a->column_int(0);
+        double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
+        for (int i = 1; i < 11; i++)
+        {
+            thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->bind_int(i,(lti_id));
+        }
+        // At this point, we retrieve the fingerprint associated with a particular node and
+            //calculate the spread it gives. We then store that spread map.
+        //We require a map from an element to the spread.
+        /*
+         * First, a description of what's going on here
+         * Spread basically has two parts. There's the fan that occured en-route to a node. This compounded fan
+         * dilutes by a multiplicative factor. Basically, it's a bunch of compounded dividing according to the fan effect.
+         * This means that for a given point in the breadth-first traversal and for the node at that point in the traversal, there has already
+         * been a bunch of dividing. "bob" at depth 3 via a particular route might get a fan of 1/36 while "bob"'s appearance at depth 2
+         * via a particular route might have a fan of 1/8.
+         *
+         * That's one factor. This is kept track of with fanmap.
+         *
+         * There's also the depth discount. It turns out you can factor these out since it's a bunch of multiplication and thus you
+         * can calculate depth effects and fan effects separately. This could be handy for future changes to the model.
+         */
+
+        std::map<smem_lti_id,double> spread_map;
+        std::map<smem_lti_id,uint64_t> num_children_map;
+        std::list<uint64_t> depth_list;
+        std::list<uint64_t> parent_list;
+        std::list<uint64_t> lti_list;
+        uint64_t depth = 1;
+        uint64_t parent;
+        uint64_t lti;
+
+        typedef std::pair<smem_lti_id,uint64_t> my_key_type;
+        typedef std::map<my_key_type, double> my_map_type;
+        my_map_type fan_map_part; //This is a map from a given node at a given depth to the amount of nodes it will directly spread to next in the fingerprint
+        //So, if node "bob" spreads to 4 more elements at depth 4 when bob is at depth 3, we have a map of bob's fan for elements at depth 4.
+
+        while (thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->execute() == soar_module::row)
+        {
+            parent = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(0);
+            parent_list.push_back(parent);
+            lti_list.push_back(thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(1));
+            depth = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(2);
+            depth_list.push_back(depth);
+            if (fan_map_part.find(my_key_type(parent,depth-1)) == fan_map_part.end())
+            {
+                fan_map_part[my_key_type(parent,depth-1)] = 1;//This 1 and ...
+            }
+            else
+            {
+                fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
+            }//... the above 1 will both be determined by edge weights in the future.
+        }
+
+        std::list<uint64_t>::iterator depth_it = depth_list.begin();
+        std::list<uint64_t>::iterator parent_it = parent_list.begin();
+        std::list<uint64_t>::iterator lti_it;
+        depth = 1;
+
+        /*
+         * The previous account of fan is incomplete and local.
+         * We now compound fan so that all fan effect leading to bob at depth 3 is also accounted for when we inspect bob at depth 3 so that
+         * spread from bob to elements at depth 4 has the right fan all the way from the source.
+         * */
+        my_map_type fan_map;
+        for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+        {
+            parent = *parent_it;
+            lti = *lti_it;
+            depth = *depth_it;
+            //std::pair<smem_lti_id,uint64_t> current_node;
+            if (fan_map.find(my_key_type(parent,depth-1))==fan_map.end())
+            {//This means we are at the first level.
+                if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+                {
+                    fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])));
+                }
+                else
+                {//Spread from multiple paths is additive. //This 1.0 will have to depend on the edge transition here. not be a 1.
+                    fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                }
+            }
+            else
+            {
+                if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+                {
+                    fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)]));
+                }
+                else
+                {//The same edge-weight considerations go for these 1s.
+                    fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)];
+                }
+            }
+            ++parent_it;
+            ++depth_it;
+        }
+        depth_it = depth_list.begin();
+        parent_it = parent_list.begin();
+
+        for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+        {//for every row, we have the parent, the lti receiving spread, and the depth of that lti.
+            //We determine the weight at the first instance of an lti and do not give special consideration to looping.
+            parent = *parent_it;
+            lti = *lti_it;
+            depth = *depth_it;
+            if (spread_map.find(lti) == spread_map.end())
+            {
+                if (depth == 1)
+                {
+                    spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+                }
+                else
+                {
+                    spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                }//When associative weights come around, that 1/fanmappart code will instead use a single edge weight.
+            }
+            else
+            {
+                if (depth == 1)
+                {
+                    spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+                }
+                else
+                {
+                    spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                }
+            }
+            ++parent_it;
+            ++depth_it;
+        }
+        //thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+        //once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
+        for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
+        {
+            thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,lti_id);
+            thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
+            thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
+            thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+        }
+    }
+    lti_a->reinitialize();
+
+
+
+    soar_module::sqlite_statement* lti_count_num_appearances = new soar_module::sqlite_statement(thisAgent->smem_db,
+            "INSERT INTO smem_trajectory_num (lti_id, num_appearances) SELECT lti_j, SUM(num_appearances_i_j) FROM smem_likelihoods GROUP BY lti_j");
+    lti_count_num_appearances->prepare();
+    lti_count_num_appearances->execute(soar_module::op_reinit);
+    delete lti_count_num_appearances;
+    return true;
+}
+
+inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time_now, double n = 0, uint64_t activations_first = 0)
 {
     double sum = 0.0;
     double d = thisAgent->smem_params->base_decay->get_value();
     uint64_t t_k;
     uint64_t t_n = (time_now - activations_first);
-
+    int available_history = 0;
+    
     if (n == 0)
     {
         thisAgent->smem_stmts->lti_access_get->bind_int(1, lti);
         thisAgent->smem_stmts->lti_access_get->execute();
-
-        n = thisAgent->smem_stmts->lti_access_get->column_int(0);
+        
+        n = thisAgent->smem_stmts->lti_access_get->column_double(0);
         activations_first = thisAgent->smem_stmts->lti_access_get->column_int(2);
 
         thisAgent->smem_stmts->lti_access_get->reinitialize();
@@ -1544,28 +2289,54 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
     // get all history
     thisAgent->smem_stmts->history_get->bind_int(1, lti);
     thisAgent->smem_stmts->history_get->execute();
+    bool prohibited = false;
+    double small_n = 0;
     {
-        int available_history = static_cast<int>((SMEM_ACT_HISTORY_ENTRIES < n) ? (SMEM_ACT_HISTORY_ENTRIES) : (n));
-        t_k = static_cast<uint64_t>(time_now - thisAgent->smem_stmts->history_get->column_int(available_history - 1));
+        while (thisAgent->smem_stmts->history_get->column_int(available_history) != 0)
+        {
+            available_history++;//static_cast<int>((SMEM_ACT_HISTORY_ENTRIES < n) ? (SMEM_ACT_HISTORY_ENTRIES) : (n));
+        }
+        //thisAgent->smem_stmts->prohibit_check->bind_int(1,lti);
+        //prohibited = thisAgent->smem_stmts->prohibit_check->execute()==soar_module::row;
+        //if (prohibited)
+        //{
+        //    available_history--;
+        //}
+        //thisAgent->smem_stmts->prohibit_check->reinitialize();
 
+        t_k = static_cast<uint64_t>(time_now - thisAgent->smem_stmts->history_get->column_int(available_history - 1));
+        
         for (int i = 0; i < available_history; i++)
         {
-            sum += pow(static_cast<double>(time_now - thisAgent->smem_stmts->history_get->column_int(i)),
+            small_n+=thisAgent->smem_stmts->history_get->column_double(i+10);
+            sum += thisAgent->smem_stmts->history_get->column_double(i+10)*pow(static_cast<double>(time_now - thisAgent->smem_stmts->history_get->column_int(i)),
                        static_cast<double>(-d));
         }
     }
     thisAgent->smem_stmts->history_get->reinitialize();
 
     // if available history was insufficient, approximate rest
-    if (n > SMEM_ACT_HISTORY_ENTRIES)
+    if (n > small_n && available_history == SMEM_ACT_HISTORY_ENTRIES)
     {
-        double apx_numerator = (static_cast<double>(n - SMEM_ACT_HISTORY_ENTRIES) * (pow(static_cast<double>(t_n), 1.0 - d) - pow(static_cast<double>(t_k), 1.0 - d)));
-        double apx_denominator = ((1.0 - d) * static_cast<double>(t_n - t_k));
+        //if (prohibited)
+        //{
+        //    n=n-thisAgent->smem_stmts->history_get->column_double(10);
+        //}
+        if (t_n != t_k)
+        {
+            double apx_numerator = (static_cast<double>(n - small_n) * (pow(static_cast<double>(t_n), 1.0 - d) - pow(static_cast<double>(t_k), 1.0 - d)));
+            double apx_denominator = ((1.0 - d) * static_cast<double>(t_n - t_k));
 
-        sum += (apx_numerator / apx_denominator);
+            sum += (apx_numerator / apx_denominator);
+        }
+        else
+        {
+            sum += (n - small_n)*pow(static_cast<double>(t_n),
+                                   static_cast<double>(-d));
+        }
     }
 
-    return ((sum > 0) ? (log(sum)) : (SMEM_ACT_LOW));
+    return ((sum > 0) ? (log(sum/(1+sum))) : (SMEM_ACT_LOW));//This no longer reflects log-odds, but instead log-probability.
 }
 
 // activates a new or existing long-term identifier
@@ -1573,16 +2344,73 @@ inline double smem_lti_calc_base(agent* thisAgent, smem_lti_id lti, int64_t time
 //       just when storing a new chunk (default is a
 //       big number that should never come up naturally
 //       and if it does, satisfies thresholding behavior).
-inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_access, uint64_t num_edges = SMEM_ACT_MAX)
+inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_access, uint64_t num_edges = SMEM_ACT_MAX, double touches = 1, bool increment_timer = true)
 {
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->smem_timers->act->start();
     ////////////////////////////////////////////////////////////////////////////
 
     int64_t time_now;
+    bool prohibited = false;
+
+    // access information
+    double prev_access_n = 0;
+    uint64_t prev_access_t = 0;
+    uint64_t prev_access_1 = 0;
+
+    // get old (potentially useful below)
+    {
+        thisAgent->smem_stmts->lti_access_get->bind_int(1, lti);
+        thisAgent->smem_stmts->lti_access_get->execute();
+
+        prev_access_n = thisAgent->smem_stmts->lti_access_get->column_double(0);
+        prev_access_t = thisAgent->smem_stmts->lti_access_get->column_int(1);
+        prev_access_1 = thisAgent->smem_stmts->lti_access_get->column_int(2);
+
+        thisAgent->smem_stmts->lti_access_get->reinitialize();
+    }
+
     if (add_access)
     {
-        time_now = thisAgent->smem_max_cycle++;
+        if (increment_timer)
+        {
+            time_now = thisAgent->smem_max_cycle++;
+        }
+        else
+        {
+            time_now = thisAgent->smem_max_cycle-1;
+        }
+        
+        /* If we are adding an access, the prohibit changes are set-up in such a way that
+        * all I need to do is flip the prohibit bit and the normal activation history updating behavior
+        * should take care of things. There is one exception. The number of touches should remain the same instead of being incremented.
+        */
+
+        thisAgent->smem_stmts->prohibit_check->bind_int(1,lti);
+        prohibited = thisAgent->smem_stmts->prohibit_check->execute()==soar_module::row;
+        bool dirty = false;
+        if (prohibited)
+        {
+            dirty = thisAgent->smem_stmts->prohibit_check->column_int(1)==1;
+        }
+        thisAgent->smem_stmts->prohibit_check->reinitialize();
+
+        if (prohibited)// costly
+        {//Just need to flip the bit here.
+            //Find the number of touches from the most recent activation. We are removing that many.
+            if (dirty)
+            {
+                thisAgent->smem_stmts->history_get->bind_int(1, lti);
+                thisAgent->smem_stmts->history_get->execute();
+                prev_access_n-=thisAgent->smem_stmts->history_get->column_double(10);
+                thisAgent->smem_stmts->history_get->reinitialize();
+                //remove the history
+                thisAgent->smem_stmts->history_remove->bind_int(1,(lti));
+                thisAgent->smem_stmts->history_remove->execute(soar_module::op_reinit);
+            }
+            thisAgent->smem_stmts->prohibit_reset->bind_int(1,lti);
+            thisAgent->smem_stmts->prohibit_reset->execute(soar_module::op_reinit);
+        }
 
         if ((thisAgent->smem_params->activation_mode->get_value() == smem_param_container::act_base) &&
                 (thisAgent->smem_params->base_update->get_value() == smem_param_container::bupt_incremental))
@@ -1614,42 +2442,50 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
                 }
             }
         }
+        thisAgent->smem_stats->act_updates->set_value(thisAgent->smem_stats->act_updates->get_value() + 1);
     }
     else
     {
-        time_now = thisAgent->smem_max_cycle;
+        /* If we are not adding an access, we need to remove the old history so that recalculation takes into account the prohibit having occurred.
+         * The big difference is that we'll have to leave it prohibited, just not dirty any more. Only an access removes the prohibit.
+         */
+        thisAgent->smem_stmts->prohibit_check->bind_int(1,lti);
+        prohibited = thisAgent->smem_stmts->prohibit_check->execute()==soar_module::row;
+        bool dirty = false;
+        if (prohibited)
+        {
+            dirty = thisAgent->smem_stmts->prohibit_check->column_int(1)==1;
+        }
+        thisAgent->smem_stmts->prohibit_check->reinitialize();
 
+        if (prohibited && dirty)
+        {//Just need to flip the bit here.
+            //Find the number of touches from the most recent activation. We are removing that many.
+            thisAgent->smem_stmts->history_get->bind_int(1, lti);
+            thisAgent->smem_stmts->history_get->execute();
+            prev_access_n-=thisAgent->smem_stmts->history_get->column_double(10);
+            thisAgent->smem_stmts->history_get->reinitialize();
+            //remove the history
+            thisAgent->smem_stmts->history_remove->bind_int(1,(lti));
+            thisAgent->smem_stmts->history_remove->execute(soar_module::op_reinit);
+            thisAgent->smem_stmts->prohibit_clean->bind_int(1,lti);
+            thisAgent->smem_stmts->prohibit_clean->execute(soar_module::op_reinit);
+        }
+        time_now = thisAgent->smem_max_cycle;
+        
         thisAgent->smem_stats->act_updates->set_value(thisAgent->smem_stats->act_updates->get_value() + 1);
     }
 
-    // access information
-    uint64_t prev_access_n = 0;
-    uint64_t prev_access_t = 0;
-    uint64_t prev_access_1 = 0;
+    // set new
+    //if (add_access)
     {
-        // get old (potentially useful below)
-        {
-            thisAgent->smem_stmts->lti_access_get->bind_int(1, lti);
-            thisAgent->smem_stmts->lti_access_get->execute();
-
-            prev_access_n = thisAgent->smem_stmts->lti_access_get->column_int(0);
-            prev_access_t = thisAgent->smem_stmts->lti_access_get->column_int(1);
-            prev_access_1 = thisAgent->smem_stmts->lti_access_get->column_int(2);
-
-            thisAgent->smem_stmts->lti_access_get->reinitialize();
-        }
-
-        // set new
-        if (add_access)
-        {
-            thisAgent->smem_stmts->lti_access_set->bind_int(1, (prev_access_n + 1));
-            thisAgent->smem_stmts->lti_access_set->bind_int(2, time_now);
-            thisAgent->smem_stmts->lti_access_set->bind_int(3, ((prev_access_n == 0) ? (time_now) : (prev_access_1)));
-            thisAgent->smem_stmts->lti_access_set->bind_int(4, lti);
-            thisAgent->smem_stmts->lti_access_set->execute(soar_module::op_reinit);
-        }
+        thisAgent->smem_stmts->lti_access_set->bind_double(1, (prev_access_n + ((add_access) ? (touches) : (0))));
+        //thisAgent->smem_stmts->lti_access_set->bind_int(1, (prev_access_n + 1));
+        thisAgent->smem_stmts->lti_access_set->bind_int(2, (add_access) ? (time_now) : (prev_access_t));
+        thisAgent->smem_stmts->lti_access_set->bind_int(3, ((prev_access_n == 0) ? ((add_access) ? (time_now) : (0)) : (prev_access_1)));
+        thisAgent->smem_stmts->lti_access_set->bind_int(4, lti);
+        thisAgent->smem_stmts->lti_access_set->execute(soar_module::op_reinit);
     }
-
     // get new activation value (depends upon bias)
     double new_activation = 0.0;
     smem_param_container::act_choices act_mode = thisAgent->smem_params->activation_mode->get_value();
@@ -1663,27 +2499,42 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     }
     else if (act_mode == smem_param_container::act_base)
     {
-        if (prev_access_n == 0)
+        if (prev_access_1 == 0)
         {
             if (add_access)
             {
-                thisAgent->smem_stmts->history_add->bind_int(1, lti);
-                thisAgent->smem_stmts->history_add->bind_int(2, time_now);
-                thisAgent->smem_stmts->history_add->execute(soar_module::op_reinit);
+                if (prohibited)
+                {
+                    thisAgent->smem_stmts->history_push->bind_int(1, time_now);
+                    thisAgent->smem_stmts->history_push->bind_double(2, touches);
+                    thisAgent->smem_stmts->history_push->bind_int(3, lti);
+                    thisAgent->smem_stmts->history_push->execute(soar_module::op_reinit);
+                }
+                else
+                {
+                    thisAgent->smem_stmts->history_add->bind_int(1, lti);
+                    thisAgent->smem_stmts->history_add->bind_int(2, time_now);
+                    thisAgent->smem_stmts->history_add->bind_double(3, touches);
+                    thisAgent->smem_stmts->history_add->execute(soar_module::op_reinit);
+                }
+                new_activation = smem_lti_calc_base(thisAgent, lti, time_now + ((add_access) ? (1) : (0)), prev_access_n + ((add_access) ? (touches) : (0)), prev_access_1);
             }
-
-            new_activation = 0;
+            else
+            {
+                new_activation = SMEM_ACT_LOW;
+            }
         }
         else
         {
             if (add_access)
             {
                 thisAgent->smem_stmts->history_push->bind_int(1, time_now);
-                thisAgent->smem_stmts->history_push->bind_int(2, lti);
+                thisAgent->smem_stmts->history_push->bind_double(2, touches);
+                thisAgent->smem_stmts->history_push->bind_int(3, lti);
                 thisAgent->smem_stmts->history_push->execute(soar_module::op_reinit);
             }
-
-            new_activation = smem_lti_calc_base(thisAgent, lti, time_now + ((add_access) ? (1) : (0)), prev_access_n + ((add_access) ? (1) : (0)), prev_access_1);
+            
+            new_activation = smem_lti_calc_base(thisAgent, lti, time_now + ((add_access) ? (1) : (0)), prev_access_n + ((add_access) ? (touches) : (0)), prev_access_1);//smem_lti_calc_base(thisAgent, lti, time_now + ((add_access) ? (1) : (0)), prev_access_n + ((add_access) ? (touches) : (0)), prev_access_1);
         }
     }
 
@@ -1698,28 +2549,665 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
         thisAgent->smem_stmts->act_lti_child_ct_get->reinitialize();
     }
 
-    // only if augmentation count is less than threshold do we associate with edges
-    if (num_edges < static_cast<uint64_t>(thisAgent->smem_params->thresh->get_value()))
-    {
-        // activation_value=? WHERE lti=?
-        thisAgent->smem_stmts->act_set->bind_double(1, new_activation);
-        thisAgent->smem_stmts->act_set->bind_int(2, lti);
-        thisAgent->smem_stmts->act_set->execute(soar_module::op_reinit);
-    }
+
 
     // always associate activation with lti
+    double spread = 0;
+    double modified_spread = 0;
+    double new_base;
+    double additional;
     {
-        // activation_value=? WHERE lti=?
-        thisAgent->smem_stmts->act_lti_set->bind_double(1, new_activation);
-        thisAgent->smem_stmts->act_lti_set->bind_int(2, lti);
-        thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
+        // Adding a bunch of stuff for spreading here.
+        bool already_in_spread_table = false;
+        smem_lti_unordered_map* spreaded_to = thisAgent->smem_spreaded_to;
+        if ((thisAgent->smem_params->spreading->get_value() == on) && (spreaded_to->find(lti) != spreaded_to->end() && (*spreaded_to)[lti] != 0))
+        {
+            already_in_spread_table = true;
+            thisAgent->smem_stmts->act_lti_fake_get->bind_int(1,lti);
+            thisAgent->smem_stmts->act_lti_fake_get->execute();
+            spread = thisAgent->smem_stmts->act_lti_fake_get->column_double(1);//This is the spread before changes.
+            thisAgent->smem_stmts->act_lti_fake_get->reinitialize();
+        }
+
+        // activation_value=? spreading value = ? WHERE lti=?
+        if (static_cast<double>(new_activation)==static_cast<double>(SMEM_ACT_LOW) || static_cast<double>(new_activation) == 0)
+        {//used for base-level - thisAgent->smem_max_cycle - We assume that the memory was accessed at least "age of the agent" ago if there is no record.
+            double decay = thisAgent->smem_params->base_decay->get_value();
+            new_base = pow(static_cast<double>(thisAgent->smem_max_cycle),static_cast<double>(-decay));
+            new_base = log(new_base/(1+new_base));
+        }
+        else
+        {
+            new_base = new_activation;
+        }
+        if (already_in_spread_table)
+        {
+            double offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
+            modified_spread = (spread==0 || spread < offset) ? (0) : (log(spread)-log(offset));
+            spread = (spread < offset) ? (0) : (spread);
+
+            thisAgent->smem_stmts->act_lti_fake_set->bind_double(1, new_activation);
+            thisAgent->smem_stmts->act_lti_fake_set->bind_double(2, spread);
+            thisAgent->smem_stmts->act_lti_fake_set->bind_double(3, new_base+modified_spread);
+            thisAgent->smem_stmts->act_lti_fake_set->bind_int(4, lti);
+            thisAgent->smem_stmts->act_lti_fake_set->execute(soar_module::op_reinit);
+        }
+        else
+        {
+            thisAgent->smem_stmts->act_lti_set->bind_double(1, new_activation);
+            thisAgent->smem_stmts->act_lti_set->bind_double(2, 0);
+            thisAgent->smem_stmts->act_lti_set->bind_double(3, new_base);
+            thisAgent->smem_stmts->act_lti_set->bind_int(4, lti);
+            thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
+        }
+        // only if augmentation count is less than threshold do we associate with edges
+        if (num_edges < static_cast<uint64_t>(thisAgent->smem_params->thresh->get_value()) && !already_in_spread_table) //costly
+        {
+            // activation_value=? WHERE lti=?
+            thisAgent->smem_stmts->act_set->bind_double(1, new_base+modified_spread);
+            thisAgent->smem_stmts->act_set->bind_int(2, lti);
+            thisAgent->smem_stmts->act_set->execute(soar_module::op_reinit);
+        }
     }
 
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->smem_timers->act->stop();
     ////////////////////////////////////////////////////////////////////////////
+    
+    return new_base+modified_spread;
+}
 
-    return new_activation;
+inline soar_module::sqlite_statement* smem_setup_manual_web_crawl(agent* thisAgent, smem_weighted_cue_element* el, smem_lti_id lti_id)
+{
+    soar_module::sqlite_statement* q = NULL;
+
+    // first, point to correct query and setup
+    // query-specific parameters
+    if (el->element_type == attr_t)
+    {
+        // attribute_s_id=?
+        q = thisAgent->smem_stmts->web_attr_all_manual;
+    }
+    else if (el->element_type == value_const_t)
+    {
+        // attribute_s_id=? AND value_constant_s_id=?
+        q = thisAgent->smem_stmts->web_const_all_manual;
+        q->bind_int(3, el->value_hash);
+    }
+    else if (el->element_type == value_lti_t)
+    {
+        // attribute_s_id=? AND value_lti_id=?
+        q = thisAgent->smem_stmts->web_lti_all_manual;
+        q->bind_int(3, el->value_lti);
+    }
+    q->bind_int(2, lti_id);
+    // all require hash as first parameter
+    q->bind_int(1, el->attr_hash);
+
+    return q;
+}
+
+// Given the current elements in thisAgent->smem_in_wmem, this function will update
+// the component of activation from spread.
+/*
+* Idea: num_appearances_i_j = number of appearances of i in j.
+* Suppose i is in j and in our context. We then find all j's such that i is in them.
+* We add to their current value the value from i.
+*
+* Implementation idea: Make context table match vector here. Join num_appearances_i_j on i and context lti.
+* Group by j and sum number of appearances in the grouping. The resulting number is the number of
+* appearances of j relevant to the context of i's.
+*
+* Right now, the implementation idea is to keep track of context with a set stored in the agent.
+*
+* */
+
+void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidates, bool do_manual_crawl, smem_weighted_cue_list::iterator* cand_set=NULL)
+{
+
+    /*
+     * The goal of this function is to as lazily as possible give spreading activation values when needed.
+     * Lazy to such a point that we basically do queries twice instead of once just to avoid calculating
+     * extra spreading activation. (We do an unsorted query first to get current_candidates.)
+     *
+     * The procedure:
+     * 1 - for all new elements of the context, generate the mapping between sources and sinks w/raw traversal vals
+     *      (add_fingerprint)
+     *      1.1 - for all new mappings this added, add the relevant row to the uncommitted spreading table. (We may not use)
+     *          (add_uncommitted_fingerprint)
+     * 2 - for all removed elements of the context, remove their mapping between source and sink.
+     *      (delete_old_spread)
+     *      2.1 - for all removed elements that we never committed, just plain remove from uncommitted spreading table too.
+     *          (delete_old_uncommitted_spread)
+     *      2.2 - for all removed elements that we have committed, just make a new uncommitted note that we need to apply the negative.
+     *          (reverse_old_committed_spread)
+     * 3 - for all current_candidates, actually bother to go ahead and loop over their entries in the uncommitted spreading table.
+     *      (calc_uncommitted_spread)
+     *      3.1 - Get old val
+     *      3.2 - do the math
+     *      3.3 - make into new val
+     */
+
+    uint64_t count = 0;
+    std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
+    if (thisAgent->smem_params->spreading_traversal->get_value() == smem_param_container::deterministic)
+    {//One can do random walks or one can simulate them by doing a breadth-first traversal with coefficients. This is the latter.
+        for(smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
+        {//We keep track of old walks. If we haven't changed smem, no need to recalculate.
+            thisAgent->smem_stmts->trajectory_check_invalid->bind_int(1,*it);
+            thisAgent->smem_stmts->trajectory_get->bind_int(1,*it);
+            bool was_invalid = (thisAgent->smem_stmts->trajectory_check_invalid->execute() == soar_module::row);
+            //If the previous trajectory is no longer valid because of a change to memory or we don't have a trajectory, we might need to remove
+            //the old one.
+            bool no_trajectory = thisAgent->smem_stmts->trajectory_get->execute() != soar_module::row;
+            thisAgent->smem_stmts->trajectory_check_invalid->reinitialize();
+            thisAgent->smem_stmts->trajectory_get->reinitialize();
+            if (was_invalid || no_trajectory)
+            {
+                //We also need to make a new one.
+                if (was_invalid)
+                {
+                    thisAgent->smem_stmts->likelihood_cond_count_remove->bind_int(1,(*it));
+                    thisAgent->smem_stmts->likelihood_cond_count_remove->execute(soar_module::op_reinit);
+                    thisAgent->smem_stmts->lti_count_num_appearances_remove->bind_int(1,(*it));
+                    thisAgent->smem_stmts->lti_count_num_appearances_remove->execute(soar_module::op_reinit);
+                }
+                trajectory_construction_deterministic(thisAgent,*it,lti_trajectories);
+                thisAgent->smem_stats->expansions->set_value(thisAgent->smem_stats->expansions->get_value() + 1);
+                double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
+                for (int i = 1; i < 11; i++)
+                {
+                    thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->bind_int(i,(*it));
+                    p1 = p1 * p1;
+                }
+                // At this point, we retrieve the fingerprint associated with a particular node and
+                    //calculate the spread it gives. We then store that spread map.
+                //We require a map from an element to the spread.
+                std::map<smem_lti_id,double> spread_map;
+                std::map<smem_lti_id,uint64_t> num_children_map;
+                std::list<uint64_t> depth_list;
+                std::list<uint64_t> parent_list;
+                std::list<uint64_t> lti_list;
+                uint64_t depth = 1;
+                uint64_t parent;
+                uint64_t lti;
+                uint64_t num_at_depth_1 = 0;
+                p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
+                std::map<smem_lti_id,uint64_t> parent_depth;
+                typedef std::pair<smem_lti_id,uint64_t> my_key_type;
+                typedef std::map<my_key_type, double> my_map_type;
+                my_map_type fan_map_part;
+                while (thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->execute() == soar_module::row)
+                {
+                    parent = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(0);
+                    parent_list.push_back(parent);
+                    lti_list.push_back(thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(1));
+                    depth = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(2);
+                    depth_list.push_back(depth);
+                    if (fan_map_part.find(my_key_type(parent,depth-1)) == fan_map_part.end())
+                    {
+                        parent_depth[parent] = depth;
+                        fan_map_part[my_key_type(parent,depth-1)] = 1;
+                    }
+                    else
+                    {
+                        fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
+                    }
+                }
+
+                std::list<uint64_t>::iterator depth_it = depth_list.begin();
+                std::list<uint64_t>::iterator parent_it = parent_list.begin();
+                std::list<uint64_t>::iterator lti_it;
+                depth = 1;
+
+                my_map_type fan_map;
+                for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+                {
+                    parent = *parent_it;
+                    lti = *lti_it;
+                    depth = *depth_it;
+                    //std::pair<smem_lti_id,uint64_t> current_node;
+                    if (fan_map.find(my_key_type(parent,depth-1))==fan_map.end())
+                    {//This means we are at the first level.
+                        if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+                        {
+                            fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])));
+                        }
+                        else
+                        {
+                            fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                        }
+                    }
+                    else
+                    {
+                        if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+                        {
+                            fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)]));
+                        }
+                        else
+                        {
+                            fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)];
+                        }
+                    }
+                    ++parent_it;
+                    ++depth_it;
+                }
+                depth_it = depth_list.begin();
+                parent_it = parent_list.begin();
+
+                for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+                {//for every row, we have the parent, the lti receiving spread, and the depth of that lti.
+                    //We determine the weight at the first instance of an lti and do not consider looping.
+                    parent = *parent_it;
+                    lti = *lti_it;
+                    depth = *depth_it;
+                    if (spread_map.find(lti) == spread_map.end())
+                    {
+                        if (depth == 1)
+                        {
+                            spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+                        }
+                        else
+                        {
+                            spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                        }
+                    }
+                    else
+                    {
+                        if (depth == 1)
+                        {
+                        //before_spread = spread_map[lti];
+                            spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+                        }
+                        else
+                        {
+                            spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+                        }
+                    }
+                    ++parent_it;
+                    ++depth_it;
+                }
+                //once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
+                for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
+                {
+                    thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,*it);
+                    thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
+                    thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
+                    thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+                }
+
+                thisAgent->smem_stmts->lti_count_num_appearances_insert->bind_int(1,(*it));
+                thisAgent->smem_stmts->lti_count_num_appearances_insert->execute(soar_module::op_reinit);
+            }
+        }
+    }
+    else
+    {//Random walks can be handled a little differently.
+        for(smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
+        {//We keep track of old walks. If we havent changed smem, no need to recalculate.
+            thisAgent->smem_stmts->trajectory_get->bind_int(1,*it);
+            count = 0;
+            while(thisAgent->smem_stmts->trajectory_get->execute() == soar_module::row)
+            {
+                count++;
+            }//TODO: Make sure that we are doing invalidate correctly. This is likely not right. Spreading is correct for deterministic right now.
+            if (count < thisAgent->smem_params->spreading_number_trajectories->get_value())
+            {//Instead of needing to recalculate the whole thing, we can just do the random walks that were actually invalidated,
+                //which could perhaps be faster.
+                for (int i = 0; i < thisAgent->smem_params->spreading_number_trajectories->get_value()-count; ++i)
+                {
+                    std::list<smem_lti_id> trajectory;
+                    trajectory.push_back(*it);
+                    trajectory_construction(thisAgent,trajectory,lti_trajectories,thisAgent->smem_params->spreading_depth_limit->get_value());
+                }
+                for (int i = 1; i < 11; i++)
+                {
+                    thisAgent->smem_stmts->likelihood_cond_count_insert->bind_int(i,(*it));
+                }
+                thisAgent->smem_stmts->likelihood_cond_count_insert->execute(soar_module::op_reinit);
+                thisAgent->smem_stmts->lti_count_num_appearances_insert->bind_int(1,(*it));
+                thisAgent->smem_stmts->lti_count_num_appearances_insert->execute(soar_module::op_reinit);
+            }
+            thisAgent->smem_stmts->trajectory_get->reinitialize();
+        }
+    }
+    for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+    {
+        delete to_delete->second;
+    }
+
+    soar_module::sqlite_statement* add_fingerprint = thisAgent->smem_stmts->add_fingerprint;
+    soar_module::sqlite_statement* add_uncommitted_fingerprint = thisAgent->smem_stmts->add_uncommitted_fingerprint;
+    soar_module::sqlite_statement* remove_fingerprint_reversal = thisAgent->smem_stmts->remove_fingerprint_reversal;
+    for (smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
+    {//Now we add the walks/traversals we've done. //can imagine doing this as a batch process through a join on a list of the additions if need be.
+        add_fingerprint->bind_int(1,(*it));
+        add_fingerprint->execute(soar_module::op_reinit);
+    }
+    for (smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
+    {
+        add_uncommitted_fingerprint->bind_int(1,(*it));
+        add_uncommitted_fingerprint->execute(soar_module::op_reinit);
+        remove_fingerprint_reversal->bind_int(1,(*it));
+        remove_fingerprint_reversal->bind_int(2,(*it));
+        remove_fingerprint_reversal->execute(soar_module::op_reinit);
+    }
+    thisAgent->smem_context_additions->clear();
+    soar_module::sqlite_statement* delete_old_spread = thisAgent->smem_stmts->delete_old_spread;
+    soar_module::sqlite_statement* delete_old_uncommitted_spread = thisAgent->smem_stmts->delete_old_uncommitted_spread;
+    soar_module::sqlite_statement* reverse_old_committed_spread = thisAgent->smem_stmts->reverse_old_committed_spread;
+    //delete_old_spread->prepare();
+    for (smem_lti_set::iterator it = thisAgent->smem_context_removals->begin(); it != thisAgent->smem_context_removals->end(); ++it)
+    {
+        delete_old_uncommitted_spread->bind_int(1,(*it));
+        delete_old_uncommitted_spread->bind_int(2,(*it));
+        delete_old_uncommitted_spread->execute(soar_module::op_reinit);
+        reverse_old_committed_spread->bind_int(1,(*it));
+        reverse_old_committed_spread->execute(soar_module::op_reinit);
+        delete_old_spread->bind_int(1,(*it));
+        delete_old_spread->execute(soar_module::op_reinit);
+    }
+    thisAgent->smem_context_removals->clear();
+    double prev_base;
+    double raw_prob;
+    double additional;
+    double offset;
+    smem_lti_unordered_map* spreaded_to = thisAgent->smem_spreaded_to;
+    bool still_exists;
+    double spread = 0;
+    double modified_spread = 0;
+    smem_lti_set pruned_candidates;
+    soar_module::sqlite_statement* list_uncommitted_spread = thisAgent->smem_stmts->list_uncommitted_spread;
+    if (do_manual_crawl)
+    {//This means that the candidate set was quite large, so we instead manually check the sql store for candidacy.
+        soar_module::sqlite_statement* q_manual;
+        while (list_uncommitted_spread->execute() == soar_module::row)
+        {//we loop over all spread sinks
+            q_manual = smem_setup_manual_web_crawl(thisAgent, **cand_set, list_uncommitted_spread->column_int(0));
+            if (q_manual->execute() == soar_module::row)//and if the sink is a candidate, we will actually calculate on it later.
+            {
+                pruned_candidates.insert(list_uncommitted_spread->column_int(0));
+            }
+            q_manual->reinitialize();
+        }
+    }
+    list_uncommitted_spread->reinitialize();
+
+    soar_module::sqlite_statement* calc_uncommitted_spread = thisAgent->smem_stmts->calc_uncommitted_spread;
+    smem_lti_set* actual_candidates = ( do_manual_crawl ? &pruned_candidates : current_candidates);
+    for (smem_lti_set::iterator candidate = actual_candidates->begin(); candidate != actual_candidates->end(); ++candidate)//for every sink that has some spread, we calculate
+    {
+        calc_uncommitted_spread->bind_int(1,(*candidate));
+        while (calc_uncommitted_spread->execute() == soar_module::row && calc_uncommitted_spread->column_double(2))
+        {
+            //First, I need to get the existing info for this lti_id.
+            bool already_in_spread_table = false;
+thisAgent->smem_stats->stores->set_value(thisAgent->smem_stats->stores->get_value() + 1);
+            bool addition = (((int)(calc_uncommitted_spread->column_int(3))) == 1);
+            if (addition)
+            {
+                if (spreaded_to->find(*candidate) == spreaded_to->end() || (*spreaded_to)[*candidate] == 0)
+                {
+                    (*spreaded_to)[*candidate] = 1;
+                    thisAgent->smem_stmts->act_lti_get->bind_int(1,*candidate);
+                    thisAgent->smem_stmts->act_lti_get->execute();
+                    spread = thisAgent->smem_stmts->act_lti_get->column_double(1);//This is the spread before changes.
+                    prev_base = thisAgent->smem_stmts->act_lti_get->column_double(0);
+                    thisAgent->smem_stmts->act_lti_get->reinitialize();
+                }
+                else
+                {
+                    already_in_spread_table = true;
+                    (*spreaded_to)[*candidate] = (*spreaded_to)[*candidate] + 1;
+                    thisAgent->smem_stmts->act_lti_fake_get->bind_int(1,*candidate);
+                    thisAgent->smem_stmts->act_lti_fake_get->execute();
+                    spread = thisAgent->smem_stmts->act_lti_fake_get->column_double(1);//This is the spread before changes.
+                    prev_base = thisAgent->smem_stmts->act_lti_fake_get->column_double(0);
+                    thisAgent->smem_stmts->act_lti_fake_get->reinitialize();
+                }
+/*
+                if (thisAgent->smem_params->spreading_normalization->get_value() == off && thisAgent->smem_params->spreading_traversal->get_value() == smem_param_container::deterministic && thisAgent->smem_params->spreading_loop_avoidance->get_value() == on)
+                {
+                    raw_prob = (((double)(calc_uncommitted_spread->column_double(2))));
+                }
+                else*/
+                {
+                    raw_prob = (((double)(calc_uncommitted_spread->column_double(2)))/(calc_uncommitted_spread->column_double(1)));
+                }
+                //offset = (thisAgent->smem_params->spreading_baseline->get_value())/(calc_spread->column_double(1));
+                offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
+                additional = raw_prob;//(log(raw_prob)-log(offset));
+                spread+=additional;//Now, we've adjusted the activation according to this new addition.
+
+                thisAgent->smem_stmts->act_lti_child_ct_get->bind_int(1, *candidate);
+                thisAgent->smem_stmts->act_lti_child_ct_get->execute();
+                uint64_t num_edges = thisAgent->smem_stmts->act_lti_child_ct_get->column_int(0);
+
+                thisAgent->smem_stmts->act_lti_child_ct_get->reinitialize();
+                double modified_spread = (log(spread)-log(offset));
+                double new_base;
+                if (static_cast<double>(prev_base)==static_cast<double>(SMEM_ACT_LOW) || static_cast<double>(prev_base) == 0)
+                {//used for base-level - thisAgent->smem_max_cycle - We assume that the memory was accessed at least "age of the agent" ago if there is no record.
+                    double decay = thisAgent->smem_params->base_decay->get_value();
+                    new_base = pow(static_cast<double>(thisAgent->smem_max_cycle),static_cast<double>(-decay));
+                    new_base = log(new_base/(1+new_base));
+                }
+                else
+                {
+                    new_base = prev_base;
+                }
+                thisAgent->smem_stmts->add_committed_fingerprint->bind_int(1,*candidate);
+                thisAgent->smem_stmts->add_committed_fingerprint->bind_double(2,(double)(calc_uncommitted_spread->column_double(2)));
+                thisAgent->smem_stmts->add_committed_fingerprint->bind_double(3,(double)(calc_uncommitted_spread->column_double(1)));
+                thisAgent->smem_stmts->add_committed_fingerprint->bind_int(4,(calc_uncommitted_spread->column_int(4)));
+                thisAgent->smem_stmts->add_committed_fingerprint->execute(soar_module::op_reinit);
+                if (already_in_spread_table)
+                {
+                    thisAgent->smem_stmts->act_lti_fake_set->bind_double(1, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
+                    thisAgent->smem_stmts->act_lti_fake_set->bind_double(2, spread);
+                    thisAgent->smem_stmts->act_lti_fake_set->bind_double(3, modified_spread+ new_base);
+                    thisAgent->smem_stmts->act_lti_fake_set->bind_int(4, *candidate);
+                    thisAgent->smem_stmts->act_lti_fake_set->execute(soar_module::op_reinit);
+                }
+                else
+                {
+                    thisAgent->smem_stmts->act_lti_fake_insert->bind_int(1, *candidate);
+                    thisAgent->smem_stmts->act_lti_fake_insert->bind_double(2, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
+                    thisAgent->smem_stmts->act_lti_fake_insert->bind_double(3, spread);
+                    thisAgent->smem_stmts->act_lti_fake_insert->bind_double(4, modified_spread+ new_base);
+                    thisAgent->smem_stmts->act_lti_fake_insert->execute(soar_module::op_reinit);
+                }
+            }
+            else
+            {
+                bool remove = (((*spreaded_to)[*candidate]) == 1);
+                (*spreaded_to)[*candidate] = (*spreaded_to)[*candidate] - 1;
+                if ((*spreaded_to)[*candidate]==-1)
+                {// This shouldn't actually ever happen.
+                    assert(false);
+                    thisAgent->smem_stmts->act_lti_get->bind_int(1,*candidate);
+                    thisAgent->smem_stmts->act_lti_get->execute();
+                    spread = thisAgent->smem_stmts->act_lti_get->column_double(1);//This is the spread before changes.
+                    prev_base = thisAgent->smem_stmts->act_lti_get->column_double(0);
+                    thisAgent->smem_stmts->act_lti_get->reinitialize();
+                }
+                else
+                {
+                    thisAgent->smem_stmts->act_lti_fake_get->bind_int(1,*candidate);
+                    thisAgent->smem_stmts->act_lti_fake_get->execute();
+                    spread = thisAgent->smem_stmts->act_lti_fake_get->column_double(1);//This is the spread before changes.
+                    prev_base = thisAgent->smem_stmts->act_lti_fake_get->column_double(0);
+                    thisAgent->smem_stmts->act_lti_fake_get->reinitialize();
+                }
+
+                /*if (thisAgent->smem_params->spreading_normalization->get_value() == off && thisAgent->smem_params->spreading_traversal->get_value() == smem_param_container::deterministic && thisAgent->smem_params->spreading_loop_avoidance->get_value() == on)
+                {//Basically, this is for when normalization is off.
+                    raw_prob = (((double)(calc_uncommitted_spread->column_double(2))));
+                }
+                else*/
+                {//This is the default behavior.
+                    raw_prob = (((double)(calc_uncommitted_spread->column_double(2)))/(calc_uncommitted_spread->column_double(1)));
+                }//There is some offset value so that we aren't going to compare to negative infinity (log(0)).
+                //It could be thought of as an overall confidence in spreading itself.
+                offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
+                //additional = (log(raw_prob)-log(offset));
+
+                thisAgent->smem_stmts->delete_commit_of_negative_fingerprint->bind_int(1,*candidate);
+                thisAgent->smem_stmts->delete_commit_of_negative_fingerprint->bind_int(2,calc_uncommitted_spread->column_int(4));
+                thisAgent->smem_stmts->delete_commit_of_negative_fingerprint->execute(soar_module::op_reinit);
+                spread-=raw_prob;//additional;//Now, we've adjusted the activation according to this new addition.
+                thisAgent->smem_stmts->act_lti_child_ct_get->bind_int(1, *candidate);
+                thisAgent->smem_stmts->act_lti_child_ct_get->execute();
+
+                uint64_t num_edges = thisAgent->smem_stmts->act_lti_child_ct_get->column_int(0);
+
+                thisAgent->smem_stmts->act_lti_child_ct_get->reinitialize();
+                double modified_spread = ((spread < offset) || (spread < 0)) ? (0) : (log(spread)-log(offset));
+                spread = (spread < offset) ? (0) : (spread);
+                //This is the same sort of activation updating one would have to do with base-level.
+                //double prev_base = thisAgent->smem_stmts->act_lti_get->column_double(0);
+                double new_base;
+                if (static_cast<double>(prev_base)==static_cast<double>(SMEM_ACT_LOW) || static_cast<double>(prev_base) == 0)
+                {//used for base-level - thisAgent->smem_max_cycle - We assume that the memory was accessed at least "age of the agent" ago if there is no record.
+                    double decay = thisAgent->smem_params->base_decay->get_value();
+                    new_base = pow(static_cast<double>(thisAgent->smem_max_cycle),static_cast<double>(-decay));
+                    new_base = log(new_base/(1+new_base));
+                }
+                else
+                {
+                    new_base = prev_base;
+                }
+                if (!remove)
+                {
+                    thisAgent->smem_stmts->act_lti_fake_set->bind_double(1, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
+                    thisAgent->smem_stmts->act_lti_fake_set->bind_double(2, spread);
+                    thisAgent->smem_stmts->act_lti_fake_set->bind_double(3, modified_spread+new_base);
+                    thisAgent->smem_stmts->act_lti_fake_set->bind_int(4, *candidate);
+                    thisAgent->smem_stmts->act_lti_fake_set->execute(soar_module::op_reinit);
+                }
+                else
+                {
+                    thisAgent->smem_stmts->act_lti_fake_delete->bind_int(1, *candidate);
+                    thisAgent->smem_stmts->act_lti_fake_delete->execute(soar_module::op_reinit);
+                    thisAgent->smem_stmts->act_lti_set->bind_double(1, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
+                    thisAgent->smem_stmts->act_lti_set->bind_double(2, spread);
+                    thisAgent->smem_stmts->act_lti_set->bind_double(3, modified_spread+new_base);
+                    thisAgent->smem_stmts->act_lti_set->bind_int(4, *candidate);
+                    thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
+                }
+            }
+        }
+        calc_uncommitted_spread->reinitialize();
+        thisAgent->smem_stmts->prepare_delete_committed_fingerprint->bind_int(1,*candidate);
+        thisAgent->smem_stmts->prepare_delete_committed_fingerprint->execute(soar_module::op_reinit);
+    }
+    thisAgent->smem_stmts->delete_committed_fingerprint->execute(soar_module::op_reinit);
+    thisAgent->smem_stmts->delete_committed_fingerprint_2->execute(soar_module::op_reinit);
+}
+
+
+
+void smem_invalidate_trajectories(agent* thisAgent, smem_lti_id lti_parent_id, std::map<smem_lti_id, int64_t>* delta_children)
+{
+    std::map<smem_lti_id, int64_t>::iterator delta_child;
+    std::list<smem_lti_id>* negative_children = new std::list<smem_lti_id>;
+    for (delta_child = delta_children->begin(); delta_child != delta_children->end(); ++delta_child)
+    {//for every edge change in smem, we need to properly invalidate trajectories used in spreading.
+        //This depends on the direction of spread and if the edge change was an addition or a subtraction.
+        if (delta_child->second > 0)
+        {//For positive edge changes, say, in the forwards spread case, all trajectories that go from the parent
+            //(not necessarily through the child) need to be removed.
+            //sqlite command that invalidates trajectories from the parent.
+
+            if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::backwards)
+            {
+                for (int i = 1; i < 11; i++)
+                {
+                    thisAgent->smem_stmts->trajectory_invalidate_from_lti->bind_int(i, delta_child->first);
+                }
+                thisAgent->smem_stmts->trajectory_invalidate_from_lti->execute(soar_module::op_reinit);
+            }
+            else if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::forwards)
+            {
+                for (int i = 1; i < 11; i++)
+                {
+                    thisAgent->smem_stmts->trajectory_invalidate_from_lti->bind_int(i, lti_parent_id);
+                    //As it turns out, sqlite is smart about unioning ors that all have a single index.
+                }
+                thisAgent->smem_stmts->trajectory_invalidate_from_lti->execute(soar_module::op_reinit);
+            }
+            else if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::both)
+            {
+                for (int i = 1; i < 11; i++)
+                {
+                    thisAgent->smem_stmts->trajectory_invalidate_from_lti->bind_int(i, lti_parent_id);
+                }
+                thisAgent->smem_stmts->trajectory_invalidate_from_lti->execute(soar_module::op_reinit);
+                for (int i = 1; i < 11; i++)
+                {
+                    thisAgent->smem_stmts->trajectory_invalidate_from_lti->bind_int(i, delta_child->first);
+                }
+                thisAgent->smem_stmts->trajectory_invalidate_from_lti->execute(soar_module::op_reinit);
+            }
+            else
+            {
+                assert(false);
+            }
+            //delete negative_children;
+            //return;
+        }
+        else if (delta_child->second < 0)
+        {
+            negative_children->push_front(delta_child->first);
+        }
+    }
+    // If we even get here, it means that we only had negative children (removals) and we invalidate according to them.
+    // (Additions make you invalidate a lot more than removals.)
+    while (!negative_children->empty())
+    {//For negative edge changes, only trajectories that used that edge need to be removed.
+        //sqlite command to delete trajectories involving parent to delta_children->front();
+        if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::backwards)
+        {
+            for (int i = 1; i < 11; i++)
+            {
+                thisAgent->smem_stmts->trajectory_invalidate_edge->bind_int(2*i-1, negative_children->front());
+                thisAgent->smem_stmts->trajectory_invalidate_edge->bind_int(1*i, lti_parent_id);
+            }
+            thisAgent->smem_stmts->trajectory_invalidate_edge->execute(soar_module::op_reinit);
+            negative_children->pop_front();
+        }
+        else if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::forwards)
+        {
+            for (int i = 1; i < 11; i++)
+            {
+                thisAgent->smem_stmts->trajectory_invalidate_edge->bind_int(2*i-1, lti_parent_id);
+                thisAgent->smem_stmts->trajectory_invalidate_edge->bind_int(1*i, negative_children->front());
+            }
+            thisAgent->smem_stmts->trajectory_invalidate_edge->execute(soar_module::op_reinit);
+            negative_children->pop_front();
+        }
+        else if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::backwards)
+        {
+            for (int i = 1; i < 11; i++)
+            {
+                thisAgent->smem_stmts->trajectory_invalidate_edge->bind_int(2*i-1, lti_parent_id);
+                thisAgent->smem_stmts->trajectory_invalidate_edge->bind_int(1*i, negative_children->front());
+            }
+            thisAgent->smem_stmts->trajectory_invalidate_edge->execute(soar_module::op_reinit);
+            for (int i = 1; i < 11; i++)
+            {
+                thisAgent->smem_stmts->trajectory_invalidate_edge->bind_int(2*i-1, negative_children->front());
+                thisAgent->smem_stmts->trajectory_invalidate_edge->bind_int(1*i, lti_parent_id);
+            }
+            thisAgent->smem_stmts->trajectory_invalidate_edge->execute(soar_module::op_reinit);
+            negative_children->pop_front();
+        }
+        else
+        {
+            assert(false);
+        }
+    }
+    delete negative_children;
 }
 
 
@@ -1824,9 +3312,11 @@ inline smem_lti_id smem_lti_add_id(agent* thisAgent, char name_letter, uint64_t 
     thisAgent->smem_stmts->lti_add->bind_int(2, static_cast<uint64_t>(name_number));
     thisAgent->smem_stmts->lti_add->bind_int(3, static_cast<uint64_t>(0));
     thisAgent->smem_stmts->lti_add->bind_double(4, static_cast<double>(0));
-    thisAgent->smem_stmts->lti_add->bind_int(5, static_cast<uint64_t>(0));
+    thisAgent->smem_stmts->lti_add->bind_double(5, static_cast<double>(0));
     thisAgent->smem_stmts->lti_add->bind_int(6, static_cast<uint64_t>(0));
     thisAgent->smem_stmts->lti_add->bind_int(7, static_cast<uint64_t>(0));
+    thisAgent->smem_stmts->lti_add->bind_double(8, static_cast<double>(0));
+    thisAgent->smem_stmts->lti_add->bind_double(9, static_cast<double>(0));
     thisAgent->smem_stmts->lti_add->execute(soar_module::op_reinit);
 
     return_val = static_cast<smem_lti_id>(thisAgent->smem_db->last_insert_rowid());
@@ -1936,8 +3426,36 @@ inline smem_slot* smem_make_slot(smem_slot_map* slots, Symbol* attr)
     return (*s);
 }
 
-void smem_disconnect_chunk(agent* thisAgent, smem_lti_id lti_id)
+inline void smem_count_child_connection(std::map<smem_lti_id, int64_t>* children, smem_lti_id child_lti_id)
 {
+    std::map<smem_lti_id, int64_t>::iterator child_location = children->find(child_lti_id);
+    if (child_location != children->end())
+    {// We've already seen the child once and increment the number of links from the parent to this child by 1.
+        (*children)[child_lti_id] = child_location->second + 1;
+    }
+    else
+    {// We've not seen this child before and initialize to 1.
+        (*children)[child_lti_id] = 1;
+    }
+}
+
+inline void smem_count_child_connection(std::map<smem_lti_id, uint64_t>* children, smem_lti_id child_lti_id)
+{
+    std::map<smem_lti_id, uint64_t>::iterator child_location = children->find(child_lti_id);
+    if (child_location != children->end())
+    {// We've already seen the child once and increment the number of links from the parent to this child by 1.
+        (*children)[child_lti_id] = child_location->second + 1;
+    }
+    else
+    {// We've not seen this child before and initialize to 1.
+        (*children)[child_lti_id] = 1;
+    }
+}
+
+void smem_disconnect_chunk(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id, uint64_t>* old_children = NULL)
+{   // The change for spreading is that this function needs to provide a map if spreading is on.
+    // The map contains child ltis from lti_id and the number of links.
+
     // adjust attr, attr/value counts
     {
         uint64_t pair_count = 0;
@@ -1965,6 +3483,10 @@ void smem_disconnect_chunk(agent* thisAgent, smem_lti_id lti_id)
             }
             else
             {
+                if (old_children != NULL)
+                {
+                    smem_count_child_connection(old_children,thisAgent->smem_stmts->web_all->column_int(2));
+                }
                 // adjust in opposite direction ( adjust, attribute, lti )
                 thisAgent->smem_stmts->wmes_lti_frequency_update->bind_int(1, -1);
                 thisAgent->smem_stmts->wmes_lti_frequency_update->bind_int(2, child_attr);
@@ -1994,14 +3516,29 @@ void smem_disconnect_chunk(agent* thisAgent, smem_lti_id lti_id)
     }
 }
 
-void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* children, bool remove_old_children = true, Symbol* print_id = NULL, bool activate = true)
+void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* children, bool remove_old_children = true, Symbol* print_id = NULL, bool activate = true, smem_storage_type store_type = store_level)
 {
+    // Since smem_disconnect_chunk looks up the old info anyway,
+    // we can just use it to calculate what needs to be recalculated for spreading.
+    // Thanks, smem_disconnect_chunk!
+
+    std::map<smem_lti_id, uint64_t>* old_children = NULL;
+    std::map<smem_lti_id, int64_t>* new_children = NULL;
+    if (thisAgent->smem_params->spreading->get_value() == on)
+    {
+        new_children = new std::map<smem_lti_id, int64_t>;
+    }
+
     // if remove children, disconnect chunk -> no existing edges
     // else, need to query number of existing edges
     uint64_t existing_edges = 0;
     if (remove_old_children)
     {
-        smem_disconnect_chunk(thisAgent, lti_id);
+        if (thisAgent->smem_params->spreading->get_value() == on)
+        {
+            old_children = new std::map<smem_lti_id, uint64_t>;
+        }
+        smem_disconnect_chunk(thisAgent, lti_id, old_children);
 
         // provide trace output
         if (thisAgent->sysparams[ TRACE_SMEM_SYSPARAM ] && (print_id))
@@ -2109,6 +3646,11 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
                     if (remove_old_children)
                     {
                         lti_new.insert(std::make_pair(attr_hash, value_lti));
+                        //For spreading, I need to keep track of the changes to memory. That happens here.
+                        if (new_children != NULL)
+                        {
+                            smem_count_child_connection(new_children, value_lti);
+                        }
                     }
                     else
                     {
@@ -2119,6 +3661,11 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
                         if (thisAgent->smem_stmts->web_lti_child->execute(soar_module::op_reinit) != soar_module::row)
                         {
                             lti_new.insert(std::make_pair(attr_hash, value_lti));
+                            //For spreading, I need to keep track of the changes to memory. That happens here.
+                            if (new_children != NULL)
+                            {
+                                smem_count_child_connection(new_children, value_lti);
+                            }
                         }
                     }
 
@@ -2136,7 +3683,45 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
             }
         }
     }
+    /*
+     * Here, the delta between what the children of the lti used to be and
+     * what they are now is calculated and used to determine what spreading
+     * likelihoods need to be recalculated (since the network structure
+     * behind them are no longer valid).
+     */
+    if (new_children != NULL)
+    {
+        if (remove_old_children)
+        {//This is where the delta has to be calculated.
+            /* Delta: Loop over the new children.
+             * Check if they are also old children.
+             * If so, calculate the delta and store that into new children as the new value.
+             * At the same time, erase the old children if it showed up (after calculating the delta)
+             * Then, loop through the remaining old children and just add those values as negative.
+             */
 
+            assert(old_children != NULL);
+            //for sanity^
+
+            std::map<smem_lti_id, int64_t>::iterator new_child;
+            for (new_child = new_children->begin(); new_child != new_children->end(); ++new_child)
+            {
+                if (old_children->find(new_child->first)!=old_children->end())
+                {
+                    (*new_children)[new_child->first] = (*new_children)[new_child->first] - (*old_children)[new_child->first];
+                    old_children->erase(new_child->first);
+                }
+            }
+            std::map<smem_lti_id, uint64_t>::iterator old_child;
+            for (old_child = old_children->begin(); old_child != old_children->end(); ++old_child)
+            {
+                (*new_children)[old_child->first] = old_child->second;
+            }
+        }
+        //At this point, new_children contains the set of changes to memory that are relevant to spreading.
+        //We use those changes to invalidate the appropriate spreading values.
+        smem_invalidate_trajectories(thisAgent, lti_id, new_children);
+    }
     // activation function assumes proper thresholding state
     // thus, consider four cases of augmentation counts (w.r.t. thresh)
     // 1. before=below, after=below: good (activation will update smem_augmentations)
@@ -2171,12 +3756,21 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
         thisAgent->smem_stmts->act_lti_child_ct_set->bind_int(2, lti_id);
         thisAgent->smem_stmts->act_lti_child_ct_set->execute(soar_module::op_reinit);
     }
+    // Put the initialization of the entry in the prohibit table here.
+    //(The initialization to the activation history is in the below function call "smem_lti_activate".)
+    // Also, it seemed appropriate for such an initialization to be in store_chunk.
+    {
+        thisAgent->smem_stmts->prohibit_add->bind_int(1,lti_id);
+        thisAgent->smem_stmts->prohibit_add->execute(soar_module::op_reinit);
+    }
+    //The above doesn't add a prohibit event. It merely stores the lti_id in the prohibit table for later use.
 
     // now we can safely activate the lti
     if (activate)
     {
-        double lti_act = smem_lti_activate(thisAgent, lti_id, true, new_edges);
-
+        bool activate_on_add = false;
+        activate_on_add = (thisAgent->smem_params->activate_on_add->get_value() == on);
+        double lti_act = smem_lti_activate(thisAgent, lti_id, activate_on_add, new_edges);
         if (!after_above)
         {
             web_act = lti_act;
@@ -2286,6 +3880,15 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
         {
             thisAgent->smem_stats->slots->set_value(thisAgent->smem_stats->slots->get_value() + (const_new.size() + lti_new.size()));
         }
+    }
+    //This is kinda late for cleaning up, but I went ahead and did it so that I wouldn't forget.
+    if (old_children != NULL)
+    {
+        delete old_children;
+    }
+    if (new_children != NULL)
+    {
+        delete new_children;
     }
 }
 
@@ -2571,6 +4174,68 @@ inline soar_module::sqlite_statement* smem_setup_web_crawl(agent* thisAgent, sme
     return q;
 }
 
+inline soar_module::sqlite_statement* smem_setup_web_crawl_spread(agent* thisAgent, smem_weighted_cue_element* el)
+{
+    soar_module::sqlite_statement* q = NULL;
+
+    // first, point to correct query and setup
+    // query-specific parameters
+    if (el->element_type == attr_t)
+    {
+        // attribute_s_id=?
+        q = thisAgent->smem_stmts->web_attr_all_spread;
+    }
+    else if (el->element_type == value_const_t)
+    {
+        // attribute_s_id=? AND value_constant_s_id=?
+        q = thisAgent->smem_stmts->web_const_all_spread;
+        q->bind_int(2, el->value_hash);
+    }
+    else if (el->element_type == value_lti_t)
+    {
+        // attribute_s_id=? AND value_lti_id=?
+        q = thisAgent->smem_stmts->web_lti_all_spread;
+        q->bind_int(2, el->value_lti);
+    }
+
+    // all require hash as first parameter
+    q->bind_int(1, el->attr_hash);
+
+    return q;
+}
+
+inline soar_module::sqlite_statement* smem_setup_cheap_web_crawl(agent* thisAgent, smem_weighted_cue_element* el)
+{
+    soar_module::sqlite_statement* q = NULL;
+
+    // first, point to correct query and setup
+    // query-specific parameters
+    if (el->element_type == attr_t)
+    {
+        // attribute_s_id=?
+        q = thisAgent->smem_stmts->web_attr_all_cheap;
+    }
+    else if (el->element_type == value_const_t)
+    {
+        // attribute_s_id=? AND value_constant_s_id=?
+        q = thisAgent->smem_stmts->web_const_all_cheap;
+        q->bind_int(2, el->value_hash);
+    }
+    else if (el->element_type == value_lti_t)
+    {
+        // attribute_s_id=? AND value_lti_id=?
+        q = thisAgent->smem_stmts->web_lti_all_cheap;
+        q->bind_int(2, el->value_lti);
+    }
+
+    // all require hash as first parameter
+    q->bind_int(1, el->attr_hash);
+
+    return q;
+}
+
+
+
 inline bool _smem_process_cue_wme(agent* thisAgent, wme* w, bool pos_cue, smem_prioritized_weighted_cue& weighted_pq, MathQuery* mathQuery)
 {
     bool good_wme = true;
@@ -2831,6 +4496,32 @@ std::pair<bool, bool>* processMathQuery(agent* thisAgent, Symbol* mathQuery, sme
 
 smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, Symbol* negquery, Symbol* mathQuery, smem_lti_set* prohibit, wme_set& cue_wmes, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, smem_query_levels query_level = qry_full, uint64_t number_to_retrieve = 1, std::list<smem_lti_id>* match_ids = NIL, uint64_t depth = 1, smem_install_type install_type = wm_install)
 {
+
+    //Going to loop through the prohibits and note that they have been prohibited, thus removing the most recent activation event.
+    //A fancy version might do weird backtracing and keep track of which activation event(s) should be removed. The version here is simpler.
+    //It will merely omit the most recent activation event.
+
+    smem_lti_set::iterator prohibited_lti_p;
+    for (prohibited_lti_p = prohibit->begin(); prohibited_lti_p != prohibit->end(); prohibited_lti_p++)
+    {
+        thisAgent->smem_stmts->prohibit_check->bind_int(1,(*prohibited_lti_p));
+        if (thisAgent->smem_stmts->prohibit_check->execute() != soar_module::row)
+        {//If the lti is not already prohibited
+            //Then add the prohibit and get rid of the history.
+
+            //Add the prohibit
+            thisAgent->smem_stmts->prohibit_set->bind_int(1,(*prohibited_lti_p));
+            thisAgent->smem_stmts->prohibit_set->execute(soar_module::op_reinit);
+
+            /*//remove the history
+            thisAgent->smem_stmts->history_remove->bind_int(1,(*prohibited_lti_p));
+            thisAgent->smem_stmts->history_remove->execute(soar_module::op_reinit);*/
+
+        //The above could potentially fail if there is no history, but that shouldn't ever be possible here.
+        }
+        thisAgent->smem_stmts->prohibit_check->reinitialize();
+    }
+
     smem_weighted_cue_list weighted_cue;
     bool good_cue = true;
 
@@ -2947,7 +4638,36 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
                 break;
             }
         }
-
+        ////////////////////////////////////////////////////////////////////////////
+        thisAgent->smem_timers->query->stop();
+        ////////////////////////////////////////////////////////////////////////////
+        if (thisAgent->smem_params->spreading->get_value() == on && thisAgent->smem_params->spreading_time->get_value() == smem_param_container::query_time)
+        {
+            q = smem_setup_cheap_web_crawl(thisAgent, (*cand_set));
+            // queue up distinct lti's to update
+            // - set because queries could contain wilds
+            // - not in loop because the effects of activation may actually
+            //   alter the resultset of the query (isolation???)
+            std::set< smem_lti_id > to_update;
+            int num_answers = 0;
+            while (q->execute() == soar_module::row && num_answers < 400)
+            {// This 400 should actually be a measure of how large the spreading table is, but is now hard-coded.
+                num_answers++;
+                to_update.insert(q->column_int(0));
+            }
+            q->reinitialize();
+            if (num_answers >= 400)
+            {
+                smem_calc_spread(thisAgent, &to_update, true, &cand_set);
+            }
+            else if (num_answers > 1)
+            {
+                smem_calc_spread(thisAgent, &to_update, false);
+            }
+        }
+        ////////////////////////////////////////////////////////////////////////////
+        thisAgent->smem_timers->query->start();
+        ////////////////////////////////////////////////////////////////////////////
         soar_module::sqlite_statement* q2 = NULL;
         smem_lti_set::iterator prohibit_p;
 
@@ -2998,11 +4718,18 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             {
                 thisAgent->smem_stmts->act_lti_get->bind_int(1, q->column_int(0));
                 thisAgent->smem_stmts->act_lti_get->execute();
-                plentiful_parents.push(std::make_pair< double, smem_lti_id >(thisAgent->smem_stmts->act_lti_get->column_double(0), q->column_int(0)));
+                plentiful_parents.push(std::make_pair< double, smem_lti_id >(thisAgent->smem_stmts->act_lti_get->column_double(2), q->column_int(0)));
                 thisAgent->smem_stmts->act_lti_get->reinitialize();
 
                 more_rows = (q->execute() == soar_module::row);
             }
+
+            soar_module::sqlite_statement* spread_q = smem_setup_web_crawl_spread(thisAgent, (*cand_set));
+            while (spread_q->execute() == soar_module::row)
+            {
+                plentiful_parents.push(std::make_pair<double,smem_lti_id>(spread_q->column_double(1),spread_q->column_int(0)));
+            }
+            spread_q->reinitialize();
             bool first_element = false;
             while (((match_ids->size() < number_to_retrieve) || (needFullSearch)) && ((more_rows) || (!plentiful_parents.empty())))
             {
@@ -3177,7 +4904,7 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             ////////////////////////////////////////////////////////////////////////////
             thisAgent->smem_timers->query->stop();
             ////////////////////////////////////////////////////////////////////////////
-
+            thisAgent->smem_context_additions->insert(king_id);
             smem_install_memory(thisAgent, state, king_id, NIL, (thisAgent->smem_params->activate_on_query->get_value() == on), meta_wmes, retrieval_wmes, install_type, depth);
         }
         else
@@ -5379,6 +7106,7 @@ void smem_visualize_store(agent* thisAgent, std::string* return_val)
     std::map< smem_lti_id, std::string >::iterator n_p;
     {
         soar_module::sqlite_statement* q;
+        soar_module::sqlite_statement* q_act;
 
         smem_lti_id lti_id;
         char lti_letter;
@@ -5391,6 +7119,7 @@ void smem_visualize_store(agent* thisAgent, std::string* return_val)
 
         // id, soar_letter, number
         q = thisAgent->smem_stmts->vis_lti;
+        q_act = thisAgent->smem_stmts->vis_lti_act;
         while (q->execute() == soar_module::row)
         {
             lti_id = q->column_int(0);
@@ -5408,7 +7137,10 @@ void smem_visualize_store(agent* thisAgent, std::string* return_val)
             return_val->append((*lti_name));
             return_val->append("\\n[");
 
-            temp_double = q->column_double(3);
+            q_act->bind_int(1,lti_id);
+            q_act->execute();
+            temp_double = q_act->column_double(0);
+            q_act->reinitialize();
             to_string(temp_double, temp_str, 3, true);
             if (temp_double >= 0)
             {
@@ -5880,8 +7612,12 @@ void smem_visualize_lti(agent* thisAgent, smem_lti_id lti_id, unsigned int depth
     return_val->append(return_val2);
 }
 
-inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti_id, char lti_letter, uint64_t lti_number, double lti_act, std::string* return_val, std::list<uint64_t>* history = NIL)
+inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti_id, char lti_letter, uint64_t lti_number, double lti_act_base, double lti_act_spread, double lti_act_total, std::string* return_val, std::list<uint64_t>* history = NIL)
 {
+    if (lti_act_spread < 0)
+    {
+        lti_act_spread = 0;
+    }
     std::set< smem_lti_id > next;
 
     std::string temp_str, temp_str2, temp_str3;
@@ -6049,12 +7785,29 @@ inline std::set< smem_lti_id > _smem_print_lti(agent* thisAgent, smem_lti_id lti
     augmentations.clear();
 
     return_val->append(" [");
-    to_string(lti_act, temp_str, 3, true);
-    if (lti_act >= 0)
+    to_string(lti_act_base, temp_str, 3, true);
+    if (lti_act_base >= 0)
     {
         return_val->append("+");
     }
     return_val->append(temp_str);
+    return_val->append(", ");
+    temp_str.clear();
+    to_string(lti_act_spread, temp_str, 3, true);
+    if (lti_act_spread >= 0)
+    {
+        return_val->append("+");
+    }
+    return_val->append(temp_str);
+    return_val->append(", ");
+    temp_str.clear();
+    to_string(lti_act_total, temp_str, 3, true);
+    if (lti_act_total >=0)
+    {
+        return_val->append("+");
+    }
+    return_val->append(temp_str);
+    temp_str.clear();
     return_val->append("]");
     return_val->append(")\n");
 
@@ -6083,9 +7836,24 @@ void smem_print_store(agent* thisAgent, std::string* return_val)
 {
     // id, soar_letter, number
     soar_module::sqlite_statement* q = thisAgent->smem_stmts->vis_lti;
+    soar_module::sqlite_statement* act_q;// = thisAgent->smem_stmts->vis_lti_act;
     while (q->execute() == soar_module::row)
     {
-        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), q->column_double(3), return_val);
+        thisAgent->smem_stmts->vis_lti_check_spread->bind_int(1,q->column_int(0));
+        thisAgent->smem_stmts->vis_lti_check_spread->execute();
+        if (thisAgent->smem_stmts->vis_lti_check_spread->column_int(0))
+        {
+            act_q = thisAgent->smem_stmts->vis_lti_all_act;
+        }
+        else
+        {
+            act_q = thisAgent->smem_stmts->vis_lti_base_act;
+        }
+        thisAgent->smem_stmts->vis_lti_check_spread->reinitialize();
+        act_q->bind_int(1, q->column_int(0));
+        act_q->execute();
+        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value())), act_q->column_double(2), return_val);
+        act_q->reinitialize();
     }
     q->reinitialize();
 }
@@ -6102,7 +7870,7 @@ void smem_print_lti(agent* thisAgent, smem_lti_id lti_id, uint64_t depth, std::s
     std::set< smem_lti_id >::iterator next_it;
 
     soar_module::sqlite_statement* lti_q = thisAgent->smem_stmts->lti_letter_num;
-    soar_module::sqlite_statement* act_q = thisAgent->smem_stmts->vis_lti_act;
+    soar_module::sqlite_statement* act_q;
     soar_module::sqlite_statement* hist_q = thisAgent->smem_stmts->history_get;
     soar_module::sqlite_statement* lti_access_q = thisAgent->smem_stmts->lti_access_get;
     unsigned int i;
@@ -6127,7 +7895,31 @@ void smem_print_lti(agent* thisAgent, smem_lti_id lti_id, uint64_t depth, std::s
         {
             lti_q->bind_int(1, c.first);
             lti_q->execute();
+            uint64_t num_edges;
+            {
+                thisAgent->smem_stmts->act_lti_child_ct_get->bind_int(1, c.first);
+                thisAgent->smem_stmts->act_lti_child_ct_get->execute();
 
+                num_edges = thisAgent->smem_stmts->act_lti_child_ct_get->column_int(0);
+
+                thisAgent->smem_stmts->act_lti_child_ct_get->reinitialize();
+            }
+
+/*            act_q = thisAgent->smem_stmts->vis_lti_act;
+            act_q->bind_int(1, c.first);
+            act_q->execute();*/
+            //Replacing the above code with code that prints out how much activation is from spread versus BLA.
+            thisAgent->smem_stmts->vis_lti_check_spread->bind_int(1,c.first);
+            thisAgent->smem_stmts->vis_lti_check_spread->execute();
+            if (thisAgent->smem_stmts->vis_lti_check_spread->column_int(0))
+            {
+                act_q = thisAgent->smem_stmts->vis_lti_all_act;
+            }
+            else
+            {
+                act_q = thisAgent->smem_stmts->vis_lti_base_act;
+            }
+            thisAgent->smem_stmts->vis_lti_check_spread->reinitialize();
             act_q->bind_int(1, c.first);
             act_q->execute();
 
@@ -6137,11 +7929,11 @@ void smem_print_lti(agent* thisAgent, smem_lti_id lti_id, uint64_t depth, std::s
             {
                 lti_access_q->bind_int(1, c.first);
                 lti_access_q->execute();
-                uint64_t n = lti_access_q->column_int(0);
+                //uint64_t n = lti_access_q->column_int(0);
                 lti_access_q->reinitialize();
                 hist_q->bind_int(1, c.first);
                 hist_q->execute();
-                for (int i = 0; i < n && i < 10; ++i) //10 because of the length of the history record kept for smem.
+                for (int i = 0; i < 10; ++i) //10 because of the length of the history record kept for smem.
                 {
                     if (thisAgent->smem_stmts->history_get->column_int(i) != 0)
                     {
@@ -6153,11 +7945,11 @@ void smem_print_lti(agent* thisAgent, smem_lti_id lti_id, uint64_t depth, std::s
 
             if (history && !access_history.empty())
             {
-                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), return_val, &(access_history));
+                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value())), act_q->column_double(2), return_val, &(access_history));
             }
             else
             {
-                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), return_val);
+                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value())), act_q->column_double(2), return_val);
             }
 
             // done with lookup
