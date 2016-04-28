@@ -2084,6 +2084,131 @@ extern bool smem_calc_spread_trajectories(agent* thisAgent)
     return true;
 }
 
+inline void smem_calc_likelihoods_for_det_trajectories(agent* thisAgent, smem_lti_id lti_id)
+{
+	double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
+	for (int i = 1; i < 11; i++)
+	{
+		thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->bind_int(i,(lti_id));
+		p1 = p1 * p1;
+	}
+	// At this point, we retrieve the fingerprint associated with a particular node and
+		//calculate the spread it gives. We then store that spread map.
+	//We require a map from an element to the spread.
+	std::map<smem_lti_id,double> spread_map;
+	std::map<smem_lti_id,uint64_t> num_children_map;
+	std::list<uint64_t> depth_list;
+	std::list<uint64_t> parent_list;
+	std::list<uint64_t> lti_list;
+	uint64_t depth = 1;
+	uint64_t parent;
+	uint64_t lti;
+	uint64_t num_at_depth_1 = 0;
+	p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
+	std::map<smem_lti_id,uint64_t> parent_depth;
+	typedef std::pair<smem_lti_id,uint64_t> my_key_type;
+	typedef std::map<my_key_type, double> my_map_type;
+	my_map_type fan_map_part;
+	while (thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->execute() == soar_module::row)
+	{
+		parent = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(0);
+		parent_list.push_back(parent);
+		lti_list.push_back(thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(1));
+		depth = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(2);
+		depth_list.push_back(depth);
+		if (fan_map_part.find(my_key_type(parent,depth-1)) == fan_map_part.end())
+		{
+			parent_depth[parent] = depth;
+			fan_map_part[my_key_type(parent,depth-1)] = 1;
+		}
+		else
+		{
+			fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
+		}
+	}
+
+	std::list<uint64_t>::iterator depth_it = depth_list.begin();
+	std::list<uint64_t>::iterator parent_it = parent_list.begin();
+	std::list<uint64_t>::iterator lti_it;
+	depth = 1;
+
+	my_map_type fan_map;
+	for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+	{
+		parent = *parent_it;
+		lti = *lti_it;
+		depth = *depth_it;
+		//std::pair<smem_lti_id,uint64_t> current_node;
+		if (fan_map.find(my_key_type(parent,depth-1))==fan_map.end())
+		{//This means we are at the first level.
+			if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+			{
+				fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])));
+			}
+			else
+			{
+				fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)]);
+			}
+		}
+		else
+		{
+			if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+			{
+				fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)]));
+			}
+			else
+			{
+				fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)];
+			}
+		}
+		++parent_it;
+		++depth_it;
+	}
+	depth_it = depth_list.begin();
+	parent_it = parent_list.begin();
+
+	for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+	{//for every row, we have the parent, the lti receiving spread, and the depth of that lti.
+		//We determine the weight at the first instance of an lti and do not consider looping.
+		parent = *parent_it;
+		lti = *lti_it;
+		depth = *depth_it;
+		if (spread_map.find(lti) == spread_map.end())
+		{
+			if (depth == 1)
+			{
+				spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+			}
+			else
+			{
+				spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+			}
+		}
+		else
+		{
+			if (depth == 1)
+			{
+			//before_spread = spread_map[lti];
+				spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+			}
+			else
+			{
+				spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+			}
+		}
+		++parent_it;
+		++depth_it;
+	}
+	//once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
+	for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
+	{
+		thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,lti_id);
+		thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
+		thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
+		thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+	}
+}
+
 extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
 {//This is written to be a batch process when spreading is turned on. It will take a long time.
     smem_attach(thisAgent);
@@ -2116,144 +2241,7 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
     while (lti_a->execute() == soar_module::row)
     {
         lti_id = lti_a->column_int(0);
-        double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
-        for (int i = 1; i < 11; i++)
-        {
-            thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->bind_int(i,(lti_id));
-        }
-        // At this point, we retrieve the fingerprint associated with a particular node and
-            //calculate the spread it gives. We then store that spread map.
-        //We require a map from an element to the spread.
-        /*
-         * First, a description of what's going on here
-         * Spread basically has two parts. There's the fan that occured en-route to a node. This compounded fan
-         * dilutes by a multiplicative factor. Basically, it's a bunch of compounded dividing according to the fan effect.
-         * This means that for a given point in the breadth-first traversal and for the node at that point in the traversal, there has already
-         * been a bunch of dividing. "bob" at depth 3 via a particular route might get a fan of 1/36 while "bob"'s appearance at depth 2
-         * via a particular route might have a fan of 1/8.
-         *
-         * That's one factor. This is kept track of with fanmap.
-         *
-         * There's also the depth discount. It turns out you can factor these out since it's a bunch of multiplication and thus you
-         * can calculate depth effects and fan effects separately. This could be handy for future changes to the model.
-         */
-
-        std::map<smem_lti_id,double> spread_map;
-        std::map<smem_lti_id,uint64_t> num_children_map;
-        std::list<uint64_t> depth_list;
-        std::list<uint64_t> parent_list;
-        std::list<uint64_t> lti_list;
-        uint64_t depth = 1;
-        uint64_t parent;
-        uint64_t lti;
-
-        typedef std::pair<smem_lti_id,uint64_t> my_key_type;
-        typedef std::map<my_key_type, double> my_map_type;
-        my_map_type fan_map_part; //This is a map from a given node at a given depth to the amount of nodes it will directly spread to next in the fingerprint
-        //So, if node "bob" spreads to 4 more elements at depth 4 when bob is at depth 3, we have a map of bob's fan for elements at depth 4.
-
-        while (thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->execute() == soar_module::row)
-        {
-            parent = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(0);
-            parent_list.push_back(parent);
-            lti_list.push_back(thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(1));
-            depth = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(2);
-            depth_list.push_back(depth);
-            if (fan_map_part.find(my_key_type(parent,depth-1)) == fan_map_part.end())
-            {
-                fan_map_part[my_key_type(parent,depth-1)] = 1;//This 1 and ...
-            }
-            else
-            {
-                fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
-            }//... the above 1 will both be determined by edge weights in the future.
-        }
-
-        std::list<uint64_t>::iterator depth_it = depth_list.begin();
-        std::list<uint64_t>::iterator parent_it = parent_list.begin();
-        std::list<uint64_t>::iterator lti_it;
-        depth = 1;
-
-        /*
-         * The previous account of fan is incomplete and local.
-         * We now compound fan so that all fan effect leading to bob at depth 3 is also accounted for when we inspect bob at depth 3 so that
-         * spread from bob to elements at depth 4 has the right fan all the way from the source.
-         * */
-        my_map_type fan_map;
-        for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
-        {
-            parent = *parent_it;
-            lti = *lti_it;
-            depth = *depth_it;
-            //std::pair<smem_lti_id,uint64_t> current_node;
-            if (fan_map.find(my_key_type(parent,depth-1))==fan_map.end())
-            {//This means we are at the first level.
-                if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
-                {
-                    fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])));
-                }
-                else
-                {//Spread from multiple paths is additive. //This 1.0 will have to depend on the edge transition here. not be a 1.
-                    fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)]);
-                }
-            }
-            else
-            {
-                if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
-                {
-                    fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)]));
-                }
-                else
-                {//The same edge-weight considerations go for these 1s.
-                    fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)];
-                }
-            }
-            ++parent_it;
-            ++depth_it;
-        }
-        depth_it = depth_list.begin();
-        parent_it = parent_list.begin();
-
-        for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
-        {//for every row, we have the parent, the lti receiving spread, and the depth of that lti.
-            //We determine the weight at the first instance of an lti and do not give special consideration to looping.
-            parent = *parent_it;
-            lti = *lti_it;
-            depth = *depth_it;
-            if (spread_map.find(lti) == spread_map.end())
-            {
-                if (depth == 1)
-                {
-                    spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(lti,depth)];
-                }
-                else
-                {
-                    spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
-                }//When associative weights come around, that 1/fanmappart code will instead use a single edge weight.
-            }
-            else
-            {
-                if (depth == 1)
-                {
-                    spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(lti,depth)];
-                }
-                else
-                {
-                    spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
-                }
-            }
-            ++parent_it;
-            ++depth_it;
-        }
-        //thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
-        //once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
-        for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
-        {
-            thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,lti_id);
-            thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
-            thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
-            thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
-        }
+        smem_calc_likelihoods_for_det_trajectories(thisAgent, lti_id);
     }
     lti_a->reinitialize();
 
@@ -2714,127 +2702,7 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
                 }
                 trajectory_construction_deterministic(thisAgent,*it,lti_trajectories);
                 thisAgent->smem_stats->expansions->set_value(thisAgent->smem_stats->expansions->get_value() + 1);
-                double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
-                for (int i = 1; i < 11; i++)
-                {
-                    thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->bind_int(i,(*it));
-                    p1 = p1 * p1;
-                }
-                // At this point, we retrieve the fingerprint associated with a particular node and
-                    //calculate the spread it gives. We then store that spread map.
-                //We require a map from an element to the spread.
-                std::map<smem_lti_id,double> spread_map;
-                std::map<smem_lti_id,uint64_t> num_children_map;
-                std::list<uint64_t> depth_list;
-                std::list<uint64_t> parent_list;
-                std::list<uint64_t> lti_list;
-                uint64_t depth = 1;
-                uint64_t parent;
-                uint64_t lti;
-                uint64_t num_at_depth_1 = 0;
-                p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
-                std::map<smem_lti_id,uint64_t> parent_depth;
-                typedef std::pair<smem_lti_id,uint64_t> my_key_type;
-                typedef std::map<my_key_type, double> my_map_type;
-                my_map_type fan_map_part;
-                while (thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->execute() == soar_module::row)
-                {
-                    parent = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(0);
-                    parent_list.push_back(parent);
-                    lti_list.push_back(thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(1));
-                    depth = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(2);
-                    depth_list.push_back(depth);
-                    if (fan_map_part.find(my_key_type(parent,depth-1)) == fan_map_part.end())
-                    {
-                        parent_depth[parent] = depth;
-                        fan_map_part[my_key_type(parent,depth-1)] = 1;
-                    }
-                    else
-                    {
-                        fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
-                    }
-                }
-
-                std::list<uint64_t>::iterator depth_it = depth_list.begin();
-                std::list<uint64_t>::iterator parent_it = parent_list.begin();
-                std::list<uint64_t>::iterator lti_it;
-                depth = 1;
-
-                my_map_type fan_map;
-                for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
-                {
-                    parent = *parent_it;
-                    lti = *lti_it;
-                    depth = *depth_it;
-                    //std::pair<smem_lti_id,uint64_t> current_node;
-                    if (fan_map.find(my_key_type(parent,depth-1))==fan_map.end())
-                    {//This means we are at the first level.
-                        if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
-                        {
-                            fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])));
-                        }
-                        else
-                        {
-                            fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)]);
-                        }
-                    }
-                    else
-                    {
-                        if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
-                        {
-                            fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)]));
-                        }
-                        else
-                        {
-                            fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)];
-                        }
-                    }
-                    ++parent_it;
-                    ++depth_it;
-                }
-                depth_it = depth_list.begin();
-                parent_it = parent_list.begin();
-
-                for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
-                {//for every row, we have the parent, the lti receiving spread, and the depth of that lti.
-                    //We determine the weight at the first instance of an lti and do not consider looping.
-                    parent = *parent_it;
-                    lti = *lti_it;
-                    depth = *depth_it;
-                    if (spread_map.find(lti) == spread_map.end())
-                    {
-                        if (depth == 1)
-                        {
-                            spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(lti,depth)];
-                        }
-                        else
-                        {
-                            spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
-                        }
-                    }
-                    else
-                    {
-                        if (depth == 1)
-                        {
-                        //before_spread = spread_map[lti];
-                            spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(lti,depth)];
-                        }
-                        else
-                        {
-                            spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
-                        }
-                    }
-                    ++parent_it;
-                    ++depth_it;
-                }
-                //once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
-                for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
-                {
-                    thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,*it);
-                    thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
-                    thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
-                    thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
-                }
+                smem_calc_likelihoods_for_det_trajectories(thisAgent, (*it));
 
                 thisAgent->smem_stmts->lti_count_num_appearances_insert->bind_int(1,(*it));
                 thisAgent->smem_stmts->lti_count_num_appearances_insert->execute(soar_module::op_reinit);
