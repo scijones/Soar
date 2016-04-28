@@ -770,12 +770,12 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     web_val_parent = new soar_module::sqlite_statement(new_db, "SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " UNION ALL SELECT value_lti_id FROM smem_augmentations WHERE lti_id IN (SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR ")");
     //The below is for Soar spread, looking for children ltis of a specific lti.
     web_val_child = new soar_module::sqlite_statement(new_db, "SELECT value_lti_id FROM smem_augmentations WHERE lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY value_lti_id DESC");
-	add(web_val_parent);
-	add(web_val_child);
-	web_val_parent_2 = new soar_module::sqlite_statement(new_db, "SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY lti_id DESC");
-	add(web_val_parent_2);
+    add(web_val_parent);
+    add(web_val_child);
+    web_val_parent_2 = new soar_module::sqlite_statement(new_db, "SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY lti_id DESC");
+    add(web_val_parent_2);
     web_val_both = new soar_module::sqlite_statement(new_db, "SELECT value_lti_id AS result_id FROM smem_augmentations WHERE lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " UNION ALL SELECT lti_id AS result_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY result_id DESC");
-	add(web_val_both);
+    add(web_val_both);
     //
 
     attribute_frequency_check = new soar_module::sqlite_statement(new_db, "SELECT edge_frequency FROM smem_attribute_frequency WHERE attribute_s_id=?");
@@ -1148,7 +1148,7 @@ inline void _smem_process_buffered_wme_list(agent* thisAgent, Symbol* state, wme
     {
         // add the preference to temporary memory
 
-		if (add_preference_to_tm(thisAgent, pref))
+        if (add_preference_to_tm(thisAgent, pref))
         {
             // and add it to the list of preferences to be removed
             // when the goal is removed
@@ -1165,16 +1165,16 @@ inline void _smem_process_buffered_wme_list(agent* thisAgent, Symbol* state, wme
         }
         else
         {
-			if (pref->reference_count == 0)
-			{
-				preference* previous = pref;
-				pref = pref->inst_next;
-				possibly_deallocate_preference_and_clones(thisAgent, previous);
-				continue;
-			}
+            if (pref->reference_count == 0)
+            {
+                preference* previous = pref;
+                pref = pref->inst_next;
+                possibly_deallocate_preference_and_clones(thisAgent, previous);
+                continue;
+            }
         }
 
-		pref = pref->inst_next;
+        pref = pref->inst_next;
     }
 
     if (!meta)
@@ -1214,18 +1214,18 @@ inline void _smem_process_buffered_wme_list(agent* thisAgent, Symbol* state, wme
                             wma_activate_wmes_in_pref(thisAgent, just_pref);
                         }
                     }
-					else
-					{
-						if (just_pref->reference_count == 0)
-						{
-							preference* previous = just_pref;
-							just_pref = just_pref->inst_next;
-							possibly_deallocate_preference_and_clones(thisAgent, previous);
-							continue;
-						}
-					}
+                    else
+                    {
+                        if (just_pref->reference_count == 0)
+                        {
+                            preference* previous = just_pref;
+                            just_pref = just_pref->inst_next;
+                            possibly_deallocate_preference_and_clones(thisAgent, previous);
+                            continue;
+                        }
+                    }
 
-					just_pref = just_pref->inst_next;
+                    just_pref = just_pref->inst_next;
                 }
             }
         }
@@ -2086,127 +2086,127 @@ extern bool smem_calc_spread_trajectories(agent* thisAgent)
 
 inline void smem_calc_likelihoods_for_det_trajectories(agent* thisAgent, smem_lti_id lti_id)
 {
-	double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
-	for (int i = 1; i < 11; i++)
-	{
-		thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->bind_int(i,(lti_id));
-		p1 = p1 * p1;
-	}
-	// At this point, we retrieve the fingerprint associated with a particular node and
-		//calculate the spread it gives. We then store that spread map.
-	//We require a map from an element to the spread.
-	std::map<smem_lti_id,double> spread_map;
-	std::map<smem_lti_id,uint64_t> num_children_map;
-	std::list<uint64_t> depth_list;
-	std::list<uint64_t> parent_list;
-	std::list<uint64_t> lti_list;
-	uint64_t depth = 1;
-	uint64_t parent;
-	uint64_t lti;
-	uint64_t num_at_depth_1 = 0;
-	p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
-	std::map<smem_lti_id,uint64_t> parent_depth;
-	typedef std::pair<smem_lti_id,uint64_t> my_key_type;
-	typedef std::map<my_key_type, double> my_map_type;
-	my_map_type fan_map_part;
-	while (thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->execute() == soar_module::row)
-	{
-		parent = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(0);
-		parent_list.push_back(parent);
-		lti_list.push_back(thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(1));
-		depth = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(2);
-		depth_list.push_back(depth);
-		if (fan_map_part.find(my_key_type(parent,depth-1)) == fan_map_part.end())
-		{
-			parent_depth[parent] = depth;
-			fan_map_part[my_key_type(parent,depth-1)] = 1;
-		}
-		else
-		{
-			fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
-		}
-	}
+    double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
+    for (int i = 1; i < 11; i++)
+    {
+        thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->bind_int(i,(lti_id));
+        p1 = p1 * p1;
+    }
+    // At this point, we retrieve the fingerprint associated with a particular node and
+        //calculate the spread it gives. We then store that spread map.
+    //We require a map from an element to the spread.
+    std::map<smem_lti_id,double> spread_map;
+    std::map<smem_lti_id,uint64_t> num_children_map;
+    std::list<uint64_t> depth_list;
+    std::list<uint64_t> parent_list;
+    std::list<uint64_t> lti_list;
+    uint64_t depth = 1;
+    uint64_t parent;
+    uint64_t lti;
+    uint64_t num_at_depth_1 = 0;
+    p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
+    std::map<smem_lti_id,uint64_t> parent_depth;
+    typedef std::pair<smem_lti_id,uint64_t> my_key_type;
+    typedef std::map<my_key_type, double> my_map_type;
+    my_map_type fan_map_part;
+    while (thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->execute() == soar_module::row)
+    {
+        parent = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(0);
+        parent_list.push_back(parent);
+        lti_list.push_back(thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(1));
+        depth = thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->column_int(2);
+        depth_list.push_back(depth);
+        if (fan_map_part.find(my_key_type(parent,depth-1)) == fan_map_part.end())
+        {
+            parent_depth[parent] = depth;
+            fan_map_part[my_key_type(parent,depth-1)] = 1;
+        }
+        else
+        {
+            fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
+        }
+    }
 
-	std::list<uint64_t>::iterator depth_it = depth_list.begin();
-	std::list<uint64_t>::iterator parent_it = parent_list.begin();
-	std::list<uint64_t>::iterator lti_it;
-	depth = 1;
+    std::list<uint64_t>::iterator depth_it = depth_list.begin();
+    std::list<uint64_t>::iterator parent_it = parent_list.begin();
+    std::list<uint64_t>::iterator lti_it;
+    depth = 1;
 
-	my_map_type fan_map;
-	for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
-	{
-		parent = *parent_it;
-		lti = *lti_it;
-		depth = *depth_it;
-		//std::pair<smem_lti_id,uint64_t> current_node;
-		if (fan_map.find(my_key_type(parent,depth-1))==fan_map.end())
-		{//This means we are at the first level.
-			if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
-			{
-				fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])));
-			}
-			else
-			{
-				fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)]);
-			}
-		}
-		else
-		{
-			if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
-			{
-				fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)]));
-			}
-			else
-			{
-				fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)];
-			}
-		}
-		++parent_it;
-		++depth_it;
-	}
-	depth_it = depth_list.begin();
-	parent_it = parent_list.begin();
+    my_map_type fan_map;
+    for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+    {
+        parent = *parent_it;
+        lti = *lti_it;
+        depth = *depth_it;
+        //std::pair<smem_lti_id,uint64_t> current_node;
+        if (fan_map.find(my_key_type(parent,depth-1))==fan_map.end())
+        {//This means we are at the first level.
+            if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+            {
+                fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])));
+            }
+            else
+            {
+                fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)]);
+            }
+        }
+        else
+        {
+            if (fan_map.find(my_key_type(lti,depth)) == fan_map.end())
+            {
+                fan_map.insert(std::make_pair(my_key_type(lti,depth),(1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)]));
+            }
+            else
+            {
+                fan_map[my_key_type(lti,depth)] = fan_map[my_key_type(lti,depth)] + (1.0/fan_map_part[my_key_type(parent,depth-1)])*fan_map[my_key_type(parent,depth-1)];
+            }
+        }
+        ++parent_it;
+        ++depth_it;
+    }
+    depth_it = depth_list.begin();
+    parent_it = parent_list.begin();
 
-	for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
-	{//for every row, we have the parent, the lti receiving spread, and the depth of that lti.
-		//We determine the weight at the first instance of an lti and do not consider looping.
-		parent = *parent_it;
-		lti = *lti_it;
-		depth = *depth_it;
-		if (spread_map.find(lti) == spread_map.end())
-		{
-			if (depth == 1)
-			{
-				spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(lti,depth)];
-			}
-			else
-			{
-				spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
-			}
-		}
-		else
-		{
-			if (depth == 1)
-			{
-			//before_spread = spread_map[lti];
-				spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(lti,depth)];
-			}
-			else
-			{
-				spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
-			}
-		}
-		++parent_it;
-		++depth_it;
-	}
-	//once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
-	for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
-	{
-		thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,lti_id);
-		thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
-		thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
-		thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
-	}
+    for (lti_it = lti_list.begin(); lti_it != lti_list.end(); ++lti_it)
+    {//for every row, we have the parent, the lti receiving spread, and the depth of that lti.
+        //We determine the weight at the first instance of an lti and do not consider looping.
+        parent = *parent_it;
+        lti = *lti_it;
+        depth = *depth_it;
+        if (spread_map.find(lti) == spread_map.end())
+        {
+            if (depth == 1)
+            {
+                spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+            }
+            else
+            {
+                spread_map[lti] = pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+            }
+        }
+        else
+        {
+            if (depth == 1)
+            {
+            //before_spread = spread_map[lti];
+                spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(lti,depth)];
+            }
+            else
+            {
+                spread_map[lti] = spread_map[lti] + pow(p1,depth)*fan_map[my_key_type(parent,depth-1)]*(1.0/fan_map_part[my_key_type(parent,depth-1)]);
+            }
+        }
+        ++parent_it;
+        ++depth_it;
+    }
+    //once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
+    for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
+    {
+        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,lti_id);
+        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
+        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
+        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+    }
 }
 
 extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
@@ -2214,7 +2214,7 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
     smem_attach(thisAgent);
     soar_module::sqlite_statement* lti_a = thisAgent->smem_stmts->lti_all;
     smem_lti_id lti_id;
-    std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
+
     int j = 0;
     //It is very inefficient to update these indexes continuously so we delete and then recreate them.
     smem_delete_trajectory_indices(thisAgent);
@@ -2223,15 +2223,17 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
     while (lti_a->execute() == soar_module::row)
     {
         lti_id = lti_a->column_int(0);
+        std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
         //Make the fingerprint for this lti.
         {
-            trajectory_construction_deterministic(thisAgent,lti_id,lti_trajectories,0,true);
+            trajectory_construction_deterministic(thisAgent,lti_id,lti_trajectories);//,0,true);
+        }
+        for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+        {
+            delete to_delete->second;
         }
     }
-    for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
-    {
-        delete to_delete->second;
-    }
+
     lti_a->reinitialize();
     smem_create_trajectory_indices(thisAgent);
     //At this point, we've created fingerprints for all of the ltis. However, we have not propagated any spreading values.
@@ -4572,7 +4574,7 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
 
         // setup first query, which is sorted on activation already
         q = smem_setup_web_crawl(thisAgent, (*cand_set));
-		thisAgent->lastCue = new agent::BasicWeightedCue((*cand_set)->cue_element, (*cand_set)->weight);
+        thisAgent->lastCue = new agent::BasicWeightedCue((*cand_set)->cue_element, (*cand_set)->weight);
 
         // this becomes the minimal set to walk (till match or fail)
         if (q->execute() == soar_module::row)
@@ -5231,7 +5233,7 @@ void smem_close(agent* thisAgent)
 
         // de-allocate common statements
         delete thisAgent->smem_stmts;
-		delete thisAgent->lastCue;
+        delete thisAgent->lastCue;
 
         // close the database
         thisAgent->smem_db->disconnect();
@@ -6495,11 +6497,11 @@ void smem_respond_to_cmd(agent* thisAgent, bool store_only)
     bool do_wm_phase = false;
     bool mirroring_on = (thisAgent->smem_params->mirroring->get_value() == on);
 
-	//Free this up as soon as we start a phase that allows queries
-	if(!store_only){
-		delete thisAgent->lastCue;
-		thisAgent->lastCue = NULL;
-	}
+    //Free this up as soon as we start a phase that allows queries
+    if(!store_only){
+        delete thisAgent->lastCue;
+        thisAgent->lastCue = NULL;
+    }
 
     while (state != NULL)
     {
