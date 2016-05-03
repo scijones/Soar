@@ -2226,7 +2226,7 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
         lti_id = lti_a->column_int(0);
         //Make the fingerprint for this lti.
         {
-            trajectory_construction_deterministic(thisAgent,lti_id,lti_trajectories);//,0,true);
+            trajectory_construction_deterministic(thisAgent,lti_id,lti_trajectories,0,true);
         }
     }
 
