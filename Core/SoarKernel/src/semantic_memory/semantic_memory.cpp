@@ -2220,17 +2220,13 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
     smem_delete_trajectory_indices(thisAgent);
     //Iterate through all ltis in SMem
     double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
+    std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
     while (lti_a->execute() == soar_module::row)
     {
         lti_id = lti_a->column_int(0);
-        std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
         //Make the fingerprint for this lti.
         {
             trajectory_construction_deterministic(thisAgent,lti_id,lti_trajectories);//,0,true);
-        }
-        for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
-        {
-            delete to_delete->second;
         }
     }
 
@@ -2238,7 +2234,10 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
     smem_create_trajectory_indices(thisAgent);
     //At this point, we've created fingerprints for all of the ltis. However, we have not propagated any spreading values.
     //We have recreated the indexing that allows easy access to and invalidation of fingerprints.
-
+    for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+    {
+        delete to_delete->second;
+    }
 
     while (lti_a->execute() == soar_module::row)
     {
