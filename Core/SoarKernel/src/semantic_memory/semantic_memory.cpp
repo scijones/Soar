@@ -2126,7 +2126,7 @@ inline void smem_calc_likelihoods_for_det_trajectories(agent* thisAgent, smem_lt
             fan_map_part[my_key_type(parent,depth-1)] = fan_map_part[my_key_type(parent,depth-1)] + 1;
         }
     }
-
+    thisAgent->smem_stmts->likelihood_cond_count_find_deterministic->reinitialize();
     std::list<uint64_t>::iterator depth_it = depth_list.begin();
     std::list<uint64_t>::iterator parent_it = parent_list.begin();
     std::list<uint64_t>::iterator lti_it;
