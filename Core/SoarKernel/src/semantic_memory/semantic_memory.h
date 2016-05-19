@@ -483,6 +483,20 @@ typedef std::priority_queue< smem_activated_lti, std::vector<smem_activated_lti>
 
 //
 
+typedef std::pair< double, std::list<smem_lti_id>* > smem_activated_lti_list;
+
+struct smem_compare_activated_lti_list
+{
+    bool operator()(const smem_activated_lti_list a, const smem_activated_lti_list b) const
+    {
+        return (b.first > a.first);
+    }
+};
+
+typedef std::priority_queue< smem_activated_lti_list, std::vector<smem_activated_lti_list>, smem_compare_activated_lti_list> smem_prioritized_activated_lti_traversal_queue;
+
+//
+
 typedef struct smem_chunk_struct smem_chunk;
 typedef std::set<smem_chunk*> smem_chunk_set;
 typedef union smem_chunk_value_union smem_chunk_value;

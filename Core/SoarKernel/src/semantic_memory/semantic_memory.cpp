@@ -716,31 +716,31 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     //
 
-    web_attr_all = new soar_module::sqlite_statement(new_db, "SELECT lti_id, activation_value FROM smem_augmentations w WHERE attribute_s_id=? ORDER BY activation_value DESC");
+    web_attr_all = new soar_module::sqlite_statement(new_db, "SELECT lti_id, activation_value FROM smem_augmentations w WHERE attribute_s_id=? ORDER BY activation_value DESC, lti_id ASC");
     add(web_attr_all);
 
-    web_const_all = new soar_module::sqlite_statement(new_db, "SELECT lti_id, activation_value FROM smem_augmentations w WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY activation_value DESC");
+    web_const_all = new soar_module::sqlite_statement(new_db, "SELECT lti_id, activation_value FROM smem_augmentations w WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY activation_value DESC, lti_id ASC");
     add(web_const_all);
 
-    web_lti_all = new soar_module::sqlite_statement(new_db, "SELECT lti_id, activation_value FROM smem_augmentations w WHERE attribute_s_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=? ORDER BY activation_value DESC");
+    web_lti_all = new soar_module::sqlite_statement(new_db, "SELECT lti_id, activation_value FROM smem_augmentations w WHERE attribute_s_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=? ORDER BY activation_value DESC, lti_id ASC");
     add(web_lti_all);
 
-    web_attr_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=?");
+    web_attr_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=? order by smem_augmentations.lti_id asc");
     add(web_attr_all_spread);
     
-    web_const_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id=smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR "");
+    web_const_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id=smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR " order by smem_augmentations.lti_id asc");
     add(web_const_all_spread);
     
-    web_lti_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id=smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=?");
+    web_lti_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id=smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=? order by smem_augmentations.lti_id asc");
     add(web_lti_all_spread);
     
-    web_attr_all_cheap = new soar_module::sqlite_statement(new_db, "SELECT lti_id AS lti_id1, activation_value AS activation_value_aug FROM smem_augmentations WHERE attribute_s_id=?");
+    web_attr_all_cheap = new soar_module::sqlite_statement(new_db, "SELECT lti_id AS lti_id1, activation_value AS activation_value_aug FROM smem_augmentations WHERE attribute_s_id=? order by activation_value_aug desc, lti_id1 asc");
     add(web_attr_all_cheap);
 
-    web_const_all_cheap = new soar_module::sqlite_statement(new_db, "SELECT lti_id AS lti_id1, activation_value AS activation_value_aug FROM smem_augmentations WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR );
+    web_const_all_cheap = new soar_module::sqlite_statement(new_db, "SELECT lti_id AS lti_id1, activation_value AS activation_value_aug FROM smem_augmentations WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR " order by activation_value_aug desc, lti_id1 asc");
     add(web_const_all_cheap);
 
-    web_lti_all_cheap = new soar_module::sqlite_statement(new_db, "SELECT lti_id AS lti_id1, activation_value AS activation_value_aug FROM smem_augmentations WHERE attribute_s_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=?");
+    web_lti_all_cheap = new soar_module::sqlite_statement(new_db, "SELECT lti_id AS lti_id1, activation_value AS activation_value_aug FROM smem_augmentations WHERE attribute_s_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=? order by activation_value_aug desc, lti_id1 asc");
     add(web_lti_all_cheap);
 
     web_attr_all_manual = new soar_module::sqlite_statement(new_db, "SELECT 1 FROM smem_augmentations WHERE attribute_s_id=? AND lti_id=?");
@@ -1019,7 +1019,7 @@ likelihood_cond_count_insert_deterministic = new soar_module::sqlite_statement(n
     //add(add_new_context);
 
     //add a fingerprint's information to the current spread table.
-    add_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_current_spread(lti_id,num_appearances_i_j,num_appearances,lti_source) SELECT lti_i,num_appearances_i_j,num_appearances,lti_j FROM smem_likelihoods INNER JOIN smem_trajectory_num ON lti_id=lti_j WHERE lti_j=?");
+    add_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT or ignore INTO smem_current_spread(lti_id,num_appearances_i_j,num_appearances,lti_source) SELECT lti_i,num_appearances_i_j,num_appearances,lti_j FROM smem_likelihoods INNER JOIN smem_trajectory_num ON lti_id=lti_j WHERE lti_j=?");
     add(add_fingerprint);
 
     //add a fingerprint's information to the current uncommitted spread table. should happen after add_fingerprint
@@ -1588,7 +1588,8 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
     std::list<smem_lti_id>::iterator lti_iterator;
     std::list<smem_lti_id>::iterator lti_begin;// = lti_trajectories[lti_id]->begin();
     std::list<smem_lti_id>::iterator lti_end;// = lti_trajectories[lti_id]->end();
-    std::queue<std::list<smem_lti_id>*> lti_traversal_queue;
+    //std::queue<std::list<smem_lti_id>*> lti_traversal_queue;
+    smem_prioritized_activated_lti_traversal_queue lti_traversal_queue; //Now, this queue is a priority queue so that we can explore based on where spread has yet to decay a ton.
     /* I'll make this better later. For now, I want it to work. I'm keeping two things.
      * I want a way to do a breadth-first traversal, and I also want to keep track of the
      * current path that has been traversed. As such, I need a queue of lists.
@@ -1601,9 +1602,10 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
     uint64_t count = 0;
     std::list<smem_lti_id>* current_lti_list = new std::list<smem_lti_id>;
     current_lti_list->push_back(lti_id);
-    lti_traversal_queue.push(current_lti_list);
+    double initial_activation = 1;
+    lti_traversal_queue.push(std::make_pair(initial_activation,current_lti_list));
     //There is a limit to the size of the stored info.
-
+    double decay_prob = thisAgent->smem_params->spreading_continue_probability->get_value();
     //
     std::list<smem_lti_id>::iterator old_list_iterator;
     std::list<smem_lti_id>::iterator old_list_iterator_begin;
@@ -1614,10 +1616,12 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
     std::set<smem_lti_id> visited;
     bool good_lti = true;
     depth = 0;
+    uint64_t fan_out;
+    std::map<smem_lti_id,double> spread_map;//This is actually the amount of spreading activation a recipient accumulates from this source.
     while (!lti_traversal_queue.empty() && count < limit)
     {
         // Find all of the children of the current lti_id. (current = end of the current list from the queue)
-        current_lti_list = lti_traversal_queue.front();
+        current_lti_list = lti_traversal_queue.top().second;
         current_lti = current_lti_list->back();
         //if (lti_trajectories.find(current_lti)==lti_trajectories.end())
         {
@@ -1627,6 +1631,9 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
         lti_end = lti_trajectories[current_lti]->end();//last child
         old_list_iterator_begin = current_lti_list->begin();
         old_list_iterator_end = current_lti_list->end();
+        //We have to divvy up the spread amongst the children of the node.
+        fan_out = lti_trajectories[current_lti]->size();
+        initial_activation = decay_prob*(lti_traversal_queue.top().first)/fan_out;
         //assert(lti_begin != lti_end);
         for (lti_iterator = lti_begin; lti_iterator != lti_end && count < limit; ++lti_iterator)
         {
@@ -1646,10 +1653,26 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
             {
                 good_lti = (visited.find(*lti_iterator) == visited.end());
             }
+            else
+            {
+                if (spread_map.find(*lti_iterator) != spread_map.end() && spread_map[*lti_iterator] > 20*initial_activation)
+                {
+                    good_lti = false;
+                }
+            }
             if (good_lti)
             {
                 //Add the new element to the list.
                 new_list->push_back((*lti_iterator));
+
+                if (spread_map.find((*lti_iterator)) == spread_map.end())
+                {
+                    spread_map[*lti_iterator] = initial_activation;
+                }
+                else
+                {
+                    spread_map[*lti_iterator] = spread_map[*lti_iterator] + initial_activation;
+                }
 
                 //Now we have a new traversal to add.
                 new_list_iterator_begin = new_list->begin();
@@ -1669,7 +1692,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
 
                 //If there's room for more, we add it so that we can continue building.
                 if (new_list->size() < depth_limit+1 && count < limit) {
-                    lti_traversal_queue.push(new_list);
+                    lti_traversal_queue.push(std::make_pair(initial_activation,new_list));
                 }
                 else
                 {
@@ -1685,10 +1708,18 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
         lti_traversal_queue.pop();//Get rid of the old list.
         delete current_lti_list;//No longer need it altogether.
     }
+    //once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
+    for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
+    {
+        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(1,lti_id);
+        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_int(2,spread_map_it->first);
+        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->bind_double(3,spread_map_it->second);
+        thisAgent->smem_stmts->likelihood_cond_count_insert_deterministic->execute(soar_module::op_reinit);
+    }
     //If we quit the above loop by hitting the limit, we need to delete the old lists that are left.
     while (!lti_traversal_queue.empty())
     {
-        delete ((lti_traversal_queue.front()));
+        delete ((lti_traversal_queue.top().second));
         lti_traversal_queue.pop();
     }
     if (!ever_added)
@@ -2239,12 +2270,12 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
         delete to_delete->second;
     }
 
-    while (lti_a->execute() == soar_module::row)
+    /*while (lti_a->execute() == soar_module::row)
     {
         lti_id = lti_a->column_int(0);
         smem_calc_likelihoods_for_det_trajectories(thisAgent, lti_id);
     }
-    lti_a->reinitialize();
+    lti_a->reinitialize();*/
 
 
 
@@ -2703,7 +2734,7 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
                 }
                 trajectory_construction_deterministic(thisAgent,*it,lti_trajectories);
                 thisAgent->smem_stats->expansions->set_value(thisAgent->smem_stats->expansions->get_value() + 1);
-                smem_calc_likelihoods_for_det_trajectories(thisAgent, (*it));
+                //smem_calc_likelihoods_for_det_trajectories(thisAgent, (*it));
 
                 thisAgent->smem_stmts->lti_count_num_appearances_insert->bind_int(1,(*it));
                 thisAgent->smem_stmts->lti_count_num_appearances_insert->execute(soar_module::op_reinit);
@@ -2787,6 +2818,7 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     double modified_spread = 0;
     smem_lti_set pruned_candidates;
     soar_module::sqlite_statement* list_uncommitted_spread = thisAgent->smem_stmts->list_uncommitted_spread;
+    //do_manual_crawl = true;
     if (do_manual_crawl)
     {//This means that the candidate set was quite large, so we instead manually check the sql store for candidacy.
         soar_module::sqlite_statement* q_manual;
@@ -4381,7 +4413,15 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             //Add the prohibit
             thisAgent->smem_stmts->prohibit_set->bind_int(1,(*prohibited_lti_p));
             thisAgent->smem_stmts->prohibit_set->execute(soar_module::op_reinit);
-
+            thisAgent->smem_in_wmem->erase((*prohibited_lti_p));
+            if (thisAgent->smem_context_additions->find((*prohibited_lti_p))!=thisAgent->smem_context_additions->end())
+            {
+                thisAgent->smem_context_additions->erase((*prohibited_lti_p));
+            }
+            else
+            {
+                thisAgent->smem_context_removals->insert((*prohibited_lti_p));
+            }
             /*//remove the history
             thisAgent->smem_stmts->history_remove->bind_int(1,(*prohibited_lti_p));
             thisAgent->smem_stmts->history_remove->execute(soar_module::op_reinit);*/
@@ -4594,8 +4634,17 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             }
 
             soar_module::sqlite_statement* spread_q = smem_setup_web_crawl_spread(thisAgent, (*cand_set));
+            smem_lti_id highest_so_far = 0;
             while (spread_q->execute() == soar_module::row)
             {
+                if (spread_q->column_int(0) > highest_so_far)
+                {
+                    highest_so_far = spread_q->column_int(0);
+                }
+                else
+                {
+                    assert(false && "For some reason, sorting by ascending order didn't work");
+                }
                 plentiful_parents.push(std::make_pair<double,smem_lti_id>(spread_q->column_double(1),spread_q->column_int(0)));
             }
             spread_q->reinitialize();
@@ -4773,6 +4822,11 @@ smem_lti_id smem_process_query(agent* thisAgent, Symbol* state, Symbol* query, S
             ////////////////////////////////////////////////////////////////////////////
             thisAgent->smem_timers->query->stop();
             ////////////////////////////////////////////////////////////////////////////
+            (*(thisAgent->smem_in_wmem))[king_id] = (uint64_t)1;
+            if (thisAgent->smem_context_removals->find(king_id)!=thisAgent->smem_context_removals->end())
+            {
+                thisAgent->smem_context_removals->erase(king_id);
+            }
             thisAgent->smem_context_additions->insert(king_id);
             smem_install_memory(thisAgent, state, king_id, NIL, (thisAgent->smem_params->activate_on_query->get_value() == on), meta_wmes, retrieval_wmes, install_type, depth);
         }
@@ -6751,7 +6805,7 @@ void smem_respond_to_cmd(agent* thisAgent, bool store_only)
                         smem_install_memory(thisAgent, state, retrieve->id->smem_lti, retrieve, true, meta_wmes, retrieval_wmes, wm_install, depth);
 
                         // add one to the expansions stat
-                        thisAgent->smem_stats->expansions->set_value(thisAgent->smem_stats->expansions->get_value() + 1);
+                        //thisAgent->smem_stats->expansions->set_value(thisAgent->smem_stats->expansions->get_value() + 1);
                     }
                 }
                 // query
