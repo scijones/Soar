@@ -110,6 +110,7 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
     timers->add_mapping(soar_module::timer::one, "one");
     timers->add_mapping(soar_module::timer::two, "two");
     timers->add_mapping(soar_module::timer::three, "three");
+    timers->add_mapping(soar_module::timer::four, "four");
     add(timers);
 
     // page_size
@@ -431,6 +432,21 @@ smem_timer_container::smem_timer_container(agent* new_agent): soar_module::timer
 
     act = new smem_timer("three_activation", thisAgent, soar_module::timer::three);
     add(act);
+
+    spreading = new smem_timer("spreading", thisAgent, soar_module::timer::three);
+    add(spreading);
+
+    spreading_1 = new smem_timer("spreading_1", thisAgent, soar_module::timer::four);
+    add(spreading_1);
+
+    spreading_2 = new smem_timer("spreading_2", thisAgent, soar_module::timer::four);
+    add(spreading_2);
+
+    spreading_3 = new smem_timer("spreading_3", thisAgent, soar_module::timer::four);
+    add(spreading_3);
+
+    spreading_4 = new smem_timer("spreading_4", thisAgent, soar_module::timer::four);
+    add(spreading_4);
 }
 
 //
