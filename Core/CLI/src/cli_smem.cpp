@@ -395,9 +395,10 @@ bool CommandLineInterface::DoSMem(const char pOp, const std::string* pAttr, cons
             PrintCLIMessage_Item("Stores:", thisAgent->smem_stats->stores, 40);
             PrintCLIMessage_Item("Activation Updates:", thisAgent->smem_stats->act_updates, 40);
             PrintCLIMessage_Item("Mirrors:", thisAgent->smem_stats->mirrors, 40);
-            PrintCLIMessage_Item("Trajectories-limited:", thisAgent->smem_stats->trajectories_limit, 40);
-            PrintCLIMessage_Item("Trajectories-exhausted:", thisAgent->smem_stats->trajectories_exhaustive, 40);
+            PrintCLIMessage_Item("Fingerprints-limited:", thisAgent->smem_stats->trajectories_limit, 40);
+            PrintCLIMessage_Item("Fingerprints-exhausted:", thisAgent->smem_stats->trajectories_exhaustive, 40);
             PrintCLIMessage_Item("Trajectories-thresholded:", thisAgent->smem_stats->trajectories_thresh, 40);
+            PrintCLIMessage_Item("Trajectories-total:", thisAgent->smem_stats->trajectories_total, 40);
             PrintCLIMessage_Item("Nodes:", thisAgent->smem_stats->chunks, 40);
             PrintCLIMessage_Item("Edges:", thisAgent->smem_stats->slots, 40);
             thisAgent->smem_stmts->calc_spread_size_debug_cmd->execute();

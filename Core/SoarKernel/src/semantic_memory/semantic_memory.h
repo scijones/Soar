@@ -141,6 +141,7 @@ class smem_stat_container: public soar_module::stat_container
         soar_module::integer_stat* trajectories_limit;
         soar_module::integer_stat* trajectories_exhaustive;
         soar_module::integer_stat* trajectories_thresh;
+        soar_module::integer_stat* trajectories_total;
 
         soar_module::integer_stat* chunks;
         soar_module::integer_stat* slots;

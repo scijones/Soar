@@ -358,17 +358,21 @@ smem_stat_container::smem_stat_container(agent* new_agent): soar_module::stat_co
     mirrors = new soar_module::integer_stat("mirrors", 0, new soar_module::f_predicate<int64_t>());
     add(mirrors);
 
-    // A count of how many spread trajectories were ended because the spread hit the traversal limit
+    // A count of how many spread fingerprints were ended because the spread hit the traversal limit
     trajectories_limit = new soar_module::integer_stat("trajectories_limit", 0, new soar_module::f_predicate<int64_t>());
     add(trajectories_limit);
 
-    // A count of how many spread trajectories were ended because the spread ran out of network
+    // A count of how many spread fingerprints were ended because the spread ran out of network
     trajectories_exhaustive = new soar_module::integer_stat("trajectories_exhaustive", 0, new soar_module::f_predicate<int64_t>());
     add(trajectories_exhaustive);
 
     // A count of how many spread trajectories were skipped because the spread was below threshold
     trajectories_thresh = new soar_module::integer_stat("trajectories_thresh", 0, new soar_module::f_predicate<int64_t>());
     add(trajectories_thresh);
+
+    // A count of how many spread trajectories were made
+    trajectories_total = new soar_module::integer_stat("trajectories_total", 0, new soar_module::f_predicate<int64_t>());
+    add(trajectories_total);
 
     // chunks
     chunks = new soar_module::integer_stat("nodes", 0, new smem_db_predicate< int64_t >(thisAgent));
@@ -1687,6 +1691,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
                     thisAgent->smem_stats->trajectories_thresh->set_value(thisAgent->smem_stats->trajectories_thresh->get_value() + 1);
                 }
             }
+            thisAgent->smem_stats->trajectories_total->set_value(thisAgent->smem_stats->trajectories_total->get_value() + 1);
             if (good_lti)
             {
                 //Add the new element to the list.
@@ -1732,17 +1737,17 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
                 delete new_list;
             }
         }
-        if (count >= limit)
-        {
-            thisAgent->smem_stats->trajectories_limit->set_value(thisAgent->smem_stats->trajectories_limit->get_value() + 1);
-        }
-        else
-        {
-            thisAgent->smem_stats->trajectories_exhaustive->set_value(thisAgent->smem_stats->trajectories_exhaustive->get_value() + 1);
-        }
-        }
+        
         lti_traversal_queue.pop();//Get rid of the old list.
         delete current_lti_list;//No longer need it altogether.
+    }
+    if (count >= limit)
+    {
+        thisAgent->smem_stats->trajectories_limit->set_value(thisAgent->smem_stats->trajectories_limit->get_value() + 1);
+    }
+    else
+    {
+        thisAgent->smem_stats->trajectories_exhaustive->set_value(thisAgent->smem_stats->trajectories_exhaustive->get_value() + 1);
     }
     //once we have the relevant spread map, we loop over the entries in that map and insert them into the table with compiled fingerprint into.
     for (std::map<smem_lti_id,double>::iterator spread_map_it = spread_map.begin(); spread_map_it != spread_map.end(); ++spread_map_it)
