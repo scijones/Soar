@@ -1652,6 +1652,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
     {
         // Find all of the children of the current lti_id. (current = end of the current list from the queue)
         current_lti_list = lti_traversal_queue.top().second;
+        depth = current_lti_list->size();
         current_lti = current_lti_list->back();
         //if (lti_trajectories.find(current_lti)==lti_trajectories.end())
         {
@@ -1663,7 +1664,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
         old_list_iterator_end = current_lti_list->end();
         //We have to divvy up the spread amongst the children of the node.
         fan_out = lti_trajectories[current_lti]->size();
-        initial_activation = decay_prob*(lti_traversal_queue.top().first)/fan_out;
+        initial_activation = pow(decay_prob,depth-1)*(1-decay_prob)*(lti_traversal_queue.top().first)/fan_out;
         //assert(lti_begin != lti_end);
         for (lti_iterator = lti_begin; lti_iterator != lti_end && count < limit; ++lti_iterator)
         {
