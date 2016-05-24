@@ -1664,7 +1664,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
         old_list_iterator_end = current_lti_list->end();
         //We have to divvy up the spread amongst the children of the node.
         fan_out = lti_trajectories[current_lti]->size();
-        initial_activation = pow(decay_prob,depth-1)*(1-decay_prob)*(lti_traversal_queue.top().first)/fan_out;
+        initial_activation = decay_prob*(lti_traversal_queue.top().first)/fan_out;
         //assert(lti_begin != lti_end);
         for (lti_iterator = lti_begin; lti_iterator != lti_end && count < limit; ++lti_iterator)
         {
@@ -1700,11 +1700,11 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
 
                 if (spread_map.find((*lti_iterator)) == spread_map.end())
                 {
-                    spread_map[*lti_iterator] = initial_activation;
+                    spread_map[*lti_iterator] = initial_activation*(1-decay_prob);
                 }
                 else
                 {
-                    spread_map[*lti_iterator] = spread_map[*lti_iterator] + initial_activation;
+                    spread_map[*lti_iterator] = spread_map[*lti_iterator] + initial_activation*(1-decay_prob);
                 }
 
                 //Now we have a new traversal to add.
