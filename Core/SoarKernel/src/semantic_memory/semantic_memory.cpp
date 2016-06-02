@@ -369,6 +369,20 @@ smem_stat_container::smem_stat_container(agent* new_agent): soar_module::stat_co
     // A count of how many spread trajectories were skipped because the spread was below threshold
     trajectories_thresh = new soar_module::integer_stat("trajectories_thresh", 0, new soar_module::f_predicate<int64_t>());
     add(trajectories_thresh);
+    trajectories_thresh_1 = new soar_module::integer_stat("trajectories_thresh_1", 0, new soar_module::f_predicate<int64_t>());
+    add(trajectories_thresh_1);
+    trajectories_thresh_2 = new soar_module::integer_stat("trajectories_thresh_2", 0, new soar_module::f_predicate<int64_t>());
+    add(trajectories_thresh_2);
+    trajectories_thresh_3 = new soar_module::integer_stat("trajectories_thresh_3", 0, new soar_module::f_predicate<int64_t>());
+    add(trajectories_thresh_3);
+    trajectories_thresh_4 = new soar_module::integer_stat("trajectories_thresh_4", 0, new soar_module::f_predicate<int64_t>());
+    add(trajectories_thresh_4);
+    trajectories_thresh_5 = new soar_module::integer_stat("trajectories_thresh_5", 0, new soar_module::f_predicate<int64_t>());
+    add(trajectories_thresh_5);
+    trajectories_thresh_6 = new soar_module::integer_stat("trajectories_thresh_6", 0, new soar_module::f_predicate<int64_t>());
+    add(trajectories_thresh_6);
+    trajectories_thresh_7 = new soar_module::integer_stat("trajectories_thresh_7", 0, new soar_module::f_predicate<int64_t>());
+    add(trajectories_thresh_7);
 
     // A count of how many spread trajectories were made
     trajectories_total = new soar_module::integer_stat("trajectories_total", 0, new soar_module::f_predicate<int64_t>());
@@ -1637,6 +1651,9 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
     //There is a limit to the size of the stored info.
     double decay_prob = thisAgent->smem_params->spreading_continue_probability->get_value();
     //
+    //gotta calculate correct denominator for baseline value
+    double baseline_val = thisAgent->smem_params->spreading_baseline->get_value();
+
     std::list<smem_lti_id>::iterator old_list_iterator;
     std::list<smem_lti_id>::iterator old_list_iterator_begin;
     std::list<smem_lti_id>::iterator old_list_iterator_end;
@@ -1666,7 +1683,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
         fan_out = lti_trajectories[current_lti]->size();
         initial_activation = decay_prob*(lti_traversal_queue.top().first)/fan_out;
         //assert(lti_begin != lti_end);
-        for (lti_iterator = lti_begin; lti_iterator != lti_end && count < limit; ++lti_iterator)
+        for (lti_iterator = lti_begin; lti_iterator != lti_end && count < limit; ++lti_iterator) //&& initial_activation > baseline_val
         {
             good_lti = true;
             //First, we make a new copy of the list to add to the queue.
@@ -1686,11 +1703,11 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
             }
             else
             {
-                if (spread_map.find(*lti_iterator) != spread_map.end() && spread_map[*lti_iterator] > 20*initial_activation)
+                /*if (spread_map.find(*lti_iterator) != spread_map.end() && .01*spread_map[*lti_iterator] > initial_activation)
                 {
                     good_lti = false;
                     thisAgent->smem_stats->trajectories_thresh->set_value(thisAgent->smem_stats->trajectories_thresh->get_value() + 1);
-                }
+                }*/
             }
             thisAgent->smem_stats->trajectories_total->set_value(thisAgent->smem_stats->trajectories_total->get_value() + 1);
             if (good_lti)
@@ -1700,11 +1717,11 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
 
                 if (spread_map.find((*lti_iterator)) == spread_map.end())
                 {
-                    spread_map[*lti_iterator] = initial_activation*(1-decay_prob);
+                    spread_map[*lti_iterator] = initial_activation;//*(1-decay_prob);
                 }
                 else
                 {
-                    spread_map[*lti_iterator] = spread_map[*lti_iterator] + initial_activation*(1-decay_prob);
+                    spread_map[*lti_iterator] = spread_map[*lti_iterator] + initial_activation;//*(1-decay_prob);
                 }
 
                 //Now we have a new traversal to add.
@@ -1724,21 +1741,52 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
                 ++count;
 
                 //If there's room for more, we add it so that we can continue building.
-                if (new_list->size() < depth_limit+1 && count < limit) {
+                if (new_list->size() < depth_limit+1 && count < limit){// && initial_activation > baseline_val) {
                     lti_traversal_queue.push(std::make_pair(initial_activation,new_list));
                 }
                 else
                 {
+                    if (initial_activation <= baseline_val)
+                    {
+                        thisAgent->smem_stats->trajectories_thresh->set_value(thisAgent->smem_stats->trajectories_thresh->get_value() + 1);
+                    }
                     delete new_list;//Before ever adding it, we just delete it instead.
                     //The other way to delete is to get added, then to get deleted after a traversal of children.
                 }
+                /*if (initial_activation > .0001)
+                {
+                    thisAgent->smem_stats->trajectories_thresh_1->set_value(thisAgent->smem_stats->trajectories_thresh_1->get_value() + 1);
+                }
+                if (initial_activation > .01)
+                {
+                    thisAgent->smem_stats->trajectories_thresh_2->set_value(thisAgent->smem_stats->trajectories_thresh_2->get_value() + 1);
+                }
+                if (initial_activation > .001)
+                {
+                    thisAgent->smem_stats->trajectories_thresh_3->set_value(thisAgent->smem_stats->trajectories_thresh_3->get_value() + 1);
+                }
+                if (initial_activation > .00000316227766)
+                {
+                    thisAgent->smem_stats->trajectories_thresh_4->set_value(thisAgent->smem_stats->trajectories_thresh_4->get_value() + 1);
+                }
+                if (initial_activation > .000001)
+                {
+                    thisAgent->smem_stats->trajectories_thresh_5->set_value(thisAgent->smem_stats->trajectories_thresh_5->get_value() + 1);
+                }
+                if (initial_activation > .0000316227766)
+                {
+                    thisAgent->smem_stats->trajectories_thresh_6->set_value(thisAgent->smem_stats->trajectories_thresh_6->get_value() + 1);
+                }
+                if (initial_activation > .00001)
+                {
+                    thisAgent->smem_stats->trajectories_thresh_7->set_value(thisAgent->smem_stats->trajectories_thresh_7->get_value() + 1);
+                }*/
             }
             else
             {
                 delete new_list;
             }
         }
-        
         lti_traversal_queue.pop();//Get rid of the old list.
         delete current_lti_list;//No longer need it altogether.
     }
@@ -2612,7 +2660,14 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
     }
 
 
-
+    //gotta calculate correct denominator for baseline value
+    double baseline_denom = thisAgent->smem_params->spreading_continue_probability->get_value();
+    double decay_const = baseline_denom;
+    int depth_limit = thisAgent->smem_params->spreading_depth_limit->get_value();
+    for (int i = 0; i < depth_limit; i++)
+    {
+        baseline_denom = baseline_denom + baseline_denom*decay_const;
+    }
     // always associate activation with lti
     double spread = 0;
     double modified_spread = 0;
@@ -2644,7 +2699,7 @@ inline double smem_lti_activate(agent* thisAgent, smem_lti_id lti, bool add_acce
         }
         if (already_in_spread_table)
         {
-            double offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
+            double offset = (thisAgent->smem_params->spreading_baseline->get_value())/baseline_denom;//(thisAgent->smem_params->spreading_limit->get_value());
             modified_spread = (spread==0 || spread < offset) ? (0) : (log(spread)-log(offset));
             spread = (spread < offset) ? (0) : (spread);
 
@@ -2876,6 +2931,15 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     }
     list_uncommitted_spread->reinitialize();
 
+    //gotta calculate correct denominator for baseline value
+    double baseline_denom = thisAgent->smem_params->spreading_continue_probability->get_value();
+    double decay_const = baseline_denom;
+    int depth_limit = thisAgent->smem_params->spreading_depth_limit->get_value();
+    for (int i = 0; i < depth_limit; i++)
+    {
+        baseline_denom = baseline_denom + baseline_denom*decay_const;
+    }
+
     soar_module::sqlite_statement* calc_uncommitted_spread = thisAgent->smem_stmts->calc_uncommitted_spread;
     smem_lti_set* actual_candidates = ( do_manual_crawl ? &pruned_candidates : current_candidates);
     for (smem_lti_set::iterator candidate = actual_candidates->begin(); candidate != actual_candidates->end(); ++candidate)//for every sink that has some spread, we calculate
@@ -2918,7 +2982,7 @@ thisAgent->smem_stats->stores->set_value(thisAgent->smem_stats->stores->get_valu
                     raw_prob = (((double)(calc_uncommitted_spread->column_double(2)))/(calc_uncommitted_spread->column_double(1)));
                 }
                 //offset = (thisAgent->smem_params->spreading_baseline->get_value())/(calc_spread->column_double(1));
-                offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
+                offset = (thisAgent->smem_params->spreading_baseline->get_value())/baseline_denom;//(thisAgent->smem_params->spreading_limit->get_value());
                 additional = raw_prob;//(log(raw_prob)-log(offset));
                 spread+=additional;//Now, we've adjusted the activation according to this new addition.
 
@@ -2992,7 +3056,7 @@ thisAgent->smem_stats->stores->set_value(thisAgent->smem_stats->stores->get_valu
                     raw_prob = (((double)(calc_uncommitted_spread->column_double(2)))/(calc_uncommitted_spread->column_double(1)));
                 }//There is some offset value so that we aren't going to compare to negative infinity (log(0)).
                 //It could be thought of as an overall confidence in spreading itself.
-                offset = (thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value());
+                offset = (thisAgent->smem_params->spreading_baseline->get_value())/baseline_denom;//(thisAgent->smem_params->spreading_limit->get_value());
                 //additional = (log(raw_prob)-log(offset));
 
                 thisAgent->smem_stmts->delete_commit_of_negative_fingerprint->bind_int(1,*candidate);
@@ -7802,6 +7866,14 @@ void smem_print_store(agent* thisAgent, std::string* return_val)
     // id, soar_letter, number
     soar_module::sqlite_statement* q = thisAgent->smem_stmts->vis_lti;
     soar_module::sqlite_statement* act_q;// = thisAgent->smem_stmts->vis_lti_act;
+//gotta calculate correct denominator for baseline value
+    double baseline_denom = thisAgent->smem_params->spreading_continue_probability->get_value();
+    double decay_const = baseline_denom;
+    int depth_limit = thisAgent->smem_params->spreading_depth_limit->get_value();
+    for (int i = 0; i < depth_limit; i++)
+    {
+        baseline_denom = baseline_denom + baseline_denom*decay_const;
+    }
     while (q->execute() == soar_module::row)
     {
         thisAgent->smem_stmts->vis_lti_check_spread->bind_int(1,q->column_int(0));
@@ -7817,7 +7889,7 @@ void smem_print_store(agent* thisAgent, std::string* return_val)
         thisAgent->smem_stmts->vis_lti_check_spread->reinitialize();
         act_q->bind_int(1, q->column_int(0));
         act_q->execute();
-        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value())), act_q->column_double(2), return_val);
+        _smem_print_lti(thisAgent, q->column_int(0), static_cast<char>(q->column_int(1)), static_cast<uint64_t>(q->column_int(2)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/baseline_denom), act_q->column_double(2), return_val);
         act_q->reinitialize();
     }
     q->reinitialize();
@@ -7844,7 +7916,14 @@ void smem_print_lti(agent* thisAgent, smem_lti_id lti_id, uint64_t depth, std::s
     // initialize queue/set
     to_visit.push(std::make_pair(lti_id, 1u));
     visited.insert(lti_id);
-
+//gotta calculate correct denominator for baseline value
+    double baseline_denom = thisAgent->smem_params->spreading_continue_probability->get_value();
+    double decay_const = baseline_denom;
+    int depth_limit = thisAgent->smem_params->spreading_depth_limit->get_value();
+    for (int i = 0; i < depth_limit; i++)
+    {
+        baseline_denom = baseline_denom + baseline_denom*decay_const;
+    }
     while (!to_visit.empty())
     {
         c = to_visit.front();
@@ -7910,11 +7989,11 @@ void smem_print_lti(agent* thisAgent, smem_lti_id lti_id, uint64_t depth, std::s
 
             if (history && !access_history.empty())
             {
-                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value())), act_q->column_double(2), return_val, &(access_history));
+                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(baseline_denom)), act_q->column_double(2), return_val, &(access_history));
             }
             else
             {
-                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(thisAgent->smem_params->spreading_limit->get_value())), act_q->column_double(2), return_val);
+                next = _smem_print_lti(thisAgent, c.first, static_cast<char>(lti_q->column_int(0)), static_cast<uint64_t>(lti_q->column_int(1)), act_q->column_double(0), log(act_q->column_double(1))-log((thisAgent->smem_params->spreading_baseline->get_value())/(baseline_denom)), act_q->column_double(2), return_val);
             }
 
             // done with lookup
