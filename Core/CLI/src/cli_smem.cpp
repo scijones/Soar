@@ -398,16 +398,6 @@ bool CommandLineInterface::DoSMem(const char pOp, const std::string* pAttr, cons
             PrintCLIMessage_Item("Fingerprints-limited:", thisAgent->smem_stats->trajectories_limit, 40);
             PrintCLIMessage_Item("Fingerprints-exhausted:", thisAgent->smem_stats->trajectories_exhaustive, 40);
             PrintCLIMessage_Item("Trajectories-thresholded:", thisAgent->smem_stats->trajectories_thresh, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_1:", thisAgent->smem_stats->trajectories_thresh_1, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_2:", thisAgent->smem_stats->trajectories_thresh_2, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_3:", thisAgent->smem_stats->trajectories_thresh_3, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_4:", thisAgent->smem_stats->trajectories_thresh_4, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_5:", thisAgent->smem_stats->trajectories_thresh_5, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_6:", thisAgent->smem_stats->trajectories_thresh_6, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_7:", thisAgent->smem_stats->trajectories_thresh_7, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_8:", thisAgent->smem_stats->trajectories_thresh_8, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_9:", thisAgent->smem_stats->trajectories_thresh_9, 40);
-            PrintCLIMessage_Item("Trajectories-thresholded_10:", thisAgent->smem_stats->trajectories_thresh_10, 40);
             PrintCLIMessage_Item("Trajectories-total:", thisAgent->smem_stats->trajectories_total, 40);
             PrintCLIMessage_Item("Nodes:", thisAgent->smem_stats->chunks, 40);
             PrintCLIMessage_Item("Edges:", thisAgent->smem_stats->slots, 40);
