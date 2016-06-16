@@ -259,7 +259,7 @@ void do_buffered_wm_changes(agent* thisAgent)
             {
                 (*(thisAgent->smem_in_wmem))[w->id->id->smem_lti] = (uint64_t)1;
                 //Here, I should also add to a data structure containing "ltis to add to context".
-                //thisAgent->smem_context_additions->insert(w->id->id->smem_lti);
+                thisAgent->smem_context_additions->insert(w->id->id->smem_lti);
                 //edge case? - I should remove ltis from "ltis to remove from context".
                 if (thisAgent->smem_context_removals->find(w->id->id->smem_lti)!=thisAgent->smem_context_removals->end())
                 {
