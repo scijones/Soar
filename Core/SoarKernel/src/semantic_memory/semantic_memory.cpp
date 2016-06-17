@@ -2918,8 +2918,8 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     {
         while (thisAgent->smem_uncommitted_table->find(*candidate) != thisAgent->smem_uncommitted_table->end())
         {//This means that there is indeed some spread that has yet to be committed that goes to the candidate in question.
-            std::unordered_map<smem_lti_id,smem_uncommitted_spread_element>::iterator sources_for_recipient_iterator_begin = thisAgent->smem_uncommitted_table[*candidate].begin();
-            smem_uncommitted_map_element::iterator sources_for_recipient_iterator_end = thisAgent->smem_uncommitted_table[*candidate].end();
+            std::unordered_map<smem_lti_id,smem_uncommitted_spread_element>::iterator sources_for_recipient_iterator_begin = (*(thisAgent->smem_uncommitted_table))[*candidate].begin();
+            smem_uncommitted_map_element::iterator sources_for_recipient_iterator_end = (*(thisAgent->smem_uncommitted_table))[*candidate].end();
             smem_uncommitted_map_element::iterator sources_for_recipient_iterator;
             for (sources_for_recipient_iterator = sources_for_recipient_iterator_begin; sources_for_recipient_iterator != sources_for_recipient_iterator_end; ++sources_for_recipient_iterator)
             {//This loops over every source of spread that goes to the candidate in question.
