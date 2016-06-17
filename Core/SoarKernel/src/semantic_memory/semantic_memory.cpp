@@ -1727,7 +1727,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
                 ++count;
 
                 //If there's room for more, we add it so that we can continue building.
-                if (new_list->size() < depth_limit+1 && count < limit) && initial_activation > baseline_val) {
+                if (new_list->size() < depth_limit+1 && count < limit && initial_activation > baseline_val) {
                     lti_traversal_queue.push(std::make_pair(initial_activation,new_list));
                 }
                 else
