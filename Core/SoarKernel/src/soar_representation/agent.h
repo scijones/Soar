@@ -754,6 +754,10 @@ typedef struct EXPORT agent_struct
     soar_module::sqlite_database* smem_db;
     smem_statement_container* smem_stmts;
 
+    smem_uncommitted_map* smem_uncommitted_table;
+    smem_committed_map* smem_committed_table;
+    smem_current_spread_map* smem_current_spread_table;
+
     uint64_t smem_validation;
     int64_t smem_max_cycle;
 

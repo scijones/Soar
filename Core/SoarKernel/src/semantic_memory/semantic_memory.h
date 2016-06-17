@@ -450,6 +450,54 @@ typedef struct smem_data_struct
 
 //
 
+// This is the data associated with the uncommitted spread table.
+typedef struct smem_uncommitted_spread_struct
+{
+    smem_lti_id source;
+    smem_lti_id recipient;
+    double num_appearances_recipient_in_source;
+    double num_appearances_from_source;
+    bool sign;
+} smem_uncommitted_spread_element;
+
+// This is the data associated with the committed spread table.
+typedef struct smem_committed_spread_struct
+{
+    smem_lti_id source;
+    smem_lti_id recipient;
+    double num_appearances_recipient_in_source;
+    double num_appearances_from_source;
+} smem_committed_spread_element;
+
+// This is the data associated with an element currently receiving spread (for sorting at query)
+typedef struct smem_current_recipient_struct
+{
+    smem_lti_id recipient;
+    double base_level_activation;
+    double spreading_activation;
+    double total_activation;
+} smem_current_recipient_activation_element;
+
+//The following two maps are intended to replicate the smem_uncommitted_spread table from the db.
+//This is a mapping from a source to uncommitted spread for a particular recipient from that source
+typedef std::unordered_map<smem_lti_id,smem_uncommitted_spread_element> smem_uncommitted_map_element;
+
+//This is a mapping from a recipient to uncommitted spread sources for that recipient
+typedef std::unordered_map<smem_lti_id,smem_uncommitted_map_element> smem_uncommitted_map;
+
+//The following two maps are intended to replicate the smem_committed_spread table from the db.
+//This is a mapping from a recipient to committed spread for a particular source to that recipient
+typedef std::unordered_map<smem_lti_id,smem_committed_spread_element> smem_committed_map_element;
+
+//This is a mapping from a source to committed spread recipients for that source
+typedef std::unordered_map<smem_lti_id,smem_committed_map_element> smem_committed_map;
+
+//the following map is intended to replicate the smem_current_spread_activations table from the db.
+//This is a mapping from a recipient to the more recently-updated activation values of that recipient.
+typedef std::unordered_map<smem_lti_id,smem_current_recipient_activation_element> smem_current_spread_map;
+
+//
+
 enum smem_cue_element_type { attr_t, value_const_t, value_lti_t, smem_cue_element_type_none };
 
 typedef struct smem_weighted_cue_element_struct

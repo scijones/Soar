@@ -395,6 +395,10 @@ agent* create_soar_agent(char* agent_name)                                      
 
     thisAgent->smem_db = new soar_module::sqlite_database();
 
+    thisAgent->smem_uncommitted_table = new smem_uncommitted_map();
+    thisAgent->smem_committed_table = new smem_committed_map();
+    thisAgent->smem_current_spread_table = new smem_current_spread_map();
+
     thisAgent->smem_validation = 0;
 
 #ifdef USE_MEM_POOL_ALLOCATORS
@@ -493,6 +497,10 @@ void destroy_soar_agent(agent* delete_agent)
     delete delete_agent->smem_context_additions;
     delete delete_agent->smem_context_removals;
     delete delete_agent->smem_db;
+    delete delete_agent->smem_uncommitted_table;
+    delete delete_agent->smem_committed_table;
+    delete delete_agent->smem_current_spread_table;
+
 
 #ifndef NO_SVS
     delete delete_agent->svs;
