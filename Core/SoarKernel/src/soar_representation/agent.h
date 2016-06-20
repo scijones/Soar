@@ -755,6 +755,7 @@ typedef struct EXPORT agent_struct
     smem_statement_container* smem_stmts;
 
     smem_uncommitted_map* smem_uncommitted_table;
+    smem_uncommitted_map_reverse_index* smem_uncommitted_map_second_key;
     smem_committed_map* smem_committed_table;
     smem_current_spread_map* smem_current_spread_table;
 

@@ -485,6 +485,9 @@ typedef std::unordered_map<smem_lti_id,smem_uncommitted_spread_element> smem_unc
 //This is a mapping from a recipient to uncommitted spread sources for that recipient
 typedef std::unordered_map<smem_lti_id,smem_uncommitted_map_element> smem_uncommitted_map;
 
+//In order to keep O(1) access, we need to basically have a second index for the uncommitted spread.
+typedef std::unordered_map<smem_lti_id,std::set<smem_lti_id>> smem_uncommitted_map_reverse_index;
+
 //The following two maps are intended to replicate the smem_committed_spread table from the db.
 //This is a mapping from a recipient to committed spread for a particular source to that recipient
 typedef std::unordered_map<smem_lti_id,smem_committed_spread_element> smem_committed_map_element;

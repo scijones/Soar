@@ -2859,11 +2859,19 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     }
     thisAgent->smem_context_additions->clear();
     soar_module::sqlite_statement* delete_old_spread = thisAgent->smem_stmts->delete_old_spread;
-    soar_module::sqlite_statement* delete_old_uncommitted_spread = thisAgent->smem_stmts->delete_old_uncommitted_spread;
+    soar_module::sqlite_statement* delete_old_uncommitted_spread = thisAgent->smem_stmts->delete_old_uncommitted_spread;//"DELETE FROM smem_uncommitted_spread WHERE lti_source=? AND lti_id NOT IN (SELECT lti_id FROM smem_committed_spread WHERE lti_source=?)"
+    //To replicate the above table using the in-architecture table, there is a separate hash table containing a reverse-indexed uncommitted_spread key structure (from source to recipients.) It is slave and just mimics insert and delete, but with a flipped index.
+    //smem_uncommitted_map_reverse_index is the type and the agent has one called smem_uncommitted_map_second_key
+
     soar_module::sqlite_statement* reverse_old_committed_spread = thisAgent->smem_stmts->reverse_old_committed_spread;
     //delete_old_spread->prepare();
     for (smem_lti_set::iterator it = thisAgent->smem_context_removals->begin(); it != thisAgent->smem_context_removals->end(); ++it)
     {
+        if (thisAgent->smem_uncommitted_map_second_key->find(*it) != thisAgent->smem_uncommitted_map_second_key->end())
+        {//If we have any spread from that source.
+            (*(thisAgent->smem_uncommitted_map_second_key))[*it]//This is the set of recipients for that source.
+
+        }
         delete_old_uncommitted_spread->bind_int(1,(*it));
         delete_old_uncommitted_spread->bind_int(2,(*it));
         delete_old_uncommitted_spread->execute(soar_module::op_reinit);
@@ -2887,12 +2895,16 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     if (do_manual_crawl)
     {//This means that the candidate set was quite large, so we instead manually check the sql store for candidacy.
         soar_module::sqlite_statement* q_manual;
-        while (list_uncommitted_spread->execute() == soar_module::row)
+        //while (list_uncommitted_spread->execute() == soar_module::row)
+        smem_uncommitted_map::iterator recipient_iterator_begin = thisAgent->smem_uncommitted_table->begin();
+        smem_uncommitted_map::iterator recipient_iterator_end = thisAgent->smem_uncommitted_table->end();
+        smem_uncommitted_map::iterator recipient_iterator;
+        for (recipient_iterator = recipient_iterator_begin; recipient_iterator != recipient_iterator_end; ++recipient_iterator)
         {//we loop over all spread sinks
-            q_manual = smem_setup_manual_web_crawl(thisAgent, **cand_set, list_uncommitted_spread->column_int(0));
+            q_manual = smem_setup_manual_web_crawl(thisAgent, **cand_set, recipient_iterator->first);
             if (q_manual->execute() == soar_module::row)//and if the sink is a candidate, we will actually calculate on it later.
             {
-                pruned_candidates.insert(list_uncommitted_spread->column_int(0));
+                pruned_candidates.insert(recipient_iterator->first);
             }
             q_manual->reinitialize();
         }
