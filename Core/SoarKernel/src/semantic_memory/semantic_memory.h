@@ -451,32 +451,36 @@ typedef struct smem_data_struct
 //
 
 // This is the data associated with the uncommitted spread table.
-typedef struct smem_uncommitted_spread_struct
+struct smem_uncommitted_spread_element
 {
     smem_lti_id source;
     smem_lti_id recipient;
     double num_appearances_recipient_in_source;
     double num_appearances_from_source;
     bool sign;
-} smem_uncommitted_spread_element;
+    smem_uncommitted_spread_element(smem_lti_id source_in, smem_lti_id recipient_in, double num_r_in_s, double num_from_s, bool sign_in) : source(source_in), recipient(recipient_in), num_appearances_recipient_in_source(num_r_in_s), num_appearances_from_source(num_from_s), sign(sign_in) { }
+};// smem_uncommitted_spread_element;
 
 // This is the data associated with the committed spread table.
-typedef struct smem_committed_spread_struct
+struct smem_committed_spread_element
 {
     smem_lti_id source;
     smem_lti_id recipient;
     double num_appearances_recipient_in_source;
     double num_appearances_from_source;
-} smem_committed_spread_element;
+    bool sign;
+    smem_committed_spread_element(smem_lti_id source_in, smem_lti_id recipient_in, double num_r_in_s, double num_from_s, bool sign_in) : source(source_in), recipient(recipient_in), num_appearances_recipient_in_source(num_r_in_s), num_appearances_from_source(num_from_s), sign(sign_in) { }
+};// smem_committed_spread_element;
 
 // This is the data associated with an element currently receiving spread (for sorting at query)
-typedef struct smem_current_recipient_struct
+struct smem_current_recipient_activation_element
 {
     smem_lti_id recipient;
     double base_level_activation;
     double spreading_activation;
     double total_activation;
-} smem_current_recipient_activation_element;
+    smem_current_recipient_activation_element(smem_lti_id recipient_in, double bla, double spread, double total) : recipient(recipient_in), base_level_activation(bla), spreading_activation(spread), total_activation(total) { }
+};// smem_current_recipient_activation_element;
 
 //The following two maps are intended to replicate the smem_uncommitted_spread table from the db.
 //This is a mapping from a source to uncommitted spread for a particular recipient from that source

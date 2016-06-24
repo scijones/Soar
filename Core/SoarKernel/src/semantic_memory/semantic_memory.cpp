@@ -2869,14 +2869,47 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     {
         if (thisAgent->smem_uncommitted_map_second_key->find(*it) != thisAgent->smem_uncommitted_map_second_key->end())
         {//If we have any spread from that source.
-            (*(thisAgent->smem_uncommitted_map_second_key))[*it]//This is the set of recipients for that source.
-
+            std::set<smem_lti_id>* recipients = &((*(thisAgent->smem_uncommitted_map_second_key))[*it]);//This is the set of recipients for that source.
+            //For every recipient from that source, we delete that recipient/source pair from the smem_uncommitted_table
+            std::set<smem_lti_id>::iterator recipients_begin = recipients->begin();
+            std::set<smem_lti_id>::iterator recipients_end = recipients->end();
+            std::set<smem_lti_id>::iterator recipients_it;
+            for (recipients_it = recipients_begin; recipients_it != recipients_end; ++recipients_it)
+            {
+                ((*(thisAgent->smem_uncommitted_table))[*recipients_it]).erase(*it);
+                if ((*(thisAgent->smem_uncommitted_table))[*recipients_it].size() == 0)
+                {//If after erasing that source, the recipient has no more sources, we erase it from the table altogether.
+                    thisAgent->smem_uncommitted_table->erase(*recipients_it);
+                }
+            }
+            thisAgent->smem_uncommitted_map_second_key->erase(*it);
         }
-        delete_old_uncommitted_spread->bind_int(1,(*it));
-        delete_old_uncommitted_spread->bind_int(2,(*it));
-        delete_old_uncommitted_spread->execute(soar_module::op_reinit);
-        reverse_old_committed_spread->bind_int(1,(*it));
-        reverse_old_committed_spread->execute(soar_module::op_reinit);
+        //delete_old_uncommitted_spread->bind_int(1,(*it));
+        //delete_old_uncommitted_spread->bind_int(2,(*it));
+        //delete_old_uncommitted_spread->execute(soar_module::op_reinit);
+//INSERT INTO smem_uncommitted_spread(lti_id,num_appearances_i_j,num_appearances,lti_source,sign) SELECT lti_id,num_appearances_i_j,num_appearances,lti_source,0 FROM smem_committed_spread WHERE lti_source=?")
+        if (thisAgent->smem_committed_table->find(*it) != thisAgent->smem_committed_table->end())
+        {//This means that there is some committed spread to revert from that source.
+            //The way to revert that spread is to add the negative of it to uncommitted spread and to remove it from committed spread.
+            smem_committed_map_element* recipients = &((*(thisAgent->smem_committed_table))[*it]);//This is the set of committed recipients for that source.
+            //For every recipient, we add the negative to uncommitted spread
+            smem_committed_map_element::iterator recipients_begin = recipients->begin();
+            smem_committed_map_element::iterator recipients_end = recipients->end();
+            smem_committed_map_element::iterator recipients_it;
+            for (recipients_it = recipients_begin; recipients_it != recipients_end; ++recipients_it)
+            {
+                smem_committed_spread_element* spread_to_reverse = &(recipients_it->second);//This is a particular element to add the negative for.
+                //First, we check if the recipient has an entry in the uncommitted table. If it does, we add a new source to it. If not, we add both.
+                if ()
+                {
+                    
+                }
+//smem_uncommitted_spread_element{spread_to_reverse->source,spread_to_reverse->recipient,spread_to_reverse->num_appearances_recipient_in_source,spread_to_reverse->num_appearances_from_source, !(spread_to_reverse->sign)}
+            }
+            //and then we delete the original from committed.
+        }
+        //reverse_old_committed_spread->bind_int(1,(*it));
+        //reverse_old_committed_spread->execute(soar_module::op_reinit);
         delete_old_spread->bind_int(1,(*it));
         delete_old_spread->execute(soar_module::op_reinit);
     }
