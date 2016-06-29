@@ -415,6 +415,7 @@ typedef std::list<smem_lti_id> smem_lti_list;
 typedef std::set<smem_lti_id> smem_lti_set;
 typedef std::map<smem_lti_id, uint64_t> smem_lti_map;
 typedef std::unordered_map<smem_lti_id, int64_t> smem_lti_unordered_map;
+typedef std::unordered_multimap<smem_lti_id, wma_decay_element*> smem_wma_map;
 
 // a list of symbols
 typedef std::list<Symbol*> smem_sym_list;

@@ -760,6 +760,7 @@ typedef struct EXPORT agent_struct
     smem_pooled_symbol_set* smem_changed_ids;
     bool smem_ignore_changes;
     smem_lti_map* smem_in_wmem;//These are for spreading.
+    smem_wma_map* smem_wmas;
     smem_lti_unordered_map* smem_spreaded_to;
     smem_lti_set* smem_context_additions;
     smem_lti_set* smem_context_removals;

@@ -510,6 +510,10 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
             temp_el->forget_cycle = static_cast< wma_d_cycle >(-1);
 
             w->wma_decay_el = temp_el;
+            if (w->id->symbol_type == IDENTIFIER_SYMBOL_TYPE && w->id->id->smem_lti)//test for lti, if so, add this wma_decay_element to the lti
+            {
+                thisAgent->smem_wmas->emplace(w->id->id->smem_lti,temp_el);
+            }
 
             if (thisAgent->sysparams[ TRACE_WMA_SYSPARAM ])
             {
@@ -668,6 +672,13 @@ void wma_deactivate_element(agent* thisAgent, wme* w)
             }
 
             temp_el->just_removed = true;
+            if (w->id->symbol_type == IDENTIFIER_SYMBOL_TYPE && w->id->id->smem_lti)//test for lti, if so, add this wma_decay_element to the lti
+            {
+                //Right now this is just a loop for correctness. I'll make it better later.
+                //Find the lti. It will have several values (multimap). Loop until the relevant value is found. Delete at that iterator.
+                //TODO: There should be a better way. I'll change this later
+
+            }
         }
     }
 }
