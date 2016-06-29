@@ -677,7 +677,15 @@ void wma_deactivate_element(agent* thisAgent, wme* w)
                 //Right now this is just a loop for correctness. I'll make it better later.
                 //Find the lti. It will have several values (multimap). Loop until the relevant value is found. Delete at that iterator.
                 //TODO: There should be a better way. I'll change this later
-
+                auto wmas = thisAgent->smem_wmas->equal_range(w->id->id->smem_lti);
+                for (auto wma = wmas.first; wma != wmas.second; ++wma)
+                {
+                    if (wma->second == w->wma_decay_el)
+                    {
+                        thisAgent->smem_wmas->erase(wma);
+                        break;
+                    }
+                }
             }
         }
     }
