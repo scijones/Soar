@@ -368,6 +368,8 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* list_uncommitted_spread;
         soar_module::sqlite_statement* delete_commit_of_negative_fingerprint;
         soar_module::sqlite_statement* add_committed_fingerprint;
+        soar_module::sqlite_statement* list_current_spread;
+        soar_module::sqlite_statement* calc_current_spread;
 
         smem_statement_container(agent* new_agent);
 
