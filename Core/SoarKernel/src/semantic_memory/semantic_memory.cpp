@@ -1055,7 +1055,9 @@ likelihood_cond_count_insert_deterministic = new soar_module::sqlite_statement(n
     //add(add_new_context);
 
     //add a fingerprint's information to the current spread table.
-    add_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT or ignore INTO smem_current_spread(lti_id,num_appearances_i_j,num_appearances,sign,lti_source) SELECT lti_i,num_appearances_i_j,num_appearances,1,lti_j FROM smem_likelihoods INNER JOIN smem_trajectory_num ON lti_id=lti_j WHERE lti_j=?");
+    select_fingerprint = new soar_module::sqlite_statement(new_db,"SELECT lti_i,num_appearances_i_j,num_appearances,1,lti_j FROM smem_likelihoods INNER JOIN smem_trajectory_num ON lti_id=lti_j WHERE lti_j=?");
+    add(select_fingerprint);
+    add_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT or ignore INTO smem_current_spread(lti_id,num_appearances_i_j,num_appearances,sign,lti_source) VALUES (?,?,?,?,?)");
     add(add_fingerprint);
 
     //add a fingerprint's information to the current uncommitted spread table. should happen after add_fingerprint
@@ -2848,12 +2850,39 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     thisAgent->smem_timers->spreading_2->start();
     ////////////////////////////////////////////////////////////////////////////
     soar_module::sqlite_statement* add_fingerprint = thisAgent->smem_stmts->add_fingerprint;
+    soar_module::sqlite_statement* select_fingerprint = thisAgent->smem_stmts->select_fingerprint;
     soar_module::sqlite_statement* add_uncommitted_fingerprint = thisAgent->smem_stmts->add_uncommitted_fingerprint;
     soar_module::sqlite_statement* remove_fingerprint_reversal = thisAgent->smem_stmts->remove_fingerprint_reversal;
     for (smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
     {//Now we add the walks/traversals we've done. //can imagine doing this as a batch process through a join on a list of the additions if need be.
-        add_fingerprint->bind_int(1,(*it));
-        add_fingerprint->execute(soar_module::op_reinit);
+        select_fingerprint->bind_int(1,(*it));
+        while (select_fingerprint->execute() == soar_module::row)
+        {
+            add_fingerprint->bind_int(1,select_fingerprint->column_int(0));
+            add_fingerprint->bind_int(2,select_fingerprint->column_double(1));
+            add_fingerprint->bind_int(3,select_fingerprint->column_double(2));
+            add_fingerprint->bind_int(4,select_fingerprint->column_int(3));
+            add_fingerprint->bind_int(5,select_fingerprint->column_int(4));
+            add_fingerprint->execute(soar_module::op_reinit);
+            //Right here, I have a chance to add to "spreaded_to" because we have a row with a pariticular recipient.
+            //When this fingerprint goes away, we can remove the recipient if this is the only fingerprint contributing to that recipient.
+            //This is done by reference counting by fingerprint.
+            if (thisAgent->smem_spreaded_to->find() == thisAgent->smem_spreaded_to->end())
+            {
+                (*(thisAgent->smem_spreaded_to))[select_fingerprint->column_int(0)] = 0;
+            }
+            else
+            {//I need a second one of these that keeps track of those that actually received spread. OR - more clever:
+            	//I just make the value of this a set of sources and when that set exists = potential spread.
+            	//when it is populated with elements = those are the ones actually contributing spread.
+                (*(thisAgent->smem_spreaded_to))[select_fingerprint->column_int(0)] = (*(thisAgent->smem_spreaded_to))[select_fingerprint->column_int(0)] + 1;
+            }
+        }
+        select_fingerprint->reinitialize();
+        //I need to split this into separate select and insert batches. The select will allow me to keep an in-memory record of
+        //potential spread recipients. The insert is then the normal insert. A select/insert combo would be nice, but that doesn't
+        //make sense with the sqlite api.
+
     }
     //for (smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
     //{

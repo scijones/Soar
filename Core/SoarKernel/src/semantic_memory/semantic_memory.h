@@ -356,6 +356,7 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* delete_old_context;
         soar_module::sqlite_statement* delete_old_spread;
         soar_module::sqlite_statement* add_new_context;
+        soar_module::sqlite_statement* select_fingerprint;
         soar_module::sqlite_statement* add_fingerprint;
         soar_module::sqlite_statement* delete_old_uncommitted_spread;
         soar_module::sqlite_statement* reverse_old_committed_spread;
