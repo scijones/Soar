@@ -416,6 +416,7 @@ typedef uint64_t smem_hash_id;
 // represents a collection of long-term identifiers
 typedef std::list<smem_lti_id> smem_lti_list;
 typedef std::set<smem_lti_id> smem_lti_set;
+typedef std::unordered_map<smem_lti_id,smem_lti_set*> smem_lti_set_map;
 typedef std::map<smem_lti_id, uint64_t> smem_lti_map;
 typedef std::unordered_map<smem_lti_id, int64_t> smem_lti_unordered_map;
 typedef std::unordered_multimap<smem_lti_id, wma_decay_element*> smem_wma_map;

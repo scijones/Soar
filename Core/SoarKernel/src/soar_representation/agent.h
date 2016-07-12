@@ -762,6 +762,8 @@ typedef struct EXPORT agent_struct
     smem_lti_map* smem_in_wmem;//These are for spreading.
     smem_wma_map* smem_wmas;
     smem_lti_unordered_map* smem_spreaded_to;
+    smem_lti_unordered_map* smem_recipient;
+    smem_lti_set_map* smem_recipients_of_source;
     smem_lti_set* smem_context_additions;
     smem_lti_set* smem_context_removals;
 

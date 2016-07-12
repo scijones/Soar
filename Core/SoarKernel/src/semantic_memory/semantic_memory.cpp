@@ -2867,15 +2867,24 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
             //Right here, I have a chance to add to "spreaded_to" because we have a row with a pariticular recipient.
             //When this fingerprint goes away, we can remove the recipient if this is the only fingerprint contributing to that recipient.
             //This is done by reference counting by fingerprint.
-            if (thisAgent->smem_spreaded_to->find() == thisAgent->smem_spreaded_to->end())
+            if (thisAgent->smem_recipients_of_source->find(select_fingerprint->column_int(4)) == thisAgent->smem_recipients_of_source->end())
+            {//This source has no recipients yet. we need to add this element to the map. This means making a new set.
+                (*(thisAgent->smem_recipients_of_source))[select_fingerprint->column_int(4)] = new smem_lti_set;
+                (*(thisAgent->smem_recipients_of_source))[select_fingerprint->column_int(4)]->insert(select_fingerprint->column_int(0));
+            }
+            else
+            {//This source already has recipients. We just need to add to the set.
+                (*(thisAgent->smem_recipients_of_source))[select_fingerprint->column_int(4)]->insert(select_fingerprint->column_int(0));
+            }
+            if (thisAgent->smem_recipient->find(select_fingerprint->column_int(0)) == thisAgent->smem_recipient->end())
             {
-                (*(thisAgent->smem_spreaded_to))[select_fingerprint->column_int(0)] = 0;
+                (*(thisAgent->smem_recipient))[select_fingerprint->column_int(0)] = 0;
             }
             else
             {//I need a second one of these that keeps track of those that actually received spread. OR - more clever:
             	//I just make the value of this a set of sources and when that set exists = potential spread.
             	//when it is populated with elements = those are the ones actually contributing spread.
-                (*(thisAgent->smem_spreaded_to))[select_fingerprint->column_int(0)] = (*(thisAgent->smem_spreaded_to))[select_fingerprint->column_int(0)] + 1;
+                (*(thisAgent->smem_recipient))[select_fingerprint->column_int(0)] = (*(thisAgent->smem_recipient))[select_fingerprint->column_int(0)] + 1;
             }
         }
         select_fingerprint->reinitialize();
@@ -2897,14 +2906,57 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     soar_module::sqlite_statement* delete_old_uncommitted_spread = thisAgent->smem_stmts->delete_old_uncommitted_spread;
     soar_module::sqlite_statement* reverse_old_committed_spread = thisAgent->smem_stmts->reverse_old_committed_spread;
     //delete_old_spread->prepare();
-    for (smem_lti_set::iterator it = thisAgent->smem_context_removals->begin(); it != thisAgent->smem_context_removals->end(); ++it)
+    smem_lti_unordered_map* spreaded_to = thisAgent->smem_spreaded_to;
+    smem_lti_set::iterator recipient_it;
+    smem_lti_set::iterator recipient_begin;
+    smem_lti_set::iterator recipient_end;
+    for (smem_lti_set::iterator source_it = thisAgent->smem_context_removals->begin(); source_it != thisAgent->smem_context_removals->end(); ++source_it)
     {
+        assert(thisAgent->smem_recipients_of_source->find((*source_it)) != thisAgent->smem_recipients_of_source->end());
+        {//This very well should be the case in fact... changed to an assert instead of if
+            smem_lti_set* recipient_set = (thisAgent->smem_recipients_of_source->at(*source_it));
+            recipient_begin = recipient_set->begin();
+            recipient_begin = recipient_set->end();
+            for (recipient_it = recipient_begin; recipient_it != recipient_end; ++recipient_it)
+            {//We need to decrement the number of sources that lead to each recipient for each recipient from this source.
+                assert(thisAgent->smem_recipient->find((*recipient_it)) != thisAgent->smem_recipient->end());
+                //We check if this recipient now no longer has any spread sources as a result.
+                if ((*(thisAgent->smem_recipient))[(*recipient_it)] == 1)
+                {
+                    thisAgent->smem_recipient->erase((*recipient_it));
+                    //Also, if the element has been spreaded to,
+                    //this allows us to detect that we can migrate the activation from the spread table to the base-level table.
+                    if (spreaded_to->find(*recipient_it) != spreaded_to->end())
+                    {
+                        thisAgent->smem_stmts->act_lti_fake_get->bind_int(1,*recipient_it);
+                        thisAgent->smem_stmts->act_lti_fake_get->execute();
+                        double spread = thisAgent->smem_stmts->act_lti_fake_get->column_double(1);//This is the spread before changes.
+                        double prev_base = thisAgent->smem_stmts->act_lti_fake_get->column_double(0);
+                        thisAgent->smem_stmts->act_lti_fake_get->reinitialize();
+                        thisAgent->smem_stmts->act_lti_fake_delete->bind_int(1, *recipient_it);
+                        thisAgent->smem_stmts->act_lti_fake_delete->execute(soar_module::op_reinit);
+                        thisAgent->smem_stmts->act_lti_set->bind_double(1, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
+                        thisAgent->smem_stmts->act_lti_set->bind_double(2, 0);
+                        thisAgent->smem_stmts->act_lti_set->bind_double(3, prev_base);
+                        thisAgent->smem_stmts->act_lti_set->bind_int(4, *recipient_it);
+                        thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
+                        thisAgent->smem_stmts->act_lti_fake_get->reinitialize();
+                    }
+                }
+                else
+                {
+                    (*(thisAgent->smem_recipient))[(*recipient_it)] = (*(thisAgent->smem_recipient))[(*recipient_it)] - 1;
+                }
+            }
+            delete recipient_set;
+            thisAgent->smem_recipients_of_source->erase((*source_it));
+        }
         //delete_old_uncommitted_spread->bind_int(1,(*it));
         //delete_old_uncommitted_spread->bind_int(2,(*it));
         //delete_old_uncommitted_spread->execute(soar_module::op_reinit);
         //reverse_old_committed_spread->bind_int(1,(*it));
         //reverse_old_committed_spread->execute(soar_module::op_reinit);
-        delete_old_spread->bind_int(1,(*it));
+        delete_old_spread->bind_int(1,(*source_it));
         delete_old_spread->execute(soar_module::op_reinit);
     }
     thisAgent->smem_context_removals->clear();
@@ -2912,7 +2964,6 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     double raw_prob;
     double additional;
     double offset;
-    smem_lti_unordered_map* spreaded_to = thisAgent->smem_spreaded_to;
     bool still_exists;
     double spread = 0;
     double modified_spread = 0;
@@ -2949,7 +3000,7 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     soar_module::sqlite_statement* calc_current_spread = thisAgent->smem_stmts->calc_current_spread;
     smem_lti_set* actual_candidates = ( do_manual_crawl ? &pruned_candidates : current_candidates);
     std::unordered_set<smem_lti_id> updated_candidates;
-    spreaded_to->clear();
+    //spreaded_to->clear();
     for (smem_lti_set::iterator candidate = actual_candidates->begin(); candidate != actual_candidates->end(); ++candidate)//for every sink that has some spread, we calculate
     {
         calc_current_spread->bind_int(1,(*candidate));

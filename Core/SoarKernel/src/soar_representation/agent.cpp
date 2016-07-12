@@ -411,6 +411,8 @@ agent* create_soar_agent(char* agent_name)                                      
     thisAgent->smem_in_wmem = new smem_lti_map;
     thisAgent->smem_wmas = new smem_wma_map;
     thisAgent->smem_spreaded_to = new smem_lti_unordered_map;
+    thisAgent->smem_recipient = new smem_lti_unordered_map;
+    thisAgent->smem_recipients_of_source = new smem_lti_set_map;
     thisAgent->smem_context_additions = new smem_lti_set;
     thisAgent->smem_context_removals = new smem_lti_set;
     thisAgent->substate_break_level = 0;
@@ -492,6 +494,8 @@ void destroy_soar_agent(agent* delete_agent)
     delete delete_agent->smem_in_wmem;//These are for spreading.
     delete delete_agent->smem_wmas;
     delete delete_agent->smem_spreaded_to;
+    delete delete_agent->smem_recipient;
+    delete delete_agent->smem_recipients_of_source;
     delete delete_agent->smem_context_additions;
     delete delete_agent->smem_context_removals;
     delete delete_agent->smem_db;
