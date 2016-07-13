@@ -3048,8 +3048,51 @@ thisAgent->smem_stats->stores->set_value(thisAgent->smem_stats->stores->get_valu
                     raw_prob = (((double)(calc_uncommitted_spread->column_double(2))));
                 }
                 else*/
+                //Alright, the big point here is to make the magnitude of activation in some manner depend on the magnitude of
+                //the WMA of the source of the spread. That's weird, but whatever. The big deal is to translate the WMA
+                //of the source (which we also have to define) into probability space. this isn't entirely principled, but if we normalize
+                //across all WMA for sources, we don't really have to translate. I'll start with just using a raw multiplicative factor because
+                //it'll be easier. So, spread X factor. Now, that factor will first be like some super activation. I'll basically add the WMAs
+                //individual activations together like they were all boosting the same thing. This should normalize in a sense. Whatever, this is
+                //the first stab.
+                wma_decay_element total_element;
+                total_element.this_wme = NULL;
+                total_element.just_removed = false;
+                total_element.just_created = true;
+                total_element.forget_cycle = 0;
+                total_element.num_references = 0;
+                //std::list<wma_reference> touches;
+                std::list<wma_cycle_reference> cycles;
+                unsigned int counter;
+                auto wmas = thisAgent->smem_wmas->equal_range(calc_current_spread->column_int(4));
+                double pre_logd_wma = 0;
+                for (auto wma = wmas.first; wma != wmas.second; ++wma)
                 {
-                    raw_prob = (((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
+                    // Now that we have a wma decay element, we loop over its history and increment all of the fields for our fake decay element.
+                    total_element.num_references += wma->second->touches.total_references;
+                    counter = wma->second->touches.history_ct;
+                    while(counter)
+                    {
+                        int cycle_diff = thisAgent->wma_d_cycle_count - wma->second->touches.access_history[counter].d_cycle;
+                        assert(cycle_diff > 0);
+                        //cycles.push_back(wma->second->touches.access_history[counter]);
+                        if (cycle_diff < thisAgent->wma_power_size)
+                        {
+                            pre_logd_wma += wma->second->touches.access_history[counter].num_references * thisAgent->wma_power_array[ cycle_diff ];
+                        }
+                        else
+                        {
+                            pre_logd_wma += wma->second->touches.access_history[counter].num_references * pow(cycle_diff,thisAgent->wma_params->decay_rate->get_value());
+                        }
+                        counter--;
+                    }
+                }
+                //For now, I'm not going to deal with the Petrov approximation and leave this value incorrectly
+                //truncated so that old activations are just completely ignored.
+                //In theory, BLA corresponds to log-odds, so I guess we're dealing with odds for the above value.
+                double wma_multiplicative_factor = pre_logd_wma/(1.0+pre_logd_wma);
+                {
+                    raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
                 }
                 //offset = (thisAgent->smem_params->spreading_baseline->get_value())/(calc_spread->column_double(1));
                 offset = (thisAgent->smem_params->spreading_baseline->get_value())/baseline_denom;//(thisAgent->smem_params->spreading_limit->get_value());
