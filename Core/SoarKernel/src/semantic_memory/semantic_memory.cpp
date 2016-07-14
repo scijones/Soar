@@ -2917,7 +2917,7 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
             //Scratch that. The lti could have no real fingerprint, meaning that it doesn't have recipients.
             smem_lti_set* recipient_set = (thisAgent->smem_recipients_of_source->at(*source_it));
             recipient_begin = recipient_set->begin();
-            recipient_begin = recipient_set->end();
+            recipient_end = recipient_set->end();
             for (recipient_it = recipient_begin; recipient_it != recipient_end; ++recipient_it)
             {//We need to decrement the number of sources that lead to each recipient for each recipient from this source.
                 assert(thisAgent->smem_recipient->find((*recipient_it)) != thisAgent->smem_recipient->end());
