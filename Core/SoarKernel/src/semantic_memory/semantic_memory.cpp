@@ -2912,8 +2912,9 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     smem_lti_set::iterator recipient_end;
     for (smem_lti_set::iterator source_it = thisAgent->smem_context_removals->begin(); source_it != thisAgent->smem_context_removals->end(); ++source_it)
     {
-        assert(thisAgent->smem_recipients_of_source->find((*source_it)) != thisAgent->smem_recipients_of_source->end());
+        if (thisAgent->smem_recipients_of_source->find((*source_it)) != thisAgent->smem_recipients_of_source->end())
         {//This very well should be the case in fact... changed to an assert instead of if
+            //Scratch that. The lti could have no real fingerprint, meaning that it doesn't have recipients.
             smem_lti_set* recipient_set = (thisAgent->smem_recipients_of_source->at(*source_it));
             recipient_begin = recipient_set->begin();
             recipient_begin = recipient_set->end();
