@@ -2878,7 +2878,7 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
             }
             if (thisAgent->smem_recipient->find(select_fingerprint->column_int(0)) == thisAgent->smem_recipient->end())
             {
-                (*(thisAgent->smem_recipient))[select_fingerprint->column_int(0)] = 0;
+                (*(thisAgent->smem_recipient))[select_fingerprint->column_int(0)] = 1;
             }
             else
             {//I need a second one of these that keeps track of those that actually received spread. OR - more clever:
