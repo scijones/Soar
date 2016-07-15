@@ -2859,8 +2859,8 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
         while (select_fingerprint->execute() == soar_module::row)
         {
             add_fingerprint->bind_int(1,select_fingerprint->column_int(0));
-            add_fingerprint->bind_int(2,select_fingerprint->column_double(1));
-            add_fingerprint->bind_int(3,select_fingerprint->column_double(2));
+            add_fingerprint->bind_double(2,select_fingerprint->column_double(1));
+            add_fingerprint->bind_double(3,select_fingerprint->column_double(2));
             add_fingerprint->bind_int(4,select_fingerprint->column_int(3));
             add_fingerprint->bind_int(5,select_fingerprint->column_int(4));
             add_fingerprint->execute(soar_module::op_reinit);
@@ -2941,7 +2941,8 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
                         thisAgent->smem_stmts->act_lti_set->bind_double(3, prev_base);
                         thisAgent->smem_stmts->act_lti_set->bind_int(4, *recipient_it);
                         thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
-                        thisAgent->smem_stmts->act_lti_fake_get->reinitialize();
+                        spreaded_to->erase(*recipient_it);
+                        //thisAgent->smem_stmts->act_lti_fake_get->reinitialize();
                     }
                 }
                 else
@@ -3004,6 +3005,23 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     //spreaded_to->clear();
     for (smem_lti_set::iterator candidate = actual_candidates->begin(); candidate != actual_candidates->end(); ++candidate)//for every sink that has some spread, we calculate
     {
+        if (spreaded_to->find(*candidate) != spreaded_to->end())
+        {
+            thisAgent->smem_stmts->act_lti_fake_get->bind_int(1,*candidate);
+            thisAgent->smem_stmts->act_lti_fake_get->execute();
+            double spread = thisAgent->smem_stmts->act_lti_fake_get->column_double(1);//This is the spread before changes.
+            double prev_base = thisAgent->smem_stmts->act_lti_fake_get->column_double(0);
+            thisAgent->smem_stmts->act_lti_fake_get->reinitialize();
+            thisAgent->smem_stmts->act_lti_fake_delete->bind_int(1, *candidate);
+            thisAgent->smem_stmts->act_lti_fake_delete->execute(soar_module::op_reinit);
+            thisAgent->smem_stmts->act_lti_set->bind_double(1, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
+            thisAgent->smem_stmts->act_lti_set->bind_double(2, 0);
+            thisAgent->smem_stmts->act_lti_set->bind_double(3, prev_base);
+            thisAgent->smem_stmts->act_lti_set->bind_int(4, *candidate);
+            thisAgent->smem_stmts->act_lti_set->execute(soar_module::op_reinit);
+            //thisAgent->smem_stmts->act_lti_fake_get->reinitialize();
+            spreaded_to->erase(*candidate);
+        }
         calc_current_spread->bind_int(1,(*candidate));
         while (calc_current_spread->execute() == soar_module::row && calc_current_spread->column_double(2))
         {
