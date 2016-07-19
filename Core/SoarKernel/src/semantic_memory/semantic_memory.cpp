@@ -3092,7 +3092,7 @@ thisAgent->smem_stats->stores->set_value(thisAgent->smem_stats->stores->get_valu
                     counter = wma->second->touches.history_ct;
                     while(counter)
                     {
-                        int cycle_diff = thisAgent->wma_d_cycle_count - wma->second->touches.access_history[counter].d_cycle;
+                        int cycle_diff = thisAgent->wma_d_cycle_count - wma->second->touches.access_history[counter-1].d_cycle;
                         assert(cycle_diff > 0);
                         //cycles.push_back(wma->second->touches.access_history[counter]);
                         if (cycle_diff < thisAgent->wma_power_size)
