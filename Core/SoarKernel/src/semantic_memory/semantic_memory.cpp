@@ -3097,11 +3097,11 @@ thisAgent->smem_stats->stores->set_value(thisAgent->smem_stats->stores->get_valu
                         //cycles.push_back(wma->second->touches.access_history[counter]);
                         if (cycle_diff < thisAgent->wma_power_size)
                         {
-                            pre_logd_wma += wma->second->touches.access_history[counter].num_references * thisAgent->wma_power_array[ cycle_diff ];
+                            pre_logd_wma += wma->second->touches.access_history[counter-1].num_references * thisAgent->wma_power_array[ cycle_diff ];
                         }
                         else
                         {
-                            pre_logd_wma += wma->second->touches.access_history[counter].num_references * pow(cycle_diff,thisAgent->wma_params->decay_rate->get_value());
+                            pre_logd_wma += wma->second->touches.access_history[counter-1].num_references * pow(cycle_diff,thisAgent->wma_params->decay_rate->get_value());
                         }
                         counter--;
                     }
