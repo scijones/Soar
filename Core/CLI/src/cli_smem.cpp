@@ -261,11 +261,11 @@ bool CommandLineInterface::DoSMem(const char pOp, const std::string* pAttr, cons
     }
     else if (pOp == 'P')
     {
-        if  (thisAgent->smem_params->spreading_traversal->get_value() == smem_param_container::random)
-        {
-            smem_calc_spread_trajectories(thisAgent);
-        }
-        else
+        //if  (thisAgent->smem_params->spreading_traversal->get_value() == smem_param_container::random)
+        //{
+        //    smem_calc_spread_trajectories(thisAgent);
+        //}
+        //else
         {
             thisAgent->smem_timers->total->start();
             smem_calc_spread_trajectories_deterministic(thisAgent);

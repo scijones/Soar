@@ -492,7 +492,7 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_symbols_string (s_id INTEGER PRIMARY KEY, symbol_value TEXT)");
     add_structure("CREATE TABLE smem_lti (lti_id INTEGER PRIMARY KEY, soar_letter INTEGER, soar_number INTEGER, total_augmentations INTEGER, activation_base_level REAL, activations_total REAL, activations_last INTEGER, activations_first INTEGER, activation_spread REAL, activation_value REAL)");
     add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER, touch1 REAL, touch2 REAL, touch3 REAL, touch4 REAL, touch5 REAL, touch6 REAL, touch7 REAL, touch8 REAL, touch9 REAL, touch10 REAL)");
-    add_structure("CREATE TABLE smem_augmentations (lti_id INTEGER, attribute_s_id INTEGER, value_constant_s_id INTEGER, value_lti_id INTEGER, activation_value REAL)");
+    add_structure("CREATE TABLE smem_augmentations (lti_id INTEGER, attribute_s_id INTEGER, value_constant_s_id INTEGER, value_lti_id INTEGER, activation_value REAL, edge_weight REAL)");
     add_structure("CREATE TABLE smem_attribute_frequency (attribute_s_id INTEGER PRIMARY KEY, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_wmes_constant_frequency (attribute_s_id INTEGER, value_constant_s_id INTEGER, edge_frequency INTEGER)");
     add_structure("CREATE TABLE smem_wmes_lti_frequency (attribute_s_id INTEGER, value_lti_id INTEGER, edge_frequency INTEGER)");
@@ -730,7 +730,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     //
 
-    web_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_augmentations (lti_id, attribute_s_id, value_constant_s_id, value_lti_id, activation_value) VALUES (?,?,?,?,?)");
+    web_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_augmentations (lti_id, attribute_s_id, value_constant_s_id, value_lti_id, activation_value, edge_weight) VALUES (?,?,?,?,?,?)");
     add(web_add);
 
     web_truncate = new soar_module::sqlite_statement(new_db, "DELETE FROM smem_augmentations WHERE lti_id=?");
@@ -743,6 +743,9 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     web_all = new soar_module::sqlite_statement(new_db, "SELECT attribute_s_id, value_constant_s_id, value_lti_id FROM smem_augmentations WHERE lti_id=?");
     add(web_all);
+
+    web_edge = new soar_module::sqlite_statement(new_db, "SELECT value_lti_id, edge_weight FROM smem_augmentations WHERE lti_id=? and value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR "");
+    add(web_edge);
 
     //
 
@@ -799,7 +802,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     //The below is needed when searching for parent ltis of an lti. (ACT-R spread)
     web_val_parent = new soar_module::sqlite_statement(new_db, "SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " UNION ALL SELECT value_lti_id FROM smem_augmentations WHERE lti_id IN (SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR ")");
     //The below is for Soar spread, looking for children ltis of a specific lti.
-    web_val_child = new soar_module::sqlite_statement(new_db, "SELECT value_lti_id FROM smem_augmentations WHERE lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY value_lti_id DESC");
+    web_val_child = new soar_module::sqlite_statement(new_db, "SELECT value_lti_id,edge_weight FROM smem_augmentations WHERE lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY value_lti_id DESC");
     add(web_val_parent);
     add(web_val_child);
     web_val_parent_2 = new soar_module::sqlite_statement(new_db, "SELECT lti_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY lti_id DESC");
@@ -1563,7 +1566,7 @@ inline Symbol* smem_reverse_hash(agent* thisAgent, byte symbol_type, smem_hash_i
 
 //When used in intial construction, it just goes to a depth of 1 (immediate children), but one can use for
 //a full traversal, if wanted.
-void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories,int depth = 10)
+void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<std::pair<smem_lti_id,double>>*>& lti_trajectories,int depth = 10)
 {
     if (lti_trajectories.find(lti_id)==lti_trajectories.end())
     {
@@ -1591,17 +1594,17 @@ void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std
         }
         children_q->bind_int(1, lti_id);
         children_q->bind_int(2, lti_id);
-        lti_trajectories[lti_id] = new std::list<smem_lti_id>;
+        lti_trajectories[lti_id] = new std::list<std::pair<smem_lti_id,double>>;
         while(children_q->execute() == soar_module::row)
         {
             if (children_q->column_int(0) == lti_id)
             {
                 continue;
             }
-            (lti_trajectories[lti_id])->push_back(children_q->column_int(0));
+            (lti_trajectories[lti_id])->push_back(std::make_pair((smem_lti_id)(children_q->column_int(0)),children_q->column_double(1)));
             children.push_back(children_q->column_int(0));
         }
-        (lti_trajectories[lti_id])->sort();
+        //(lti_trajectories[lti_id])->sort();
         children_q->reinitialize();
         if (depth > 1)
         {
@@ -1613,7 +1616,7 @@ void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std
     }
 }
 
-void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories, int depth = 0, bool initial = false)
+void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std::list<std::pair<smem_lti_id,double>>*>& lti_trajectories, int depth = 0, bool initial = false)
 {
     //smem_lti_id lti_id = trajectory.back();
     //child_spread(thisAgent, lti_id, lti_trajectories,1);//This just gets the children of the current lti_id.
@@ -1623,9 +1626,9 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
         thisAgent->smem_stmts->trajectory_remove_lti->execute(soar_module::op_reinit);
     }
     //If we reach here, the element is not at maximum depth and is not inherently terminal, so recursion continues.
-    std::list<smem_lti_id>::iterator lti_iterator;
-    std::list<smem_lti_id>::iterator lti_begin;// = lti_trajectories[lti_id]->begin();
-    std::list<smem_lti_id>::iterator lti_end;// = lti_trajectories[lti_id]->end();
+    std::list<std::pair<smem_lti_id,double>>::iterator lti_iterator;
+    std::list<std::pair<smem_lti_id,double>>::iterator lti_begin;// = lti_trajectories[lti_id]->begin();
+    std::list<std::pair<smem_lti_id,double>>::iterator lti_end;// = lti_trajectories[lti_id]->end();
     //std::queue<std::list<smem_lti_id>*> lti_traversal_queue;
     smem_prioritized_activated_lti_traversal_queue lti_traversal_queue; //Now, this queue is a priority queue so that we can explore based on where spread has yet to decay a ton.
     /* I'll make this better later. For now, I want it to work. I'm keeping two things.
@@ -1638,8 +1641,8 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
     uint64_t depth_limit = (uint64_t) thisAgent->smem_params->spreading_depth_limit->get_value();
     uint64_t limit = (uint64_t) thisAgent->smem_params->spreading_limit->get_value();
     uint64_t count = 0;
-    std::list<smem_lti_id>* current_lti_list = new std::list<smem_lti_id>;
-    current_lti_list->push_back(lti_id);
+    std::list<std::pair<smem_lti_id,double>>* current_lti_list = new std::list<std::pair<smem_lti_id,double>>;
+    current_lti_list->push_back(std::make_pair(lti_id,1.0));
     double initial_activation = 1;
     lti_traversal_queue.push(std::make_pair(initial_activation,current_lti_list));
     //There is a limit to the size of the stored info.
@@ -1648,13 +1651,13 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
     //gotta calculate correct denominator for baseline value
     double baseline_val = thisAgent->smem_params->spreading_baseline->get_value();
 
-    std::list<smem_lti_id>::iterator old_list_iterator;
-    std::list<smem_lti_id>::iterator old_list_iterator_begin;
-    std::list<smem_lti_id>::iterator old_list_iterator_end;
-    std::list<smem_lti_id>::iterator new_list_iterator;
-    std::list<smem_lti_id>::iterator new_list_iterator_begin;
-    std::list<smem_lti_id>::iterator new_list_iterator_end;
-    std::set<smem_lti_id> visited;
+    std::list<std::pair<smem_lti_id,double>>::iterator old_list_iterator;
+    std::list<std::pair<smem_lti_id,double>>::iterator old_list_iterator_begin;
+    std::list<std::pair<smem_lti_id,double>>::iterator old_list_iterator_end;
+    std::list<std::pair<smem_lti_id,double>>::iterator new_list_iterator;
+    std::list<std::pair<smem_lti_id,double>>::iterator new_list_iterator_begin;
+    std::list<std::pair<smem_lti_id,double>>::iterator new_list_iterator_end;
+    std::set<std::pair<smem_lti_id,double>> visited;
     bool good_lti = true;
     depth = 0;
     uint64_t fan_out;
@@ -1664,7 +1667,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
         // Find all of the children of the current lti_id. (current = end of the current list from the queue)
         current_lti_list = lti_traversal_queue.top().second;
         depth = current_lti_list->size();
-        current_lti = current_lti_list->back();
+        current_lti = current_lti_list->back().first;
         //if (lti_trajectories.find(current_lti)==lti_trajectories.end())
         {
             child_spread(thisAgent, current_lti, lti_trajectories,1);//This just gets the children of the current lti_id.
@@ -1675,13 +1678,13 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
         old_list_iterator_end = current_lti_list->end();
         //We have to divvy up the spread amongst the children of the node.
         fan_out = lti_trajectories[current_lti]->size();
-        initial_activation = decay_prob*(lti_traversal_queue.top().first)/fan_out;
+        initial_activation = decay_prob*(lti_traversal_queue.top().first);///fan_out;
         //assert(lti_begin != lti_end);
         for (lti_iterator = lti_begin; lti_iterator != lti_end && count < limit && initial_activation > baseline_val; ++lti_iterator)//; ++lti_iterator)// && initial_activation > baseline_val; ++lti_iterator)
         {
             good_lti = true;
             //First, we make a new copy of the list to add to the queue.
-            std::list<smem_lti_id>* new_list = new std::list<smem_lti_id>;
+            std::list<std::pair<smem_lti_id,double>>* new_list = new std::list<std::pair<smem_lti_id,double>>;
             //We copy the contents of the old list.
             for (old_list_iterator = old_list_iterator_begin; old_list_iterator != old_list_iterator_end; ++old_list_iterator)
             {
@@ -1709,13 +1712,13 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
                 //Add the new element to the list.
                 new_list->push_back((*lti_iterator));
 
-                if (spread_map.find((*lti_iterator)) == spread_map.end())
+                if (spread_map.find(lti_iterator->first) == spread_map.end())
                 {
-                    spread_map[*lti_iterator] = initial_activation;//*(1-decay_prob);
+                    spread_map[lti_iterator->first] = initial_activation*lti_iterator->second;//*(1-decay_prob);
                 }
                 else
                 {
-                    spread_map[*lti_iterator] = spread_map[*lti_iterator] + initial_activation;//*(1-decay_prob);
+                    spread_map[lti_iterator->first] = spread_map[lti_iterator->first] + initial_activation*lti_iterator->second;//*(1-decay_prob);
                 }
 
                 //Now we have a new traversal to add.
@@ -1724,7 +1727,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
                 depth = 0;
                 for (new_list_iterator = new_list_iterator_begin; new_list_iterator != new_list_iterator_end; ++new_list_iterator)
                 {
-                    thisAgent->smem_stmts->trajectory_add->bind_int(++depth, *new_list_iterator);
+                    thisAgent->smem_stmts->trajectory_add->bind_int(++depth, new_list_iterator->first);
                 }
                 while (depth < 11 && depth < depth_limit+2)
                 {
@@ -1797,7 +1800,7 @@ void trajectory_construction_deterministic(agent* thisAgent, smem_lti_id lti_id,
 }
 
 //This is a random construction of trajectories with depth up to 10 (or something).
-void trajectory_construction(agent* thisAgent, std::list<smem_lti_id>& trajectory, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories, uint64_t depth)
+/*void trajectory_construction(agent* thisAgent, std::list<smem_lti_id>& trajectory, std::map<smem_lti_id,std::list<smem_lti_id>*>& lti_trajectories, uint64_t depth)
 {
     smem_lti_id lti_id = trajectory.back();
     child_spread(thisAgent, lti_id, lti_trajectories,1);//This just gets the children of the current lti_id.
@@ -1876,7 +1879,7 @@ void trajectory_construction(agent* thisAgent, std::list<smem_lti_id>& trajector
         trajectory.push_back(*lti_iterator);
         trajectory_construction(thisAgent, trajectory, lti_trajectories, depth-1);
     }
-}
+}*/
 
 void smem_delete_trajectory_indices(agent* thisAgent)
 {
@@ -2108,14 +2111,14 @@ void smem_create_trajectory_indices(agent* thisAgent)
     delete trajectory_index_delete;
 }
 
-extern bool smem_calc_spread_trajectories(agent* thisAgent)
+/*extern bool smem_calc_spread_trajectories(agent* thisAgent)
 {//This is written to be a batch process when spreading is turned on. It will take a long time.
     smem_attach(thisAgent);
-    /*soar_module::sqlite_statement* initialization_act_r = new soar_module::sqlite_statement(thisAgent->smem_db,
-            "CREATE INDEX smem_augmentations_lti_id ON smem_augmentations (value_lti_id, lti_id)");
-    initialization_act_r->prepare();
-    initialization_act_r->execute(soar_module::op_reinit);
-    delete initialization_act_r;*/
+    //soar_module::sqlite_statement* initialization_act_r = new soar_module::sqlite_statement(thisAgent->smem_db,
+    //        "CREATE INDEX smem_augmentations_lti_id ON smem_augmentations (value_lti_id, lti_id)");
+    //initialization_act_r->prepare();
+    //initialization_act_r->execute(soar_module::op_reinit);
+    //delete initialization_act_r;
 
     soar_module::sqlite_statement* children_q;// = thisAgent->smem_stmts->web_val_child;
     if (thisAgent->smem_params->spreading_direction->get_value() == smem_param_container::backwards)
@@ -2169,7 +2172,7 @@ extern bool smem_calc_spread_trajectories(agent* thisAgent)
     lti_count_num_appearances->execute(soar_module::op_reinit);
     delete lti_count_num_appearances;
     return true;
-}
+}*/
 
 inline void smem_calc_likelihoods_for_det_trajectories(agent* thisAgent, smem_lti_id lti_id)
 {
@@ -2307,7 +2310,7 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
     smem_delete_trajectory_indices(thisAgent);
     //Iterate through all ltis in SMem
     double p1 = thisAgent->smem_params->spreading_continue_probability->get_value();
-    std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
+    std::map<smem_lti_id,std::list<std::pair<smem_lti_id,double>>*> lti_trajectories;
     while (lti_a->execute() == soar_module::row)
     {
         lti_id = lti_a->column_int(0);
@@ -2321,7 +2324,7 @@ extern bool smem_calc_spread_trajectories_deterministic(agent* thisAgent)
     smem_create_trajectory_indices(thisAgent);
     //At this point, we've created fingerprints for all of the ltis. However, we have not propagated any spreading values.
     //We have recreated the indexing that allows easy access to and invalidation of fingerprints.
-    for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+    for (std::map<smem_lti_id,std::list<std::pair<smem_lti_id,double>>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
     {
         delete to_delete->second;
     }
@@ -2777,7 +2780,7 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
     thisAgent->smem_timers->spreading_1->start();
     ////////////////////////////////////////////////////////////////////////////
     uint64_t count = 0;
-    std::map<smem_lti_id,std::list<smem_lti_id>*> lti_trajectories;
+    std::map<smem_lti_id,std::list<std::pair<smem_lti_id,double>>*> lti_trajectories;
     if (thisAgent->smem_params->spreading_traversal->get_value() == smem_param_container::deterministic)
     {//One can do random walks or one can simulate them by doing a breadth-first traversal with coefficients. This is the latter.
         for(smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
@@ -2809,7 +2812,7 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
             }
         }
     }
-    else
+    /*else
     {//Random walks can be handled a little differently.
         for(smem_lti_set::iterator it = thisAgent->smem_context_additions->begin(); it != thisAgent->smem_context_additions->end(); ++it)
         {//We keep track of old walks. If we havent changed smem, no need to recalculate.
@@ -2838,8 +2841,8 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
             }
             thisAgent->smem_stmts->trajectory_get->reinitialize();
         }
-    }
-    for (std::map<smem_lti_id,std::list<smem_lti_id>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
+    }*/
+    for (std::map<smem_lti_id,std::list<std::pair<smem_lti_id,double>>*>::iterator to_delete = lti_trajectories.begin(); to_delete != lti_trajectories.end(); ++to_delete)
     {
         delete to_delete->second;
     }

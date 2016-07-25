@@ -264,6 +264,7 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* web_expand;
 
         soar_module::sqlite_statement* web_all;
+        soar_module::sqlite_statement* web_edge;
 
         soar_module::sqlite_statement* web_attr_all;
         soar_module::sqlite_statement* web_const_all;
@@ -483,7 +484,7 @@ struct smem_compare_weighted_cue_elements
 typedef std::priority_queue<smem_weighted_cue_element*, std::vector<smem_weighted_cue_element*>, smem_compare_weighted_cue_elements> smem_prioritized_weighted_cue;
 typedef std::list<smem_weighted_cue_element*> smem_weighted_cue_list;
 
-typedef std::pair< double, smem_lti_id > smem_activated_lti;
+typedef std::pair< double, smem_lti_id> smem_activated_lti;
 
 struct smem_compare_activated_lti
 {
@@ -497,7 +498,7 @@ typedef std::priority_queue< smem_activated_lti, std::vector<smem_activated_lti>
 
 //
 
-typedef std::pair< double, std::list<smem_lti_id>* > smem_activated_lti_list;
+typedef std::pair< double, std::list<std::pair<smem_lti_id, double>>* > smem_activated_lti_list;
 
 struct smem_compare_activated_lti_list
 {
