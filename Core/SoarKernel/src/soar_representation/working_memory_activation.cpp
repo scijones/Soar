@@ -513,6 +513,8 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
             if (w->id->symbol_type == IDENTIFIER_SYMBOL_TYPE && w->id->id->smem_lti)//test for lti, if so, add this wma_decay_element to the lti
             {
                 thisAgent->smem_wmas->emplace(w->id->id->smem_lti,temp_el);
+                thisAgent->smem_stmts->prohibit_add->bind_int(1,w->id->id->smem_lti);
+                thisAgent->smem_stmts->prohibit_add->execute(soar_module::op_reinit);
             }
 
             if (thisAgent->sysparams[ TRACE_WMA_SYSPARAM ])

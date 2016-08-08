@@ -1585,6 +1585,9 @@ void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std
         }
         std::list<smem_lti_id> children;
 
+        //Before we loop over these children, we need to update their edges. We do this with a check of whether or not the parent is valid.
+        //If the parent is not valid, we update edge values here. We also revalidate by updating the base-level activation.
+
         //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
         if (children_q->get_status() == soar_module::unprepared)
         {
