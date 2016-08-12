@@ -1585,8 +1585,53 @@ void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std
         }
         std::list<smem_lti_id> children;
 
-        //Before we loop over these children, we need to update their edges. We do this with a check of whether or not the parent is valid.
-        //If the parent is not valid, we update edge values here. We also revalidate by updating the base-level activation.
+        //First, we don't bother changing the edge weights unless we have changes with which to update the edge weights.
+        if (thisAgent->smem_edges_to_update->find(lti_id) != thisAgent->smem_edges_to_update->end())
+        {
+            //Before we loop over these children, we need to update their edges. We do this with a check of whether or not the parent is valid.
+            //If the parent is not valid, we update edge values here. We also revalidate by updating the base-level activation.
+            bool first_time = true;
+
+            std::unordered_map<smem_lti_id,double> old_edge_weight_map_for_children;
+            std::unordered_map<smem_lti_id,double> edge_weight_update_map_for_children;
+            std::list<smem_edge_update*>* edge_updates = thisAgent->smem_edges_to_update->find(lti_id)->second;
+            uint64_t time = (*(edge_updates->begin()))->update_time;
+            uint64_t previous_time = time;
+            std::list<smem_edge_update*>::iterator edge_it = edge_updates->begin();
+            {
+                if (time == previous_time)
+                {
+                    if (first_time)
+                    {
+                        first_time = false;
+                        //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
+                        if (children_q->get_status() == soar_module::unprepared)
+                        {
+                            //assert(false);//testing if I still need this.
+                            // ^ assertion failed. - I do.
+                            children_q->prepare();
+                        }
+                        children_q->bind_int(1, lti_id);
+                        children_q->bind_int(2, lti_id);
+                        while(children_q->execute() == soar_module::row)
+                        {
+                            if (children_q->column_int(0) == lti_id)
+                            {
+                                continue;
+                            }
+                            old_edge_weight_map_for_children[(smem_lti_id)(children_q->column_int(0))] = children_q->column_double(1);
+                        }
+                        //(lti_trajectories[lti_id])->sort();
+                        children_q->reinitialize();
+                    }
+
+                }
+                else
+                {//We need to commit the edge weight changes for the previous timestep before moving on to the next timestep.
+
+                }
+            }
+        }
 
         //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
         if (children_q->get_status() == soar_module::unprepared)

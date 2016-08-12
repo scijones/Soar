@@ -766,6 +766,7 @@ typedef struct EXPORT agent_struct
     smem_lti_set_map* smem_recipients_of_source;
     smem_lti_set* smem_context_additions;
     smem_lti_set* smem_context_removals;
+    smem_update_map* smem_edges_to_update;
 
 	// BasicWeightedCue from JSoar for unit testing
 	class BasicWeightedCue

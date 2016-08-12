@@ -511,6 +511,17 @@ struct smem_compare_activated_lti_list
 typedef std::priority_queue< smem_activated_lti_list, std::vector<smem_activated_lti_list>, smem_compare_activated_lti_list> smem_prioritized_activated_lti_traversal_queue;
 
 //
+//These data structures are for keeping track of wma events that imply edge weight updates in later spread across the network.
+struct smem_edge_update
+{
+    uint64_t lti_edge_id;
+    double num_touches;
+    uint64_t update_time;
+};
+
+//the edge updates are associated with a particular parent.
+typedef std::unordered_map<smem_lti_id,std::list<smem_edge_update*>> smem_update_map;
+//
 
 typedef struct smem_chunk_struct smem_chunk;
 typedef std::set<smem_chunk*> smem_chunk_set;

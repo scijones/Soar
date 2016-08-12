@@ -513,8 +513,6 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
             if (w->id->symbol_type == IDENTIFIER_SYMBOL_TYPE && w->id->id->smem_lti)//test for lti, if so, add this wma_decay_element to the lti
             {
                 thisAgent->smem_wmas->emplace(w->id->id->smem_lti,temp_el);
-                thisAgent->smem_stmts->prohibit_add->bind_int(1,w->id->id->smem_lti);
-                thisAgent->smem_stmts->prohibit_add->execute(soar_module::op_reinit);
             }
 
             if (thisAgent->sysparams[ TRACE_WMA_SYSPARAM ])
@@ -590,6 +588,32 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
         {
             temp_el->num_references += num_references;
             thisAgent->wma_touched_elements->insert(w);
+        }
+        if (w->id->symbol_type == IDENTIFIER_SYMBOL_TYPE && w->id->id->smem_lti)//test for lti, if so, add this wma_decay_element to the lti
+        {
+            for (int i = 1; i < 11; i++)
+            {
+                thisAgent->smem_stmts->trajectory_invalidate_from_lti->bind_int(i,w->id->id->smem_lti);
+            }
+            thisAgent->smem_stmts->trajectory_invalidate_from_lti->execute(soar_module::op_reinit);//This actually invalidate the spread using the edges from the lti.
+            //The big thing is to keep track of the wma update that invalidated this spread so that we can change edge weights later.
+            //smem_edges_to_update is the data structure to manipulate here.
+            if (w->value->id && w->value->id->smem_lti)
+            {//First, we check if this edge actually goes to another LTI.
+                //Then, we create a smem_edge_update
+                smem_edge_update* new_update = new smem_edge_update();
+                new_update->lti_edge_id = w->value->id->smem_lti;
+                new_update->num_touches = num_references;
+                new_update->update_time = thisAgent->wma_d_cycle_count;
+                //Now that we have a nice struct to add to the list, we should check for the list.
+                if (thisAgent->smem_edges_to_update->find(w->id->id->smem_lti) == thisAgent->smem_edges_to_update->end())
+                {//If we don't already have any edges under that parent to update, we must first create an entry.
+                    //thisAgent->smem_edges_to_update->emplace(w->id->id->smem_lti,{});not going to emplace - I'll do pointers instead.
+                    thisAgent->smem_edges_to_update->emplace(std::pair(w->id->id->smem_lti,{}));
+                }
+                std::list<smem_edge_update*>* list_ptr_for_parent = *(thisAgent->smem_edges_to_update->at(w->id->id->smem_lti));
+                list_ptr_for_parent->push_back(new_update);
+            }
         }
     }
     // i-supported, non-architectural WME

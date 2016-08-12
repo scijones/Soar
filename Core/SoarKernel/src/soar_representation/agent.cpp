@@ -415,6 +415,7 @@ agent* create_soar_agent(char* agent_name)                                      
     thisAgent->smem_recipients_of_source = new smem_lti_set_map;
     thisAgent->smem_context_additions = new smem_lti_set;
     thisAgent->smem_context_removals = new smem_lti_set;
+    thisAgent->smem_edges_to_update = new smem_update_map;
     thisAgent->substate_break_level = 0;
 
     return thisAgent;
@@ -498,6 +499,7 @@ void destroy_soar_agent(agent* delete_agent)
     delete delete_agent->smem_recipients_of_source;
     delete delete_agent->smem_context_additions;
     delete delete_agent->smem_context_removals;
+    delete delete_agent->smem_edges_to_update;
     delete delete_agent->smem_db;
 
 #ifndef NO_SVS
