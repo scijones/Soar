@@ -1620,6 +1620,7 @@ void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std
                                 continue;
                             }
                             old_edge_weight_map_for_children[(smem_lti_id)(children_q->column_int(0))] = children_q->column_double(1);
+                            edge_weight_update_map_for_children[(smem_lti_id)(children_q->column_int(0))] = 0;
                         }
                         //(lti_trajectories[lti_id])->sort();
                         children_q->reinitialize();
