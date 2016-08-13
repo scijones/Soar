@@ -1588,49 +1588,63 @@ void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std
         //First, we don't bother changing the edge weights unless we have changes with which to update the edge weights.
         if (thisAgent->smem_edges_to_update->find(lti_id) != thisAgent->smem_edges_to_update->end())
         {
-            //Before we loop over these children, we need to update their edges. We do this with a check of whether or not the parent is valid.
-            //If the parent is not valid, we update edge values here. We also revalidate by updating the base-level activation.
-            bool first_time = true;
+            bool first_time = true;//The first set of values for the edge weights comes from the database store.
 
-            std::unordered_map<smem_lti_id,double> old_edge_weight_map_for_children;
-            std::unordered_map<smem_lti_id,double> edge_weight_update_map_for_children;
-            std::list<smem_edge_update*>* edge_updates = thisAgent->smem_edges_to_update->find(lti_id)->second;
-            uint64_t time = (*(edge_updates->begin()))->update_time;
+            std::map<smem_lti_id,double> old_edge_weight_map_for_children;
+            std::map<smem_lti_id,double> edge_weight_update_map_for_children;
+            std::list<smem_edge_update*>* edge_updates = &(thisAgent->smem_edges_to_update->find(lti_id)->second);
+            uint64_t time;// = (*(edge_updates->begin()))->update_time;
             uint64_t previous_time = time;
-            std::list<smem_edge_update*>::iterator edge_it = edge_updates->begin();
+            std::list<smem_edge_update*>::iterator edge_it;
+            std::list<smem_edge_update*>::iterator edge_begin_it = edge_updates->begin();
+            std::list<smem_edge_update*>::iterator edge_end_it = edge_updates->end();
+            double total_touches = 0;
+            for (edge_it = edge_begin_it; edge_it != edge_end_it; ++edge_it)
             {
-                if (time == previous_time)
-                {
-                    if (first_time)
-                    {
-                        first_time = false;
-                        //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
-                        if (children_q->get_status() == soar_module::unprepared)
-                        {
-                            //assert(false);//testing if I still need this.
-                            // ^ assertion failed. - I do.
-                            children_q->prepare();
-                        }
-                        children_q->bind_int(1, lti_id);
-                        children_q->bind_int(2, lti_id);
-                        while(children_q->execute() == soar_module::row)
-                        {
-                            if (children_q->column_int(0) == lti_id)
-                            {
-                                continue;
-                            }
-                            old_edge_weight_map_for_children[(smem_lti_id)(children_q->column_int(0))] = children_q->column_double(1);
-                            edge_weight_update_map_for_children[(smem_lti_id)(children_q->column_int(0))] = 0;
-                        }
-                        //(lti_trajectories[lti_id])->sort();
-                        children_q->reinitialize();
-                    }
-
-                }
-                else
+                time = (*edge_it)->update_time;
+                if (time != previous_time)
                 {//We need to commit the edge weight changes for the previous timestep before moving on to the next timestep.
+                    assert(!first_time);
+                    //We just loop through the edge weight update map and insert those updates into the old edge weight map.
+                    std::map<smem_lti_id,double>::iterator updates_begin = old_edge_weight_map_for_children.begin();
+                    std::map<smem_lti_id,double>::iterator updates_end = old_edge_weight_map_for_children.begin();
+                    std::map<smem_lti_id,double>::iterator updates_it;
+                    double update_sum = 0;
+                    for (updates_it = updates_begin; updates_it != updates_end; ++updates_it)
+                    {
 
+                    }
+                    total_touches = 0;
                 }
+                if (first_time)
+                {//This is where we extract the old edge weights from the database store.
+                    first_time = false;
+                    //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
+                    if (children_q->get_status() == soar_module::unprepared)
+                    {
+                        //assert(false);//testing if I still need this.
+                        // ^ assertion failed. - I do.
+                        children_q->prepare();
+                    }
+                    children_q->bind_int(1, lti_id);
+                    children_q->bind_int(2, lti_id);
+                    while(children_q->execute() == soar_module::row)
+                    {
+                        if (children_q->column_int(0) == lti_id)
+                        {
+                            continue;
+                        }
+                        old_edge_weight_map_for_children[(smem_lti_id)(children_q->column_int(0))] = children_q->column_double(1);
+                        edge_weight_update_map_for_children[(smem_lti_id)(children_q->column_int(0))] = 0;
+                    }
+                    //(lti_trajectories[lti_id])->sort();
+                    children_q->reinitialize();
+                }
+                smem_lti_id child = (*edge_it)->lti_edge_id;
+                double touches = (*edge_it)->num_touches;
+                total_touches+=touches;
+                edge_weight_update_map_for_children[child] = edge_weight_update_map_for_children[child] + (1-old_edge_weight_map_for_children[child])*.1*touches*pow(.9,touches-1);
+                previous_time = time;
             }
         }
 
@@ -2934,8 +2948,8 @@ void smem_calc_spread(agent* thisAgent, std::set<smem_lti_id>* current_candidate
             }
             else
             {//I need a second one of these that keeps track of those that actually received spread. OR - more clever:
-            	//I just make the value of this a set of sources and when that set exists = potential spread.
-            	//when it is populated with elements = those are the ones actually contributing spread.
+                //I just make the value of this a set of sources and when that set exists = potential spread.
+                //when it is populated with elements = those are the ones actually contributing spread.
                 (*(thisAgent->smem_recipient))[select_fingerprint->column_int(0)] = (*(thisAgent->smem_recipient))[select_fingerprint->column_int(0)] + 1;
             }
         }

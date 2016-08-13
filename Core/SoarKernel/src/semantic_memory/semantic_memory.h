@@ -512,12 +512,14 @@ typedef std::priority_queue< smem_activated_lti_list, std::vector<smem_activated
 
 //
 //These data structures are for keeping track of wma events that imply edge weight updates in later spread across the network.
-struct smem_edge_update
+struct smem_edge_update_struct
 {
     uint64_t lti_edge_id;
     double num_touches;
     uint64_t update_time;
 };
+
+typedef struct smem_edge_update_struct smem_edge_update;
 
 //the edge updates are associated with a particular parent.
 typedef std::unordered_map<smem_lti_id,std::list<smem_edge_update*>> smem_update_map;
