@@ -609,9 +609,9 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
                 if (thisAgent->smem_edges_to_update->find(w->id->id->smem_lti) == thisAgent->smem_edges_to_update->end())
                 {//If we don't already have any edges under that parent to update, we must first create an entry.
                     //thisAgent->smem_edges_to_update->emplace(w->id->id->smem_lti,{});not going to emplace - I'll do pointers instead.
-                    thisAgent->smem_edges_to_update->emplace(std::pair(w->id->id->smem_lti,{}));
+                    thisAgent->smem_edges_to_update->emplace(std::pair<smem_lti_id,std::list<smem_edge_update*>>(w->id->id->smem_lti,std::initializer_list<smem_edge_update*>{}));
                 }
-                std::list<smem_edge_update*>* list_ptr_for_parent = *(thisAgent->smem_edges_to_update->at(w->id->id->smem_lti));
+                std::list<smem_edge_update*>* list_ptr_for_parent = &(thisAgent->smem_edges_to_update->find(w->id->id->smem_lti)->second);
                 list_ptr_for_parent->push_back(new_update);
             }
         }

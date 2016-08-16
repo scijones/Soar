@@ -810,6 +810,9 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     web_val_both = new soar_module::sqlite_statement(new_db, "SELECT value_lti_id AS result_id FROM smem_augmentations WHERE lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " UNION ALL SELECT lti_id AS result_id FROM smem_augmentations WHERE value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " ORDER BY result_id DESC");
     add(web_val_both);
     //
+    web_update_child_edge = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=? WHERE lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=?");
+    add(web_update_child_edge);
+    //
 
     attribute_frequency_check = new soar_module::sqlite_statement(new_db, "SELECT edge_frequency FROM smem_attribute_frequency WHERE attribute_s_id=?");
     add(attribute_frequency_check);
@@ -1612,8 +1615,16 @@ void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std
                     double update_sum = 0;
                     for (updates_it = updates_begin; updates_it != updates_end; ++updates_it)
                     {
-
+                        if (edge_weight_update_map_for_children.find(updates_it->first) != edge_weight_update_map_for_children.end())
+                        {//If we don't have an update for that edge
+                            old_edge_weight_map_for_children[updates_it->first] = 0.9*old_edge_weight_map_for_children[updates_it->first];
+                        }
+                        else
+                        {//if we do have an update
+                            old_edge_weight_map_for_children[updates_it->first] = old_edge_weight_map_for_children[updates_it->first] + edge_weight_update_map_for_children[updates_it->first];
+                        }
                     }
+                    edge_weight_update_map_for_children.clear();
                     total_touches = 0;
                 }
                 if (first_time)
@@ -1643,9 +1654,37 @@ void child_spread(agent* thisAgent, smem_lti_id lti_id, std::map<smem_lti_id,std
                 smem_lti_id child = (*edge_it)->lti_edge_id;
                 double touches = (*edge_it)->num_touches;
                 total_touches+=touches;
-                edge_weight_update_map_for_children[child] = edge_weight_update_map_for_children[child] + (1-old_edge_weight_map_for_children[child])*.1*touches*pow(.9,touches-1);
+                if (edge_weight_update_map_for_children.find(child) != edge_weight_update_map_for_children.end())
+                {
+                    edge_weight_update_map_for_children[child] = edge_weight_update_map_for_children[child] + (1-old_edge_weight_map_for_children[child])*.1*touches*pow(.9,touches-1);
+                }
+                else
+                {
+                    edge_weight_update_map_for_children[child] = 0.0+(1-old_edge_weight_map_for_children[child])*.1*touches*pow(.9,touches-1);
+                }
                 previous_time = time;
             }
+            //This is the point at which the final timestamp's updates should be applied and then we should write those to the db and then we should clear out the malloc'd (new) updates.
+            //We use a new sqlite command that updates an existing edge with a new value for the edge weight. We loop over all edges in the old_edge_weight_map_for_children for the vals.
+            //After that loop of sqlite commits to the table, we then loop over the original updates map attached to the agent to do the deletions (frees).
+            // web_update_child_edge needs edge weight, parent lti id, child lti id as args.
+            std::map<smem_lti_id,double>::iterator updates_begin = old_edge_weight_map_for_children.begin();
+            std::map<smem_lti_id,double>::iterator updates_end = old_edge_weight_map_for_children.begin();
+            std::map<smem_lti_id,double>::iterator updates_it;
+            double update_sum = 0;
+            sqlite_statement* update_edge = thisAgent->smem_stmts->web_update_child_edge;
+            for (updates_it = updates_begin; updates_it != updates_end; ++updates_it)
+            {
+                update_edge->bind_double(1,updates_it->second);
+                update_edge->bind_int(2,lti_id);
+                update_edge->bind_int(3,updates_it->first);
+                update_edge->execute(soar_module::op_reinit);
+            }
+            for (edge_it = edge_begin_it; edge_it != edge_end_it; ++edge_it)
+            {
+                delete (*edge_it);
+            }
+            thisAgent->smem_edges_to_update->erase(lti_id);
         }
 
         //TODO - Figure out why I need this if. The statement should already be prepared by an init call before or during calc_spread.
