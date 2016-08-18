@@ -490,7 +490,7 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_symbols_integer (s_id INTEGER PRIMARY KEY, symbol_value INTEGER)");
     add_structure("CREATE TABLE smem_symbols_float (s_id INTEGER PRIMARY KEY, symbol_value REAL)");
     add_structure("CREATE TABLE smem_symbols_string (s_id INTEGER PRIMARY KEY, symbol_value TEXT)");
-    add_structure("CREATE TABLE smem_lti (lti_id INTEGER PRIMARY KEY, soar_letter INTEGER, soar_number INTEGER, total_augmentations INTEGER, activation_base_level REAL, activations_total REAL, activations_last INTEGER, activations_first INTEGER, activation_spread REAL, activation_value REAL)");
+    add_structure("CREATE TABLE smem_lti (lti_id INTEGER PRIMARY KEY, soar_letter INTEGER, soar_number INTEGER, total_augmentations INTEGER, activation_base_level REAL, activations_total REAL, activations_last INTEGER, activations_first INTEGER, activation_spread REAL, activation_value REAL, lti_augmentations INTEGER)");
     add_structure("CREATE TABLE smem_activation_history (lti_id INTEGER PRIMARY KEY, t1 INTEGER, t2 INTEGER, t3 INTEGER, t4 INTEGER, t5 INTEGER, t6 INTEGER, t7 INTEGER, t8 INTEGER, t9 INTEGER, t10 INTEGER, touch1 REAL, touch2 REAL, touch3 REAL, touch4 REAL, touch5 REAL, touch6 REAL, touch7 REAL, touch8 REAL, touch9 REAL, touch10 REAL)");
     add_structure("CREATE TABLE smem_augmentations (lti_id INTEGER, attribute_s_id INTEGER, value_constant_s_id INTEGER, value_lti_id INTEGER, activation_value REAL, edge_weight REAL)");
     add_structure("CREATE TABLE smem_attribute_frequency (attribute_s_id INTEGER PRIMARY KEY, edge_frequency INTEGER)");
@@ -557,11 +557,11 @@ void smem_statement_container::create_indices()
     add_structure("CREATE UNIQUE INDEX smem_lti_letter_num ON smem_lti (soar_letter, soar_number)");
     add_structure("CREATE UNIQUE INDEX smem_lti_id_letter_num ON smem_lti (lti_id, soar_letter, soar_number)");
     add_structure("CREATE INDEX smem_lti_t ON smem_lti (activations_last)");
-    add_structure("CREATE INDEX smem_augmentations_parent_attr_val_lti ON smem_augmentations (lti_id, attribute_s_id, value_constant_s_id, value_lti_id)");
+    add_structure("CREATE INDEX smem_augmentations_parent_attr_val_lti ON smem_augmentations (lti_id, attribute_s_id, value_constant_s_id, value_lti_id, edge_weight)");
     add_structure("CREATE INDEX smem_augmentations_attr_val_lti_cycle ON smem_augmentations (attribute_s_id, value_constant_s_id, value_lti_id, activation_value)");
     add_structure("CREATE INDEX smem_augmentations_attr_cycle ON smem_augmentations (attribute_s_id, activation_value)");
     //This is for Soar spread.
-    add_structure("CREATE INDEX smem_augmentations_parent_val_lti ON smem_augmentations (lti_id, value_constant_s_id, value_lti_id)");
+    add_structure("CREATE INDEX smem_augmentations_parent_val_lti ON smem_augmentations (lti_id, value_constant_s_id, value_lti_id, edge_weight)");
     //This makes it easier to explore the network when doing a ACT-R style spread. I omit here because the focus on this branch is Soar spread.
     add_structure("CREATE INDEX smem_augmentations_backlink ON smem_augmentations (value_lti_id, value_constant_s_id, lti_id)");
     add_structure("CREATE UNIQUE INDEX smem_wmes_constant_frequency_attr_val ON smem_wmes_constant_frequency (attribute_s_id, value_constant_s_id)");
@@ -707,7 +707,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     //
 
-    lti_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_lti (soar_letter,soar_number,total_augmentations,activation_base_level,activations_total,activations_last,activations_first,activation_spread,activation_value) VALUES (?,?,?,?,?,?,?,?,?)");
+    lti_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_lti (soar_letter,soar_number,total_augmentations,activation_base_level,activations_total,activations_last,activations_first,activation_spread,activation_value,lti_augmentations) VALUES (?,?,?,?,?,?,?,?,?)");
     add(lti_add);
 
     lti_get = new soar_module::sqlite_statement(new_db, "SELECT lti_id FROM smem_lti WHERE soar_letter=? AND soar_number=?");
@@ -863,6 +863,9 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     act_lti_child_ct_get = new soar_module::sqlite_statement(new_db, "SELECT total_augmentations FROM smem_lti WHERE lti_id=?");
     add(act_lti_child_ct_get);
+
+    act_lti_child_lti_ct_get = new soar_module::sqlite_statement(new_db, "SELECT lti_augmentations FROM smem_lti WHERE lti_id=?");
+    add(act_lti_child_lti_ct_get);
 
     act_lti_child_ct_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_lti SET total_augmentations=? WHERE lti_id=?");
     add(act_lti_child_ct_set);
@@ -3573,6 +3576,7 @@ inline smem_lti_id smem_lti_add_id(agent* thisAgent, char name_letter, uint64_t 
     thisAgent->smem_stmts->lti_add->bind_int(7, static_cast<uint64_t>(0));
     thisAgent->smem_stmts->lti_add->bind_double(8, static_cast<double>(0));
     thisAgent->smem_stmts->lti_add->bind_double(9, static_cast<double>(0));
+    thisAgent->smem_stmts->lti_add->bind_int(10, static_cast<uint64_t>(0));
     thisAgent->smem_stmts->lti_add->execute(soar_module::op_reinit);
 
     return_val = static_cast<smem_lti_id>(thisAgent->smem_db->last_insert_rowid());
@@ -3788,6 +3792,7 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
     // if remove children, disconnect chunk -> no existing edges
     // else, need to query number of existing edges
     uint64_t existing_edges = 0;
+    uint64_t existing_lti_edges = 0;
     if (remove_old_children)
     {
         if (thisAgent->smem_params->spreading->get_value() == on)
@@ -3814,7 +3819,14 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
 
         existing_edges = static_cast<uint64_t>(thisAgent->smem_stmts->act_lti_child_ct_get->column_int(0));
 
-        thisAgent->smem_stmts->act_lti_child_ct_get->reinitialize();
+        thisAgent->smem_stmts->act_lti_child_lti_ct_get->reinitialize();
+
+        thisAgent->smem_stmts->act_lti_child_lti_ct_get->bind_int(1, lti_id);
+        thisAgent->smem_stmts->act_lti_child_lti_ct_get->execute();
+
+        existing_lti_edges = static_cast<uint64_t>(thisAgent->smem_stmts->act_lti_child_lti_ct_get->column_int(0));
+
+        thisAgent->smem_stmts->act_lti_child_lti_ct_get->reinitialize();
     }
 
     // get new edges
@@ -3987,6 +3999,7 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
     //
     // hence, we detect + handle case #2 here
     uint64_t new_edges = (existing_edges + const_new.size() + lti_new.size());
+    uint64_t new_lti_edges = existing_lti_edges + lti_new.size();
     bool after_above;
     double web_act = static_cast<double>(SMEM_ACT_MAX);
     {
@@ -4012,6 +4025,16 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
         thisAgent->smem_stmts->act_lti_child_ct_set->bind_int(2, lti_id);
         thisAgent->smem_stmts->act_lti_child_ct_set->execute(soar_module::op_reinit);
     }
+    {
+        thisAgent->smem_stmts->act_lti_child_lti_ct_set->bind_int(1, new_lti_edges);
+        thisAgent->smem_stmts->act_lti_child_lti_ct_set->bind_int(2, lti_id);
+        thisAgent->smem_stmts->act_lti_child_lti_ct_set->execute(soar_module::op_reinit);
+    }
+    //this could be changed later, but for now I assume that a change to the network here should reset edge weights.
+    //A compatible but more sophisticated scheme would maintain a significant fraction of the weights of the old edges,
+    //and then distribute leftover weight evem;u to any newly added edges.
+
+
     // Put the initialization of the entry in the prohibit table here.
     //(The initialization to the activation history is in the below function call "smem_lti_activate".)
     // Also, it seemed appropriate for such an initialization to be in store_chunk.
@@ -4047,6 +4070,7 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
                     thisAgent->smem_stmts->web_add->bind_int(3, p->second);
                     thisAgent->smem_stmts->web_add->bind_int(4, SMEM_AUGMENTATIONS_NULL);
                     thisAgent->smem_stmts->web_add->bind_double(5, web_act);
+                    thisAgent->smem_stmts->web_add->bind_double(6, 0.0);
                     thisAgent->smem_stmts->web_add->execute(soar_module::op_reinit);
                 }
 
@@ -4085,6 +4109,7 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
                     thisAgent->smem_stmts->web_add->bind_int(3, SMEM_AUGMENTATIONS_NULL);
                     thisAgent->smem_stmts->web_add->bind_int(4, p->second);
                     thisAgent->smem_stmts->web_add->bind_double(5, web_act);
+                    thisAgent->smem_stmts->web_add->bind_double(6, 0.0);
                     thisAgent->smem_stmts->web_add->execute(soar_module::op_reinit);
                 }
 

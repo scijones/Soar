@@ -302,6 +302,8 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* act_set;
         soar_module::sqlite_statement* act_lti_child_ct_set;
         soar_module::sqlite_statement* act_lti_child_ct_get;
+        soar_module::sqlite_statement* act_lti_child_lti_ct_get;
+        soar_module::sqlite_statement* act_lti_child_lti_ct_set;
         soar_module::sqlite_statement* act_lti_set;
         soar_module::sqlite_statement* act_lti_get;
         soar_module::sqlite_statement* act_lti_fake_set;
