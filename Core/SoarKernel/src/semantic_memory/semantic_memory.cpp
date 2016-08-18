@@ -812,6 +812,8 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     //
     web_update_child_edge = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=? WHERE lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id=?");
     add(web_update_child_edge);
+    web_update_all_lti_child_edges = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=? WHERE lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR );
+    add(web_update_all_lti_child_edges);
     //
 
     attribute_frequency_check = new soar_module::sqlite_statement(new_db, "SELECT edge_frequency FROM smem_attribute_frequency WHERE attribute_s_id=?");
@@ -4032,8 +4034,14 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
     }
     //this could be changed later, but for now I assume that a change to the network here should reset edge weights.
     //A compatible but more sophisticated scheme would maintain a significant fraction of the weights of the old edges,
-    //and then distribute leftover weight evem;u to any newly added edges.
-
+    //and then distribute leftover weight evenly to any newly added edges.
+    //##### web_update_all_lti_child_edges = edgeweight, lti(parent)
+    {
+        double fan = 1.0/((double)new_lti_edges);
+        thisAgent->smem_stmts->web_update_all_lti_child_edges->bind_double(1, fan);
+        thisAgent->smem_stmts->web_update_all_lti_child_edges->bind_int(2, lti_id);
+        thisAgent->smem_stmts->web_update_all_lti_child_edges->execute(soar_module::op_reinit);
+    }
 
     // Put the initialization of the entry in the prohibit table here.
     //(The initialization to the activation history is in the below function call "smem_lti_activate".)

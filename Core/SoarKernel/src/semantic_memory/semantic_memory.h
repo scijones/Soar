@@ -336,6 +336,7 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* web_val_child;
         soar_module::sqlite_statement* web_val_both;
         soar_module::sqlite_statement* web_update_child_edge;
+        soar_module::sqlite_statement* web_update_all_lti_child_edges;
         soar_module::sqlite_statement* lti_all;
         soar_module::sqlite_statement* trajectory_add;
         soar_module::sqlite_statement* trajectory_remove;
