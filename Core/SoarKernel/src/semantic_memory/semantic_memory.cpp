@@ -707,7 +707,7 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     //
 
-    lti_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_lti (soar_letter,soar_number,total_augmentations,activation_base_level,activations_total,activations_last,activations_first,activation_spread,activation_value,lti_augmentations) VALUES (?,?,?,?,?,?,?,?,?)");
+    lti_add = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_lti (soar_letter,soar_number,total_augmentations,activation_base_level,activations_total,activations_last,activations_first,activation_spread,activation_value,lti_augmentations) VALUES (?,?,?,?,?,?,?,?,?,?)");
     add(lti_add);
 
     lti_get = new soar_module::sqlite_statement(new_db, "SELECT lti_id FROM smem_lti WHERE soar_letter=? AND soar_number=?");
@@ -871,6 +871,9 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     act_lti_child_ct_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_lti SET total_augmentations=? WHERE lti_id=?");
     add(act_lti_child_ct_set);
+
+    act_lti_child_lti_ct_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_lti SET lti_augmentations=? WHERE lti_id=?");
+    add(act_lti_child_lti_ct_set);
 
     //Modified to include spread and base-level.
     act_lti_set = new soar_module::sqlite_statement(new_db, "UPDATE smem_lti SET activation_base_level=?,activation_spread=?,activation_value=? WHERE lti_id=?");
@@ -4035,7 +4038,6 @@ void smem_store_chunk(agent* thisAgent, smem_lti_id lti_id, smem_slot_map* child
     //this could be changed later, but for now I assume that a change to the network here should reset edge weights.
     //A compatible but more sophisticated scheme would maintain a significant fraction of the weights of the old edges,
     //and then distribute leftover weight evenly to any newly added edges.
-    //##### web_update_all_lti_child_edges = edgeweight, lti(parent)
     {
         double fan = 1.0/((double)new_lti_edges);
         thisAgent->smem_stmts->web_update_all_lti_child_edges->bind_double(1, fan);
