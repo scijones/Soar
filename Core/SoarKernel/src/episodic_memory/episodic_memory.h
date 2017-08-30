@@ -12,9 +12,9 @@
 
 #ifndef EPISODIC_MEMORY_H
 #define EPISODIC_MEMORY_H
+#include "sequitur.hpp"
 
 #include "kernel.h"
-
 #include "soar_module.h"
 #include "soar_db.h"
 
@@ -628,6 +628,45 @@ struct epmem_interval_comparator
 
 typedef std::priority_queue<epmem_interval*, std::vector<epmem_interval*>, epmem_interval_comparator> epmem_interval_pq;
 
+//We want an ordered set for now because I can't rule out the use of range iteration. This means that we are O(log(delta))
+//when we could be O(1) (when it comes to lookup, later).
+//Update: Actually, I'll try for unordered first to see if I can get away with it.
+typedef std::set<uint64_t> epmem_id_delta_set;
+
+//One of these is created every epmem timestep.
+class EpMem_Id_Delta
+{
+    public:
+        EpMem_Id_Delta();
+        ~EpMem_Id_Delta();
+        void add_addition(uint64_t);
+        void add_removal(uint64_t);
+        void add_addition_constant(uint64_t);
+        void add_removal_constant(uint64_t);
+        bool operator==(const EpMem_Id_Delta &other) const;
+        bool operator!=(const EpMem_Id_Delta &other) const;
+        std::size_t hash() const;
+        epmem_id_delta_set::const_iterator additions_begin() const;
+        epmem_id_delta_set::const_iterator removals_begin() const;
+        epmem_id_delta_set::const_iterator additions_end() const;
+        epmem_id_delta_set::const_iterator removals_end() const;
+        epmem_id_delta_set::const_iterator additions_constant_begin() const;
+        epmem_id_delta_set::const_iterator removals_constant_begin() const;
+        epmem_id_delta_set::const_iterator additions_constant_end() const;
+        epmem_id_delta_set::const_iterator removals_constant_end() const;
+        uint64_t additions_size() const;
+        uint64_t removals_size() const;
+        uint64_t additions_constant_size() const;
+        uint64_t removals_constant_size() const;
+    private:
+        epmem_id_delta_set* additions;
+        epmem_id_delta_set* removals;
+        epmem_id_delta_set* additions_constant;
+        epmem_id_delta_set* removals_constant;
+};
+
+
+
 class EpMem_Manager
 {
     public:
@@ -663,6 +702,8 @@ class EpMem_Manager
         epmem_rit_state epmem_rit_state_graph[2];
 
         uint64_t epmem_validation;
+
+        jw::Sequitur<EpMem_Id_Delta*>* sequitur_for_deltas;
 
     private:
 

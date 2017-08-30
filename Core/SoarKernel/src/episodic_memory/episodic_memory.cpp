@@ -3010,6 +3010,11 @@ void epmem_new_episode(agent* thisAgent)
             }
         }
 
+        // Before we process inserts, we need to initialize the data structure which keeps track of them
+        // for the sake of the Sequitur algorithm.
+        EpMem_Id_Delta* some_delta = new EpMem_Id_Delta();
+
+
         // all inserts
         {
             epmem_node_id* temp_node;
@@ -3025,6 +3030,11 @@ void epmem_new_episode(agent* thisAgent)
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_constant_now->bind_int(1, (*temp_node));
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_constant_now->bind_int(2, time_counter);
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_constant_now->execute(soar_module::op_reinit);
+                /*
+                 * This is where we know we've added something to working memory.
+                 * This is when we should keep track of the addition for the sake of Sequitur.
+                 */
+                some_delta->add_addition_constant(*temp_node);
 
                 // update min
                 (*thisAgent->EpMem->epmem_node_mins)[static_cast<size_t>((*temp_node) - 1)] = time_counter;
@@ -3047,6 +3057,11 @@ void epmem_new_episode(agent* thisAgent)
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_identifier_now->bind_int(2, time_counter);
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_identifier_now->bind_int(3, (*lti_id));
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_identifier_now->execute(soar_module::op_reinit);
+                /*
+                 * This is where we know we've added something to working memory.
+                 * This is when we should keep track of the addition for the sake of Sequitur.
+                 */
+                some_delta->add_addition(*temp_node);
 
                 // update min
                 (*thisAgent->EpMem->epmem_edge_mins)[static_cast<size_t>((*temp_node) - 1)] = time_counter;
@@ -3078,6 +3093,11 @@ void epmem_new_episode(agent* thisAgent)
                         // id = ?
                         thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_constant_now->bind_int(1, r->first);
                         thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_constant_now->execute(soar_module::op_reinit);
+                        /*
+                         * This is where we know we've taken something out of working memory.
+                         * This is when we should keep track of the removal for the sake of Sequitur.
+                         */
+                        some_delta->add_removal_constant(r->first);
 
                         range_start = (*thisAgent->EpMem->epmem_node_mins)[static_cast<size_t>(r->first - 1)];
                         range_end = (time_counter - 1);
@@ -3114,6 +3134,11 @@ void epmem_new_episode(agent* thisAgent)
                     // id = ?
                     thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_identifier_now->bind_int(1, r->first.first);
                     thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_identifier_now->execute(soar_module::op_reinit);
+                    /*
+                     * This is where we know we've taken something out of working memory.
+                     * This is when we should keep track of the removal for the sake of Sequitur.
+                     */
+                    some_delta->add_removal(r->first.first);
 
                     range_start = (*thisAgent->EpMem->epmem_edge_mins)[static_cast<size_t>(r->first.first - 1)];
                     range_end = (time_counter - 1);
@@ -3174,6 +3199,7 @@ void epmem_new_episode(agent* thisAgent)
         {
             thisAgent->EpMem->epmem_wme_adds->clear();
         }
+        thisAgent->EpMem->sequitur_for_deltas->push_back(some_delta);
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -5998,7 +6024,265 @@ bool epmem_backup_db(agent* thisAgent, const char* file_name, std::string* err)
 
     return return_val;
 }
+/*class EpMem_Id_Delta
+{
+    public:
+        add_addition(uintn64_t);
+        add_removal(uint64_t);
+        bool operator==(const EpMem_Id_Delta &other);
+        bool operator!=(const EpMem_Id_Delta &other);
+        epmem_id_delta_set::iterator additions_begin();
+        epmem_id_delta_set::iterator removals_begin();
+        epmem_id_delta_set::iterator additions_end();
+        epmem_id_delta_set::iterator removals_end();
+    private:
+        epmem_id_delta_set additions;
+        epmem_id_delta_set removals;
+};*/
+void EpMem_Id_Delta::add_addition(uint64_t newly_added_epmem_id)
+{
+    this->additions->insert(newly_added_epmem_id);
+}
+void EpMem_Id_Delta::add_removal(uint64_t newly_removed_epmem_id)
+{
+    this->removals->insert(newly_removed_epmem_id);
+}
+void EpMem_Id_Delta::add_addition_constant(uint64_t newly_added_epmem_id)
+{
+    this->additions_constant->insert(newly_added_epmem_id);
+}
+void EpMem_Id_Delta::add_removal_constant(uint64_t newly_removed_epmem_id)
+{
+    this->removals_constant->insert(newly_removed_epmem_id);
+}
+uint64_t EpMem_Id_Delta::additions_size() const
+{
+    return additions->size();
+}
+uint64_t EpMem_Id_Delta::removals_size() const
+{
+    return removals->size();
+}
+uint64_t EpMem_Id_Delta::additions_constant_size() const
+{
+    return additions_constant->size();
+}
+uint64_t EpMem_Id_Delta::removals_constant_size() const
+{
+    return removals_constant->size();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::additions_begin() const
+{
+    return additions->cbegin();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::additions_end() const
+{
+    return additions->cend();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_begin() const
+{
+    return removals->cbegin();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_end() const
+{
+    return removals->cend();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::additions_constant_begin() const
+{
+    return additions_constant->cbegin();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::additions_constant_end() const
+{
+    return additions_constant->cend();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_constant_begin() const
+{
+    return removals_constant->cbegin();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_constant_end() const
+{
+    return removals_constant->cend();
+}
+bool EpMem_Id_Delta::operator ==(const EpMem_Id_Delta &other) const
+{
+    epmem_id_delta_set::const_iterator self_additions_begin = additions_begin();
+    epmem_id_delta_set::const_iterator self_removals_begin = removals_begin();
+    epmem_id_delta_set::const_iterator self_additions_end = additions_end();
+    epmem_id_delta_set::const_iterator self_removals_end = removals_end();
+    epmem_id_delta_set::const_iterator other_additions_begin = other.additions_begin();
+    epmem_id_delta_set::const_iterator other_removals_begin = other.removals_begin();
+    epmem_id_delta_set::const_iterator other_additions_end = other.additions_end();
+    epmem_id_delta_set::const_iterator other_removals_end = other.removals_end();
+    epmem_id_delta_set::const_iterator self_additions_it;
+    epmem_id_delta_set::const_iterator self_removals_it;
+    epmem_id_delta_set::const_iterator other_additions_it;
+    epmem_id_delta_set::const_iterator other_removals_it;
+    epmem_id_delta_set::const_iterator self_additions_constant_begin = additions_constant_begin();
+    epmem_id_delta_set::const_iterator self_removals_constant_begin = removals_constant_begin();
+    epmem_id_delta_set::const_iterator self_additions_constant_end = additions_constant_end();
+    epmem_id_delta_set::const_iterator self_removals_constant_end = removals_constant_end();
+    epmem_id_delta_set::const_iterator other_additions_constant_begin = other.additions_constant_begin();
+    epmem_id_delta_set::const_iterator other_removals_constant_begin = other.removals_constant_begin();
+    epmem_id_delta_set::const_iterator other_additions_constant_end = other.additions_constant_end();
+    epmem_id_delta_set::const_iterator other_removals_constant_end = other.removals_constant_end();
+    epmem_id_delta_set::const_iterator self_additions_constant_it;
+    epmem_id_delta_set::const_iterator self_removals_constant_it;
+    epmem_id_delta_set::const_iterator other_additions_constant_it;
+    epmem_id_delta_set::const_iterator other_removals_constant_it;
+    if (additions_size() != other.additions_size())
+    {
+        return false;
+    }
+    if (removals_size() != other.removals_size())
+    {
+        return false;
+    }
+    if (additions_constant_size() != other.additions_constant_size())
+    {
+        return false;
+    }
+    if (removals_constant_size() != other.removals_constant_size())
+    {
+        return false;
+    }
+    //Supposing i switch the underlying set to unordered set, this will have to be changed to iteration
+    //over one and manual checking in the other instead of iteration over both.
+    other_additions_it = other_additions_begin;
+    for (self_additions_it = self_additions_begin; self_additions_it != self_additions_end; ++self_additions_it)
+    {
+        if (*self_additions_it != *other_additions_it)
+        {
+            return false;
+        }
+        ++other_additions_it;
+    }
 
+    other_additions_constant_it = other_additions_constant_begin;
+    for (self_additions_constant_it = self_additions_constant_begin; self_additions_constant_it != self_additions_constant_end; ++self_additions_constant_it)
+    {
+        if (*self_additions_constant_it != *other_additions_constant_it)
+        {
+            return false;
+        }
+        ++other_additions_constant_it;
+    }
+
+    other_removals_it = other_removals_begin;
+    for (self_removals_it = self_removals_begin; self_removals_it != self_removals_end; ++self_removals_it)
+    {
+        if (*self_removals_it != *other_removals_it)
+        {
+            return false;
+        }
+        ++other_removals_it;
+    }
+
+    other_removals_constant_it = other_removals_constant_begin;
+    for (self_removals_constant_it = self_removals_constant_begin; self_removals_constant_it != self_removals_constant_end; ++self_removals_constant_it)
+    {
+        if (*self_removals_constant_it != *other_removals_constant_it)
+        {
+            return false;
+        }
+        ++other_removals_constant_it;
+    }
+
+    return true;
+}
+bool EpMem_Id_Delta::operator !=(const EpMem_Id_Delta &other) const
+{
+    return !(*this == other);
+}
+
+std::size_t EpMem_Id_Delta::hash() const
+{//I made up this hash and don't know if it's any good.
+    std::size_t current_hash = 0;
+    bool been_hashed = false;
+    epmem_id_delta_set::const_iterator self_additions_begin = additions_begin();
+    epmem_id_delta_set::const_iterator self_removals_begin = removals_begin();
+    epmem_id_delta_set::const_iterator self_additions_end = additions_end();
+    epmem_id_delta_set::const_iterator self_removals_end = removals_end();
+    epmem_id_delta_set::const_iterator self_additions_it;
+    epmem_id_delta_set::const_iterator self_removals_it;
+    epmem_id_delta_set::const_iterator self_additions_constant_begin = additions_constant_begin();
+    epmem_id_delta_set::const_iterator self_removals_constant_begin = removals_constant_begin();
+    epmem_id_delta_set::const_iterator self_additions_constant_end = additions_constant_end();
+    epmem_id_delta_set::const_iterator self_removals_constant_end = removals_constant_end();
+    epmem_id_delta_set::const_iterator self_additions_constant_it;
+    epmem_id_delta_set::const_iterator self_removals_constant_it;
+    //Supposing i switch the underlying set to unordered set, this will have to be changed to iteration
+    //over one and manual checking in the other instead of iteration over both.
+    std::hash<uint64_t> int_hash_func;
+    for (self_additions_it = self_additions_begin; self_additions_it != self_additions_end; ++self_additions_it)
+    {
+        if (!been_hashed)
+        {
+            been_hashed = true;
+            current_hash = int_hash_func(*self_additions_it);
+            continue;
+        }
+        current_hash ^= int_hash_func(*self_additions_it) + 0x9e3779b9 + (((uint64_t)2047)<<6);
+    }
+
+    for (self_additions_constant_it = self_additions_constant_begin; self_additions_constant_it != self_additions_constant_end; ++self_additions_constant_it)
+    {
+        if (!been_hashed)
+        {
+            been_hashed = true;
+            current_hash = int_hash_func(*self_additions_constant_it+325378910);
+            continue;
+        }
+        current_hash ^= int_hash_func(*self_additions_constant_it+3278910) + 0x9e4779b9 + (((uint64_t)1023)<<8);
+    }
+
+    for (self_removals_it = self_removals_begin; self_removals_it != self_removals_end; ++self_removals_it)
+    {
+        if (!been_hashed)
+        {
+            been_hashed = true;
+            current_hash = int_hash_func(*self_removals_it);
+            continue;
+        }
+        current_hash ^= int_hash_func(*self_removals_it) + 0x9e3339b9 + (((uint64_t)2047)<<6);
+    }
+
+    for (self_removals_constant_it = self_removals_constant_begin; self_removals_constant_it != self_removals_constant_end; ++self_removals_constant_it)
+    {
+        if (!been_hashed)
+        {
+            been_hashed = true;
+            current_hash = int_hash_func(*self_removals_constant_it+325378910);
+            continue;
+        }
+        current_hash ^= int_hash_func(*self_removals_constant_it+32537910) + 0x9e4759b9 + (((uint64_t)1023)<<8);
+    }
+    return current_hash;
+}
+
+EpMem_Id_Delta::EpMem_Id_Delta()
+{
+    additions = new epmem_id_delta_set;
+    removals = new epmem_id_delta_set;
+    additions_constant = new epmem_id_delta_set;
+    removals_constant = new epmem_id_delta_set;
+}
+EpMem_Id_Delta::~EpMem_Id_Delta()
+{
+    delete this->additions;
+    delete this->removals;
+    delete this->additions_constant;
+    delete this->removals_constant;
+}//In the future, I may use pools and such.
+namespace std {
+template <>
+struct hash<EpMem_Id_Delta> //specializing hash for my weird class.
+{
+    size_t operator() (const EpMem_Id_Delta& id_delta) const
+    {
+        return id_delta.hash();
+    }
+};
+}
 EpMem_Manager::EpMem_Manager(agent* myAgent)
 {
     thisAgent = myAgent;
@@ -6006,37 +6290,38 @@ EpMem_Manager::EpMem_Manager(agent* myAgent)
     thisAgent->EpMem = this;
 
     // epmem initialization
-     epmem_params = new epmem_param_container(thisAgent);
-     epmem_stats = new epmem_stat_container(thisAgent);
-     epmem_timers = new epmem_timer_container(thisAgent);
+    epmem_params = new epmem_param_container(thisAgent);
+    epmem_stats = new epmem_stat_container(thisAgent);
+    epmem_timers = new epmem_timer_container(thisAgent);
 
-     epmem_db = new soar_module::sqlite_database();
-     epmem_stmts_common = NULL;
-     epmem_stmts_graph = NULL;
+    epmem_db = new soar_module::sqlite_database();
+    epmem_stmts_common = NULL;
+    epmem_stmts_graph = NULL;
 
-     epmem_node_mins = new std::vector<epmem_time_id>();
-     epmem_node_maxes = new std::vector<bool>();
+    epmem_node_mins = new std::vector<epmem_time_id>();
+    epmem_node_maxes = new std::vector<bool>();
 
-     epmem_edge_mins = new std::vector<epmem_time_id>();
-     epmem_edge_maxes = new std::vector<bool>();
-     epmem_id_repository = new epmem_parent_id_pool();
-     epmem_id_replacement = new epmem_return_id_pool();
-     epmem_id_ref_counts = new epmem_id_ref_counter();
+    epmem_edge_mins = new std::vector<epmem_time_id>();
+    epmem_edge_maxes = new std::vector<bool>();
+    epmem_id_repository = new epmem_parent_id_pool();
+    epmem_id_replacement = new epmem_return_id_pool();
+    epmem_id_ref_counts = new epmem_id_ref_counter();
 
  #ifdef USE_MEM_POOL_ALLOCATORS
-     epmem_node_removals = new epmem_id_removal_map(std::less< epmem_node_id >(), soar_module::soar_memory_pool_allocator< std::pair< std::pair<epmem_node_id,int64_t>, bool > >(thisAgent));
-     epmem_edge_removals = new epmem_edge_removal_map(std::less< std::pair<epmem_node_id,int64_t> >(), soar_module::soar_memory_pool_allocator< std::pair< epmem_node_id, bool > >(thisAgent));
-     epmem_wme_adds = new epmem_symbol_set(std::less< Symbol* >(), soar_module::soar_memory_pool_allocator< Symbol* >(thisAgent));
-     epmem_id_removes = new epmem_symbol_stack(soar_module::soar_memory_pool_allocator< Symbol* >(thisAgent));
+    epmem_node_removals = new epmem_id_removal_map(std::less< epmem_node_id >(), soar_module::soar_memory_pool_allocator< std::pair< std::pair<epmem_node_id,int64_t>, bool > >(thisAgent));
+    epmem_edge_removals = new epmem_edge_removal_map(std::less< std::pair<epmem_node_id,int64_t> >(), soar_module::soar_memory_pool_allocator< std::pair< epmem_node_id, bool > >(thisAgent));
+    epmem_wme_adds = new epmem_symbol_set(std::less< Symbol* >(), soar_module::soar_memory_pool_allocator< Symbol* >(thisAgent));
+    epmem_id_removes = new epmem_symbol_stack(soar_module::soar_memory_pool_allocator< Symbol* >(thisAgent));
  #else
-     epmem_node_removals = new epmem_id_removal_map();
-     epmem_edge_removals = new epmem_id_removal_map();
-     epmem_wme_adds = new epmem_symbol_set();
-     epmem_id_removes = new epmem_symbol_stack();
+    epmem_node_removals = new epmem_id_removal_map();
+    epmem_edge_removals = new epmem_id_removal_map();
+    epmem_wme_adds = new epmem_symbol_set();
+    epmem_id_removes = new epmem_symbol_stack();
  #endif
 
-     epmem_validation = 0;
+    epmem_validation = 0;
 
+    sequitur_for_deltas = new jw::Sequitur<EpMem_Id_Delta*>();
 };
 
 void EpMem_Manager::clean_up_for_agent_deletion()
@@ -6064,6 +6349,8 @@ void EpMem_Manager::clean_up_for_agent_deletion()
     delete epmem_wme_adds;
 
     delete epmem_db;
+
+    delete sequitur_for_deltas;
 }
 void epmem_param_container::print_settings(agent* thisAgent)
 {
