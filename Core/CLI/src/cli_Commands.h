@@ -265,6 +265,7 @@ namespace cli
                     {'S', "stats",        OPTARG_NONE},
                     {'t', "timers",       OPTARG_NONE},
                     {'v', "viz",          OPTARG_NONE},
+                    {'z', "sequitur",     OPTARG_NONE},
                     {0, 0, OPTARG_NONE} // null
                 };
 
@@ -409,6 +410,17 @@ namespace cli
                         }
 
                         return cli.DoEpMem(option, 0, 0, memory_id);
+                    }
+
+                    case 'z':
+                    {
+
+                        if (!opt.CheckNumNonOptArgs(0, 0))
+                        {
+                            return cli.SetError(opt.GetError().c_str());
+                        }
+
+                        return cli.DoEpMem(option);
                     }
                 }
 

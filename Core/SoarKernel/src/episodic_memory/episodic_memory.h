@@ -476,6 +476,7 @@ extern void epmem_go(agent* thisAgent, bool allow_store = true);
 extern bool epmem_backup_db(agent* thisAgent, const char* file_name, std::string* err);
 extern void epmem_init_db(agent* thisAgent, bool readonly = false);
 // visualization
+extern void epmem_print_sequitur(agent* thisAgent);
 extern void epmem_visualize_episode(agent* thisAgent, epmem_time_id memory_id, std::string* buf);
 extern void epmem_print_episode(agent* thisAgent, epmem_time_id memory_id, std::string* buf);
 
@@ -638,6 +639,8 @@ class EpMem_Id_Delta
 {
     public:
         EpMem_Id_Delta();
+        EpMem_Id_Delta(EpMem_Id_Delta&& other);
+        EpMem_Id_Delta(const EpMem_Id_Delta& other);
         ~EpMem_Id_Delta();
         void add_addition(uint64_t);
         void add_removal(uint64_t);
@@ -658,6 +661,7 @@ class EpMem_Id_Delta
         uint64_t removals_size() const;
         uint64_t additions_constant_size() const;
         uint64_t removals_constant_size() const;
+        friend std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta);
     private:
         epmem_id_delta_set* additions;
         epmem_id_delta_set* removals;
@@ -703,7 +707,8 @@ class EpMem_Manager
 
         uint64_t epmem_validation;
 
-        jw::Sequitur<EpMem_Id_Delta*>* sequitur_for_deltas;
+        jw::Sequitur<EpMem_Id_Delta>* sequitur_for_deltas;
+        bool no_immediately_previous_change;
 
     private:
 

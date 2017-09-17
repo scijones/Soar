@@ -296,6 +296,11 @@ bool CommandLineInterface::DoEpMem(const char pOp, const std::string* pAttr, con
         
         return true;
     }
+    else if (pOp == 'z')
+    {
+        epmem_print_sequitur(thisAgent);
+        return true;
+    }
     
     return SetError("Unknown option.");
 }

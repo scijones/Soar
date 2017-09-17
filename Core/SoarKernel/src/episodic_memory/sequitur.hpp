@@ -99,7 +99,7 @@ namespace jw
 
         //add new symbol to list.
         //linkMade if symbol not first one added.
-        void push_back(Type);
+        void push_back(Type*);
 
         //get const iterators:
         const_iterator begin() const {return const_iterator(this, rule_index.at(0));}
@@ -216,10 +216,10 @@ namespace jw
         }
 
     template<typename Type>
-    void Sequitur<Type>::push_back(Type s)
+    void Sequitur<Type>::push_back(Type* s)
         {
         //add new symbol:
-        Symbol * val = sequence_end->insertBefore(new Value(s));
+        Symbol * val = sequence_end->insertBefore(new Value(Type(std::move(*s))));
         if(++length > 1)
             {
             auto one_from_end = val->prev();

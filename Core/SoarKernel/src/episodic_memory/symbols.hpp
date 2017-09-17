@@ -114,7 +114,7 @@ namespace jw
             {
             if(typeid(other) != typeid(ValueSymbol)) return false;
             auto & o = static_cast<const ValueSymbol&>(other);
-            return (*(o.value)) == (*(value));
+            return ((o.value)) == ((value));
             }
 
         private:

@@ -3013,6 +3013,8 @@ void epmem_new_episode(agent* thisAgent)
         // Before we process inserts, we need to initialize the data structure which keeps track of them
         // for the sake of the Sequitur algorithm.
         EpMem_Id_Delta* some_delta = new EpMem_Id_Delta();
+        //EpMem_Id_Delta* some_delta2 = new EpMem_Id_Delta();
+        bool was_nothing = true;
 
 
         // all inserts
@@ -3021,6 +3023,9 @@ void epmem_new_episode(agent* thisAgent)
             int64_t* lti_id;
 
             // nodes
+            //For testing only!!!
+            //some_delta->add_addition_constant(1);
+            //some_delta2->add_addition_constant(1);
             while (!epmem_node.empty())
             {
                 temp_node = & epmem_node.front();
@@ -3035,6 +3040,7 @@ void epmem_new_episode(agent* thisAgent)
                  * This is when we should keep track of the addition for the sake of Sequitur.
                  */
                 some_delta->add_addition_constant(*temp_node);
+                was_nothing = false;
 
                 // update min
                 (*thisAgent->EpMem->epmem_node_mins)[static_cast<size_t>((*temp_node) - 1)] = time_counter;
@@ -3062,6 +3068,7 @@ void epmem_new_episode(agent* thisAgent)
                  * This is when we should keep track of the addition for the sake of Sequitur.
                  */
                 some_delta->add_addition(*temp_node);
+                was_nothing = false;
 
                 // update min
                 (*thisAgent->EpMem->epmem_edge_mins)[static_cast<size_t>((*temp_node) - 1)] = time_counter;
@@ -3098,6 +3105,7 @@ void epmem_new_episode(agent* thisAgent)
                          * This is when we should keep track of the removal for the sake of Sequitur.
                          */
                         some_delta->add_removal_constant(r->first);
+                        was_nothing = false;
 
                         range_start = (*thisAgent->EpMem->epmem_node_mins)[static_cast<size_t>(r->first - 1)];
                         range_end = (time_counter - 1);
@@ -3139,6 +3147,7 @@ void epmem_new_episode(agent* thisAgent)
                      * This is when we should keep track of the removal for the sake of Sequitur.
                      */
                     some_delta->add_removal(r->first.first);
+                    was_nothing = false;
 
                     range_start = (*thisAgent->EpMem->epmem_edge_mins)[static_cast<size_t>(r->first.first - 1)];
                     range_end = (time_counter - 1);
@@ -3199,7 +3208,45 @@ void epmem_new_episode(agent* thisAgent)
         {
             thisAgent->EpMem->epmem_wme_adds->clear();
         }
-        thisAgent->EpMem->sequitur_for_deltas->push_back(some_delta);
+        if (!(was_nothing && thisAgent->EpMem->no_immediately_previous_change))
+        {
+            thisAgent->EpMem->sequitur_for_deltas->push_back(some_delta);
+        }
+        thisAgent->EpMem->no_immediately_previous_change = was_nothing;
+
+        //delete some_delta;
+
+        /*if (thisAgent->EpMem->epmem_stats->time->get_value() == 3000000)//% 200 == 0)
+        {
+            auto rule_table = thisAgent->EpMem->sequitur_for_deltas->getRules();
+            auto it = rule_table.begin();
+            unsigned symbol_total = 0;
+            unsigned rule_count = 0;
+            while(it != rule_table.end())
+            {
+                ++rule_count;
+                //
+                // consult baselist.hpp for list traversal commands given symbols.
+                // consult symbols.hpp for the different symbol types and functions available on each
+                //
+                // baselist is just a linked list subclass, which the Symbol class inherits from, so
+                // symbols can be linked together. Thus, the functionality in baselist.hpp will allow you
+                // to traverse the symbols found.
+                //
+                // Symbol::next() and Symbol::prev() allow iteration through them.
+                // Symbol::end()/begin() returns a pair<[final_symbol], distance>
+                //
+                // Here, we count how many hops it takes to get to the end. This will get us one less than
+                // the total number of symbols. Since two of the symbols are RuleHead and RuleTail, we
+                // minus another one to get the number of symbols used in the rule.
+                //
+                //std::cout << it->first << std::endl;
+                symbol_total += it->second->end().second - 1;
+                ++it;
+            }
+            thisAgent->EpMem->sequitur_for_deltas->printRules();
+            std::cout << rule_count << std::endl;
+        }*/
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -5244,6 +5291,12 @@ void epmem_print_episode(agent* thisAgent, epmem_time_id memory_id, std::string*
     }
 }
 
+void epmem_print_sequitur(agent* thisAgent)
+{
+    //This will fail easily. It's for debugging a currently-in-development feature.
+    thisAgent->EpMem->sequitur_for_deltas->printRules();
+}
+
 void epmem_visualize_episode(agent* thisAgent, epmem_time_id memory_id, std::string* buf)
 {
     epmem_attach(thisAgent);
@@ -6193,7 +6246,62 @@ bool EpMem_Id_Delta::operator !=(const EpMem_Id_Delta &other) const
 {
     return !(*this == other);
 }
+std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta)
+{
+    out << "[";
+    auto it = delta.additions->begin();
+    if (it != delta.additions->end())
+    {
+        out << "na: " << *it;
+        ++it;
+    }
+    while (it != delta.additions->end())
+    {
+        out << ", " << *it;
+        ++it;
+    }
+    out << "; ";
 
+    it = delta.removals->begin();
+    if (it != delta.removals->end())
+    {
+        out << "nr: " << *it;
+        ++it;
+    }
+    while (it != delta.removals->end())
+    {
+        out << ", " << *it;
+        ++it;
+    }
+    out << "; ";
+
+    it = delta.additions_constant->begin();
+    if (it != delta.additions_constant->end())
+    {
+        out << "ca: " << *it;
+        ++it;
+    }
+    while (it != delta.additions_constant->end())
+    {
+        out << ", " << *it;
+        ++it;
+    }
+    out << "; ";
+
+    it = delta.removals_constant->begin();
+    if (it != delta.removals_constant->end())
+    {
+        out << "cr: " << *it;
+        ++it;
+    }
+    while (it != delta.removals_constant->end())
+    {
+        out << ", " << *it;
+        ++it;
+    }
+    out << "]";
+    return out;
+}
 std::size_t EpMem_Id_Delta::hash() const
 {//I made up this hash and don't know if it's any good.
     std::size_t current_hash = 0;
@@ -6258,7 +6366,28 @@ std::size_t EpMem_Id_Delta::hash() const
     }
     return current_hash;
 }
-
+EpMem_Id_Delta::EpMem_Id_Delta(EpMem_Id_Delta&& other)
+    : additions(NULL)
+    , removals(NULL)
+    , additions_constant(NULL)
+    , removals_constant(NULL)
+{
+    additions = other.additions;
+    removals = other.removals;
+    additions_constant = other.additions_constant;
+    removals_constant = other.removals_constant;
+    other.additions = NULL;
+    other.removals = NULL;
+    other.additions_constant = NULL;
+    other.removals_constant = NULL;
+}
+EpMem_Id_Delta::EpMem_Id_Delta(const EpMem_Id_Delta& other)
+{
+    additions = new epmem_id_delta_set(*(other.additions));
+    removals = new epmem_id_delta_set(*(other.removals));
+    additions_constant = new epmem_id_delta_set(*(other.additions_constant));
+    removals_constant = new epmem_id_delta_set(*(other.removals_constant));
+}
 EpMem_Id_Delta::EpMem_Id_Delta()
 {
     additions = new epmem_id_delta_set;
@@ -6268,10 +6397,17 @@ EpMem_Id_Delta::EpMem_Id_Delta()
 }
 EpMem_Id_Delta::~EpMem_Id_Delta()
 {
-    delete this->additions;
-    delete this->removals;
-    delete this->additions_constant;
-    delete this->removals_constant;
+    bool null_present = false;
+    null_present = (additions == NULL || removals == NULL || additions_constant == NULL || removals_constant == NULL);
+    assert( (!null_present) || (additions == NULL && removals == NULL && additions_constant == NULL && removals_constant && NULL) );
+    //If one is null, all better be null. This is from the move constructor.
+    if (!null_present)
+    {
+        delete this->additions;
+        delete this->removals;
+        delete this->additions_constant;
+        delete this->removals_constant;
+    }
 }//In the future, I may use pools and such.
 namespace std {
 template <>
@@ -6321,7 +6457,8 @@ EpMem_Manager::EpMem_Manager(agent* myAgent)
 
     epmem_validation = 0;
 
-    sequitur_for_deltas = new jw::Sequitur<EpMem_Id_Delta*>();
+    sequitur_for_deltas = new jw::Sequitur<EpMem_Id_Delta>();
+    no_immediately_previous_change = false;
 };
 
 void EpMem_Manager::clean_up_for_agent_deletion()
