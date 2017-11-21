@@ -415,12 +415,15 @@ namespace cli
                     case 'z':
                     {
 
-                        if (!opt.CheckNumNonOptArgs(0, 0))
+                        if (!opt.CheckNumNonOptArgs(0, 1))
                         {
                             return cli.SetError(opt.GetError().c_str());
                         }
-
-                        return cli.DoEpMem(option);
+                        if (opt.GetNonOptionArguments() == 0)
+                        {
+                            return cli.DoEpMem(option);
+                        }
+                        return cli.DoEpMem(option,&(argv[2]));
                     }
                 }
 

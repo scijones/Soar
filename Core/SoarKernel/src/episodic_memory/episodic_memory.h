@@ -27,7 +27,7 @@
 //////////////////////////////////////////////////////////
 // EpMem Parameters
 //////////////////////////////////////////////////////////
-
+class EpMem_Id_Delta;
 class epmem_path_param;
 
 class epmem_param_container: public soar_module::param_container
@@ -322,6 +322,12 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
 
         soar_module::sqlite_statement* get_wmes_with_identifier_values;
         soar_module::sqlite_statement* get_wmes_with_constant_values;
+        soar_module::sqlite_statement* get_single_wcid_info;
+        soar_module::sqlite_statement* get_single_wiid_info;
+        soar_module::sqlite_statement* get_constant;//_type;
+        /*soar_module::sqlite_statement* get_float;
+        soar_module::sqlite_statement* get_string;
+        soar_module::sqlite_statement* get_integer;*/
 
 //        //
 //
@@ -340,7 +346,7 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
         soar_module::sqlite_statement_pool* pool_dummy;
 
         //
-
+        friend std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta);
         epmem_graph_statement_container(agent* new_agent);
 
     private:
@@ -476,7 +482,7 @@ extern void epmem_go(agent* thisAgent, bool allow_store = true);
 extern bool epmem_backup_db(agent* thisAgent, const char* file_name, std::string* err);
 extern void epmem_init_db(agent* thisAgent, bool readonly = false);
 // visualization
-extern void epmem_print_sequitur(agent* thisAgent);
+extern void epmem_print_sequitur(agent* thisAgent, int64_t ruleNumber);
 extern void epmem_visualize_episode(agent* thisAgent, epmem_time_id memory_id, std::string* buf);
 extern void epmem_print_episode(agent* thisAgent, epmem_time_id memory_id, std::string* buf);
 
@@ -638,7 +644,7 @@ typedef std::set<uint64_t> epmem_id_delta_set;
 class EpMem_Id_Delta
 {
     public:
-        EpMem_Id_Delta();
+        EpMem_Id_Delta(agent* myAgent);
         EpMem_Id_Delta(EpMem_Id_Delta&& other);
         EpMem_Id_Delta(const EpMem_Id_Delta& other);
         ~EpMem_Id_Delta();
@@ -667,6 +673,7 @@ class EpMem_Id_Delta
         epmem_id_delta_set* removals;
         epmem_id_delta_set* additions_constant;
         epmem_id_delta_set* removals_constant;
+        agent* myAgent;
 };
 
 
@@ -709,7 +716,7 @@ class EpMem_Manager
 
         jw::Sequitur<EpMem_Id_Delta>* sequitur_for_deltas;
         bool no_immediately_previous_change;
-
+        friend std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta);
     private:
 
         agent* thisAgent;

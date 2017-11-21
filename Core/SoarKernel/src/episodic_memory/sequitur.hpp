@@ -114,6 +114,7 @@ namespace jw
         void printList(const Symbol *, unsigned int number) const;
         void printAll() const;
         void printSequence() const;
+        void printThisRule(uint someRule) const;
         void printRules() const;
         void printDigramIndex() const;
 
@@ -607,6 +608,17 @@ namespace jw
             {
             std::cout << rule_pair.first << ": ";
             printList(rule_pair.second, 0);
+            std::cout << std::endl;
+            }
+        }
+
+    template<typename Type>
+    void Sequitur<Type>::printThisRule(uint whichRule) const
+        {
+        const auto rule_pair = rule_index.find(whichRule);
+            {
+            std::cout << rule_pair->first << ": ";
+            printList(rule_pair->second, 0);
             std::cout << std::endl;
             }
         }

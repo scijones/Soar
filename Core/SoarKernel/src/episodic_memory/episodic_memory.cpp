@@ -1167,6 +1167,27 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     update_epmem_wmes_identifier_last_episode_id = new soar_module::sqlite_statement(new_db, "UPDATE epmem_wmes_identifier SET last_episode_id=? WHERE wi_id=?");
     add(update_epmem_wmes_identifier_last_episode_id);
 
+    //
+
+    get_single_wcid_info = new soar_module::sqlite_statement(new_db, "SELECT parent_n_id,attribute_s_id,value_s_id FROM epmem_wmes_constant WHERE wc_id=?");
+    add(get_single_wcid_info);
+    //actually, want to join with the different tables that store the values for these int labels/pointers and return the real values.
+    //Actually, screw that guy (still me), let's just do it the lazy way because it's late and I can't think and this is a user-initiated print function, so
+    //who cares about performance. (I will regret that.)
+
+    get_single_wiid_info = new soar_module::sqlite_statement(new_db, "SELECT parent_n_id,attribute_s_id,child_n_id FROM epmem_wmes_identifier WHERE wi_id=?");
+    add(get_single_wiid_info);
+
+    //get_constant_type = new soar_module::sqlite_statement(new_db, "SELECT symbol_type FROM epmem_symbols_type WHERE s_id=?");
+    //add(get_constant_type);
+    get_constant = new soar_module::sqlite_statement(new_db, "SELECT cast(symbol_value as text) FROM epmem_symbols_float f WHERE f.s_id=? UNION SELECT cast(symbol_value as text) FROM epmem_symbols_string s WHERE s.s_id=? UNION SELECT cast(symbol_value as text) FROM epmem_symbols_integer i WHERE i.s_id=?");
+    add(get_constant);
+/*    get_float = new soar_module::sqlite_statement(new_db, "SE");
+    add(get_float);
+    get_string = new soar_module::sqlite_statement(new_db, "");
+    add(get_string);
+    get_integer = new soar_module::sqlite_statement(new_db, "");
+    add(get_integer);*/
     // init statement pools
     {
         int j, k, m;
@@ -3012,7 +3033,7 @@ void epmem_new_episode(agent* thisAgent)
 
         // Before we process inserts, we need to initialize the data structure which keeps track of them
         // for the sake of the Sequitur algorithm.
-        EpMem_Id_Delta* some_delta = new EpMem_Id_Delta();
+        EpMem_Id_Delta* some_delta = new EpMem_Id_Delta(thisAgent);
         //EpMem_Id_Delta* some_delta2 = new EpMem_Id_Delta();
         bool was_nothing = true;
 
@@ -5291,10 +5312,15 @@ void epmem_print_episode(agent* thisAgent, epmem_time_id memory_id, std::string*
     }
 }
 
-void epmem_print_sequitur(agent* thisAgent)
+void epmem_print_sequitur(agent* thisAgent, int64_t ruleNumber = -1)
 {
     //This will fail easily. It's for debugging a currently-in-development feature.
-    thisAgent->EpMem->sequitur_for_deltas->printRules();
+    if (ruleNumber == -1)
+    {
+        thisAgent->EpMem->sequitur_for_deltas->printRules();
+        return;
+    }
+    thisAgent->EpMem->sequitur_for_deltas->printThisRule(ruleNumber);
 }
 
 void epmem_visualize_episode(agent* thisAgent, epmem_time_id memory_id, std::string* buf)
@@ -6246,18 +6272,89 @@ bool EpMem_Id_Delta::operator !=(const EpMem_Id_Delta &other) const
 {
     return !(*this == other);
 }
-std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta)
+
+inline void insert_i_info(agent* myAgent, std::set<uint64_t>* value_bool, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>* i_information,
+        epmem_id_delta_set::iterator it, std::map<uint64_t,std::string>* translation, std::map<std::tuple<uint64_t,uint64_t,uint64_t,bool>,std::pair<uint64_t,bool>>* raw_triple_to_wid, bool add)
 {
+    soar_module::sqlite_statement* get_constant = myAgent->EpMem->epmem_stmts_graph->get_constant;
+    soar_module::sqlite_statement* get_single_wiid_info = myAgent->EpMem->epmem_stmts_graph->get_single_wiid_info;
+    get_single_wiid_info->bind_int(1,*it);
+    get_single_wiid_info->execute();
+    uint64_t parent_id = get_single_wiid_info->column_int(0);
+    uint64_t attribute_id = get_single_wiid_info->column_int(1);
+    uint64_t value_id = get_single_wiid_info->column_int(2);
+    get_single_wiid_info->reinitialize();
+    raw_triple_to_wid->emplace(std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent_id,attribute_id,value_id,false),std::pair<uint64_t,bool>(*it,add));
+    //We now have the triple. We need to harvest printable representations from the table, though.
+    get_constant->bind_int(1,attribute_id);
+    get_constant->bind_int(2,attribute_id);
+    get_constant->bind_int(3,attribute_id);
+    get_constant->execute();
+    std::string attribute(get_constant->column_text(0));
+    get_constant->reinitialize();
+    translation->emplace(attribute_id,attribute);
+    value_bool->insert(value_id);
+    i_information->emplace(parent_id,std::pair<uint64_t,uint64_t>(attribute_id,value_id));
+}
+inline void insert_c_info(agent* myAgent, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>* c_information,
+        epmem_id_delta_set::iterator it, std::map<uint64_t,std::string>* translation, std::map<std::tuple<uint64_t,uint64_t,uint64_t,bool>,std::pair<uint64_t,bool>>* raw_triple_to_wid, bool add)
+{
+    soar_module::sqlite_statement* get_constant = myAgent->EpMem->epmem_stmts_graph->get_constant;
+    soar_module::sqlite_statement* get_single_wcid_info = myAgent->EpMem->epmem_stmts_graph->get_single_wcid_info;
+    get_single_wcid_info->bind_int(1,*it);
+    get_single_wcid_info->execute();
+    uint64_t parent_id = get_single_wcid_info->column_int(0);
+    uint64_t attribute_id = get_single_wcid_info->column_int(1);
+    uint64_t value_id = get_single_wcid_info->column_int(2);
+    get_single_wcid_info->reinitialize();
+    raw_triple_to_wid->emplace(std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent_id,attribute_id,value_id,true),std::pair<uint64_t,bool>(*it,add));
+    //We now have the triple. We need to harvest printable representations from the table, though.
+    get_constant->bind_int(1,attribute_id);
+    get_constant->bind_int(2,attribute_id);
+    get_constant->bind_int(3,attribute_id);
+    get_constant->execute();
+    std::string attribute(get_constant->column_text(0));
+    get_constant->reinitialize();
+    translation->emplace(attribute_id,attribute);
+    get_constant->bind_int(1,value_id);
+    get_constant->bind_int(2,value_id);
+    get_constant->bind_int(3,value_id);
+    get_constant->execute();
+    std::string value(get_constant->column_text(0));
+    translation->emplace(value_id,value);
+    c_information->emplace(parent_id,std::pair<uint64_t,uint64_t>(attribute_id,value_id));
+    get_constant->reinitialize();
+}
+
+std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta)
+{//"wid" means triple, referring to either wiid or wcid.
     out << "[";
     auto it = delta.additions->begin();
+    agent* thisAgent = delta.myAgent;
+    //get_single_wiid_info will be used to get the local structural information, which will be fed into a map.
+        //This map will then be used for printing in a more hierarchical manner. A separate map will record how often
+        //a given identifier is a value. Those with a value of zero will be printed recursively. (which really means use a set...)
+    std::set<uint64_t> value_bool;
+    std::map<uint64_t,std::string> translation;
+    std::map<std::tuple<uint64_t,uint64_t,uint64_t,bool>,std::pair<uint64_t,bool>> raw_triple_to_wid;//The pair key bool == true indicates identifier (instead of constant) valued wme.
+    //lol, nope. that becomes obvious when printing, so now the bool instead represents being addition. False represents removal. This lets the printing be way more clear on what is happenning with the delta.
+    //Also, I'm actually including the constant bit in the front end. My logic was all wrong the first time. The tuple bool represents being a constant. The value bool represents addition.
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>> i_information;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>> c_information;
     if (it != delta.additions->end())
     {
         out << "na: " << *it;
+
+        insert_i_info(thisAgent, &value_bool, &i_information, it, &translation, &raw_triple_to_wid, true);
+
         ++it;
     }
     while (it != delta.additions->end())
     {
         out << ", " << *it;
+
+        insert_i_info(thisAgent, &value_bool, &i_information, it, &translation, &raw_triple_to_wid, true);
+
         ++it;
     }
     out << "; ";
@@ -6266,11 +6363,17 @@ std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta)
     if (it != delta.removals->end())
     {
         out << "nr: " << *it;
+
+        insert_i_info(thisAgent, &value_bool, &i_information, it, &translation, &raw_triple_to_wid, false);
+
         ++it;
     }
     while (it != delta.removals->end())
     {
         out << ", " << *it;
+
+        insert_i_info(thisAgent, &value_bool, &i_information, it, &translation, &raw_triple_to_wid, false);
+
         ++it;
     }
     out << "; ";
@@ -6279,11 +6382,17 @@ std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta)
     if (it != delta.additions_constant->end())
     {
         out << "ca: " << *it;
+
+        insert_c_info(thisAgent, &c_information, it, &translation, &raw_triple_to_wid, true);
+
         ++it;
     }
     while (it != delta.additions_constant->end())
     {
         out << ", " << *it;
+
+        insert_c_info(thisAgent, &c_information, it, &translation, &raw_triple_to_wid, true);
+
         ++it;
     }
     out << "; ";
@@ -6292,14 +6401,156 @@ std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta)
     if (it != delta.removals_constant->end())
     {
         out << "cr: " << *it;
+
+        insert_c_info(thisAgent, &c_information, it, &translation, &raw_triple_to_wid,false);
+
         ++it;
     }
     while (it != delta.removals_constant->end())
     {
         out << ", " << *it;
+
+        insert_c_info(thisAgent, &c_information, it, &translation, &raw_triple_to_wid,false);
+
         ++it;
     }
     out << "]";
+
+    //This is special case printing for when there were only constant changes, and no node changes.
+    if (delta.additions->empty() && delta.removals->empty() && !(delta.additions_constant->empty() && delta.removals_constant->empty()))
+    {//In this case, we won't trigger the more network-style printing that happens below this if block and instead we'll have
+        //to just print out manually the particular wmes involved for these additions and removals. Of note, we will have to list
+        //the node ids even though they aren't involved, just to it makes sense to look at.
+
+    }
+
+    //At this point, we have a lot of graphical information we need to print that is associated with the rule.
+    //We loop through the i_information keys, checking that they do not contain membership in the value_bool set.
+    //We also check at each item (that is now established to not be member of the value_bool set) for if there is membership as a key
+    //in c_information. If so, we print all of that as well and mark the value_bool as true for that item.
+    //For every i_information value that is also an i_information key, when we print the value, we will also
+    //indent and print the child structure.
+    //For any item which is currently the i_information of interest, we first print all constants from c_information.
+    //Only after all i_information has been printed (either at the top level or nested), do we look for c_information
+    //that has yet to be printed (doesn't fall into value_bool).
+    auto i_it = i_information.begin();//Just to reiterate. This is the first loop and itself also an outer loop.
+    auto i_it_end = i_information.end();
+    std::set<uint64_t> printed_already;
+    std::queue<uint64_t> child_queue;
+    std::pair<std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator> c_child_range;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_c_it_begin;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_c_it_end;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_c_it;
+    std::pair<std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator> i_child_range;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_i_it_begin;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_i_it_end;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_i_it;
+    uint64_t current_depth = 0;
+    std::map<uint64_t,uint64_t> depth_map;
+    std::set<uint64_t> added_to_child_queue_already;
+    while(i_it!=i_it_end)
+    {
+        //First, we check for membership in the value_bool set. (Is this someone's child?)
+        //In order to check for membership, we need the id of the parent for this wid, first.
+        uint64_t parent = i_it->first;
+        if (value_bool.find(parent) != value_bool.end())
+        {
+            ++i_it;
+            continue;//We'll get to it as a child, not as a parent.
+        }
+        value_bool.insert(parent);
+        out << std::endl << "{<" << parent << ">";
+        //We know this is a top level parent, now. Next, we check for constant children and print them.
+
+        c_child_range = c_information.equal_range(parent);
+        child_c_it_begin = c_child_range.first;
+        child_c_it_end = c_child_range.second;
+        child_c_it = child_c_it_begin;
+        uint64_t attribute_id;
+        uint64_t value_id;
+
+        while(child_c_it != child_c_it_end)
+        {
+            //We now loop over the constant attribute/value pairs for this parent.
+            attribute_id = (*child_c_it).second.first;
+            value_id = (*child_c_it).second.second;
+            std::pair<uint64_t,bool>* epmem_id = &(raw_triple_to_wid[std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent,attribute_id,value_id,true)]);
+            out << " ^" << translation[attribute_id] << " " << translation[value_id] << " [" << epmem_id->first << " " << (epmem_id->second ? "+" : "-") << "]";
+            ++child_c_it;
+        }
+        //We have now looped through this parent's constant children. Next are the variable/identifier ones.
+        std::pair<std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator> i_child_range;
+        i_child_range = i_information.equal_range(parent);
+        child_i_it_begin = i_child_range.first;
+        child_i_it_end = i_child_range.second;
+        child_i_it = child_i_it_begin;
+        while(child_i_it != child_i_it_end)
+        {
+            attribute_id = (*child_i_it).second.first;
+            value_id = (*child_i_it).second.second;
+            std::pair<uint64_t,bool>* epmem_id = &(raw_triple_to_wid[std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent,attribute_id,value_id,false)]);
+            out << " ^" << translation[attribute_id] << " <" << value_id << ">" << " [" << epmem_id->first << " " << (epmem_id->second ? "+" : "-") << "]";
+            //I will do a "recursive" (queued) traversal through children *after* doing the top of this parent.
+            if (added_to_child_queue_already.find(value_id) == added_to_child_queue_already.end())
+            {
+                child_queue.push(value_id);
+                added_to_child_queue_already.insert(value_id);
+                depth_map[value_id] = current_depth + 1;
+            }
+            ++child_i_it;
+        }
+        //At this point, we can close off the top level of that parent.
+        out << "}" << std::endl;
+        printed_already.insert(parent);
+
+        ++i_it;
+    }
+    std::string current_indentation = "";//We will keep extending this by four spaces for every depth.
+    while(!child_queue.empty())
+    {
+        uint64_t parent = child_queue.front();
+        child_queue.pop();
+        if (i_information.find(parent) == i_information.end() && c_information.find(parent) == c_information.end())
+        {
+            continue;
+        }
+        printed_already.insert(parent);
+        if (depth_map[parent] > current_depth)
+        {
+            ++current_depth;
+            current_indentation.append("    ");
+        }
+        //We now look for any structure corresponding to this child. We indent, start a line, and go through the same process of constants, then children.
+        out << current_indentation << "{<" << parent << ">";
+
+        c_child_range = c_information.equal_range(parent);
+        child_c_it_begin = c_child_range.first;
+        child_c_it_end = c_child_range.second;
+        child_c_it = child_c_it_begin;
+        while(child_c_it != child_c_it_end)
+        {
+            std::pair<uint64_t,bool>* epmem_id = &(raw_triple_to_wid[std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent,child_c_it->second.first,child_c_it->second.second,true)]);
+            out << " ^" << translation[child_c_it->second.first] << " " << translation[child_c_it->second.second] << " [" << epmem_id->first << " " << (epmem_id->second ? "+" : "-") << "]";
+            ++child_c_it;
+        }
+        i_child_range = i_information.equal_range(parent);
+        child_i_it_begin = i_child_range.first;
+        child_i_it_end = i_child_range.second;
+        child_i_it = child_i_it_begin;
+        while(child_i_it != child_i_it_end)
+        {
+            std::pair<uint64_t,bool>* epmem_id = &(raw_triple_to_wid[std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent,child_i_it->second.first,child_i_it->second.second,false)]);
+            out << " ^" << translation[child_i_it->second.first] << " <" << child_i_it->second.second << ">" << " [" << epmem_id->first << " " << (epmem_id->second ? "+" : "-") << "]";
+            if (added_to_child_queue_already.find(child_i_it->second.second) == added_to_child_queue_already.end())
+            {
+                child_queue.push(child_i_it->second.second);
+                added_to_child_queue_already.insert(child_i_it->second.second);
+                depth_map[child_i_it->second.second] = current_depth + 1;
+            }
+            ++child_i_it;
+        }
+        out << "}" << std::endl;
+    }
     return out;
 }
 std::size_t EpMem_Id_Delta::hash() const
@@ -6371,7 +6622,9 @@ EpMem_Id_Delta::EpMem_Id_Delta(EpMem_Id_Delta&& other)
     , removals(NULL)
     , additions_constant(NULL)
     , removals_constant(NULL)
+    , myAgent(NULL)
 {
+    myAgent = other.myAgent;
     additions = other.additions;
     removals = other.removals;
     additions_constant = other.additions_constant;
@@ -6387,13 +6640,15 @@ EpMem_Id_Delta::EpMem_Id_Delta(const EpMem_Id_Delta& other)
     removals = new epmem_id_delta_set(*(other.removals));
     additions_constant = new epmem_id_delta_set(*(other.additions_constant));
     removals_constant = new epmem_id_delta_set(*(other.removals_constant));
+    myAgent = other.myAgent;
 }
-EpMem_Id_Delta::EpMem_Id_Delta()
+EpMem_Id_Delta::EpMem_Id_Delta(agent* someAgent)
 {
     additions = new epmem_id_delta_set;
     removals = new epmem_id_delta_set;
     additions_constant = new epmem_id_delta_set;
     removals_constant = new epmem_id_delta_set;
+    myAgent = someAgent;
 }
 EpMem_Id_Delta::~EpMem_Id_Delta()
 {

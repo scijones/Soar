@@ -298,7 +298,23 @@ bool CommandLineInterface::DoEpMem(const char pOp, const std::string* pAttr, con
     }
     else if (pOp == 'z')
     {
-        epmem_print_sequitur(thisAgent);
+        std::stringstream ss;
+
+        //change the underlying buffer and save the old buffer
+        auto old_buf = std::cout.rdbuf(ss.rdbuf());
+        if (pAttr)
+        {
+            int64_t ruleIndex = 0;
+            from_c_string(ruleIndex, pAttr->c_str());
+            epmem_print_sequitur(thisAgent,ruleIndex);
+        }
+        else
+        {
+            epmem_print_sequitur(thisAgent,-1);
+        }
+        std::string temp = ss.str();
+        PrintCLIMessage(&temp);
+        std::cout.rdbuf(old_buf); //reset
         return true;
     }
     
