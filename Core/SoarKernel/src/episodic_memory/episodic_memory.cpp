@@ -6705,7 +6705,7 @@ EpMem_Manager::EpMem_Manager(agent* myAgent)
     epmem_id_removes = new epmem_symbol_stack(soar_module::soar_memory_pool_allocator< Symbol* >(thisAgent));
  #else
     epmem_node_removals = new epmem_id_removal_map();
-    epmem_edge_removals = new epmem_id_removal_map();
+    epmem_edge_removals = new epmem_edge_removal_map();
     epmem_wme_adds = new epmem_symbol_set();
     epmem_id_removes = new epmem_symbol_stack();
  #endif
