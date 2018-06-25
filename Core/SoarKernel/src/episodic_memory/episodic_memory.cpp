@@ -1132,8 +1132,11 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     next_episode = new soar_module::sqlite_statement(new_db, "SELECT episode_id FROM epmem_episodes WHERE episode_id>? ORDER BY episode_id ASC LIMIT 1");
     add(next_episode);
 
-    next_query_episode = new soar_module::sqlite_statement(new_db, "SELECT episode_id FROM epmem_episodes WHERE episode_id>? ORDER BY episode_id ASC LIMIT 1");//I make the assumption that there always exists an event counter architectural WME.
+    next_query_episode = new soar_module::sqlite_statement(new_db, "SELECT ewcr.start_episode_id FROM epmem_wmes_constant_range ewcr INNER JOIN epmem_wmes_constant ewc WHERE ewc.wc_id = ewcr.wc_id AND ewc.parent_n_id=0 and ewc.attribute_s_id=? AND ewc.value_s_id=?");//I make the assumption that there always exists an event counter architectural WME.
     add(next_query_episode);//The initial implementation will be with respect to a known hard constraint on the working memory graph change to expect. ("mapping" in epmem results would allow for more freedom, but we are starting simple.)
+    //I have now three arguments. The first is still the episode id. The second is the attribute id. The third is the value id. I assume a parent of 0 (root state node).
+    //I'll end up with a wc_id from the parent,attr,child. Given that the event counter only increments, there is only one interval in which this wc_id will exist. Thus, the indexing in epmem_wmes_constant_range is suitable.
+    //We'll end up with an episode start id by querying the epmem_wmes_constant_range table by that wc_id.
 
     prev_episode = new soar_module::sqlite_statement(new_db, "SELECT episode_id FROM epmem_episodes WHERE episode_id<? ORDER BY episode_id DESC LIMIT 1");
     add(prev_episode);
@@ -1939,6 +1942,7 @@ void epmem_reset(agent* thisAgent, Symbol* state)
         data->last_cmd_count = 0;
 
         data->last_memory = EPMEM_MEMID_NONE;
+        data->last_event = EPMEM_MEMID_NONE;
 
         // this will be called after prefs from goal are already removed,
         // so just clear out result stack
@@ -3385,6 +3389,7 @@ void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_
     {
         epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved, thisAgent->symbolManager->soarSymbols.epmem_sym_no_memory);
         state->id->epmem_info->last_memory = EPMEM_MEMID_NONE;
+        state->id->epmem_info->last_event = EPMEM_MEMID_NONE;
 
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->EpMem->epmem_timers->ncb_retrieval->stop();
@@ -3419,6 +3424,12 @@ void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_
         epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_present_id, my_meta);
         thisAgent->symbolManager->symbol_remove_ref(&my_meta);
     }
+
+    //A new addition to installed memories - keeping track of the event segmentation counter associated with the memory.
+    //A reserved attribute will be assumed - "event-segmentation-counter" (should be verbose enough).
+    //A query to the epmem database for the attribute id associated with this string lets us then check with an "if" below during construction.
+    //The following (before "install memory" is the code to find the relevant attribute).
+    uint64_t event_attribute_id = epmem_temporal_hash_str(thisAgent, "event-segmentation-counter", false);
 
     // install memory
     {
@@ -3590,6 +3601,10 @@ void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_
 
                     // make a symbol to represent the value
                     value = epmem_reverse_hash(thisAgent, my_q->column_int(3));
+                    if (((uint64_t)my_q->column_int(2)) == event_attribute_id)
+                    {//If the attribute matches my special event segmentation counter
+                        state->id->epmem_info->last_event = value->ic->value;
+                    }
 
                     epmem_buffer_add_wme(thisAgent, retrieval_wmes, parent.first, attr, value);
                     num_wmes++;
@@ -3652,19 +3667,21 @@ epmem_time_id epmem_next_episode(agent* thisAgent, epmem_time_id memory_id)
  *                constraint. Hard-coded as next time "event-counter"
  *                attribute changes.
  **************************************************************************/
-epmem_time_id epmem_next_query_episode(agent* thisAgent, epmem_time_id memory_id)
+epmem_time_id epmem_next_query_episode(agent* thisAgent, epmem_time_id memory_id, epmem_time_id event_id)
 {
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->EpMem->epmem_timers->next->start();
     ////////////////////////////////////////////////////////////////////////////
 
     epmem_time_id return_val = EPMEM_MEMID_NONE;
+    uint64_t event_attribute_id = epmem_temporal_hash_str(thisAgent, "event-segmentation-counter", false);
 
     if (memory_id != EPMEM_MEMID_NONE)
     {
         soar_module::sqlite_statement* my_q = thisAgent->EpMem->epmem_stmts_graph->next_query_episode;
-        my_q->bind_int(1, memory_id);
-        //This will eventually need another bind when it is expanded to not be hard-coded to a known WMG structure.
+        //my_q->bind_int(1, memory_id);
+        my_q->bind_int(1, event_attribute_id);
+        my_q->bind_int(2, event_id+1);
         if (my_q->execute() == soar_module::row)
         {
             return_val = (epmem_time_id) my_q->column_int(0);
@@ -6029,7 +6046,7 @@ void epmem_respond_to_cmd(agent* thisAgent)
                 {//The below is still a copy of the old query code. unchanged.
                     //We will need to add something like epmem_next_episode(thisAgent, state->id->epmem_info->last_memory) somewhere.
                     dprint(DT_EPMEM_CMD, "--- ...next-query command.  Installing memory.\n");//Right now, just going for next subject to hard-coded constraint.
-                    epmem_install_memory(thisAgent, state, epmem_next_query_episode(thisAgent, state->id->epmem_info->last_memory), meta_wmes, retrieval_wmes);
+                    epmem_install_memory(thisAgent, state, epmem_next_query_episode(thisAgent, state->id->epmem_info->last_memory, state->id->epmem_info->last_event), meta_wmes, retrieval_wmes);
                     //This *WILL* have bad undefined behavior in the event that it is used when there is not yet already an episode that has been retrieved.
                     //I will first implement as if I can assume that an episode has already been retrieved such that "next" is clearly defined.
                 }

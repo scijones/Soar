@@ -400,6 +400,7 @@ typedef struct epmem_data_struct
     uint64_t last_cmd_count;                                // last update to epmem.command
 
     epmem_time_id last_memory;                              // last retrieved memory
+    epmem_time_id last_event;                               // event counter value associated with last retrieved memory
 
     wme* epmem_link_wme;
     wme* cmd_wme;

@@ -2691,6 +2691,7 @@ void create_new_context(agent* thisAgent, Symbol* attr_of_impasse, byte impasse_
     id->id->epmem_info->last_cmd_time = 0;
     id->id->epmem_info->last_cmd_count = 0;
     id->id->epmem_info->last_memory = EPMEM_MEMID_NONE;
+    id->id->epmem_info->last_event = EPMEM_MEMID_NONE;
     thisAgent->memoryManager->allocate_with_pool(MP_epmem_wmes, &(id->id->epmem_info->epmem_wmes));
     id->id->epmem_info->epmem_wmes = new(id->id->epmem_info->epmem_wmes) preference_list();
 
