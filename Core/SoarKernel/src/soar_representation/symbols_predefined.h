@@ -89,6 +89,7 @@ typedef struct predefined_sym_struct {
         Symbol*             epmem_sym_next;
         Symbol*             epmem_sym_prev;
         Symbol*             epmem_sym_query;
+        Symbol*             epmem_sym_next_query;//This is a new type of next which retrieves the next episode that matches to a given query-style constraint. (coding this is in-progress)
         Symbol*             epmem_sym_negquery;
         Symbol*             epmem_sym_before;
         Symbol*             epmem_sym_after;

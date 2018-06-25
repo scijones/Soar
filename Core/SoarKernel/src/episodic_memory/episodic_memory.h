@@ -318,6 +318,7 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
 
         soar_module::sqlite_statement* valid_episode;
         soar_module::sqlite_statement* next_episode;
+        soar_module::sqlite_statement* next_query_episode;
         soar_module::sqlite_statement* prev_episode;
 
         soar_module::sqlite_statement* get_wmes_with_identifier_values;

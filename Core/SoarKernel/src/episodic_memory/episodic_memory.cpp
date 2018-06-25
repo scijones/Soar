@@ -1132,6 +1132,9 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     next_episode = new soar_module::sqlite_statement(new_db, "SELECT episode_id FROM epmem_episodes WHERE episode_id>? ORDER BY episode_id ASC LIMIT 1");
     add(next_episode);
 
+    next_query_episode = new soar_module::sqlite_statement(new_db, "SELECT episode_id FROM epmem_episodes WHERE episode_id>? ORDER BY episode_id ASC LIMIT 1");//I make the assumption that there always exists an event counter architectural WME.
+    add(next_query_episode);//The initial implementation will be with respect to a known hard constraint on the working memory graph change to expect. ("mapping" in epmem results would allow for more freedom, but we are starting simple.)
+
     prev_episode = new soar_module::sqlite_statement(new_db, "SELECT episode_id FROM epmem_episodes WHERE episode_id<? ORDER BY episode_id DESC LIMIT 1");
     add(prev_episode);
 
@@ -3363,7 +3366,8 @@ inline void _epmem_install_id_wme(agent* thisAgent, Symbol* parent, Symbol* attr
  *                during reconstruction.
  **************************************************************************/
 void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_id, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_id_mapping* id_record = NULL)
-{
+{//My modification to support having hard-coded event segmentation queries is to keep track of an event counter similar to last_memory having a memory id. When an episode is recalled
+    //I'll want to make sure that I note the event_counter value that is part of the episode.
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->EpMem->epmem_timers->ncb_retrieval->start();
     ////////////////////////////////////////////////////////////////////////////
@@ -3626,6 +3630,41 @@ epmem_time_id epmem_next_episode(agent* thisAgent, epmem_time_id memory_id)
     {
         soar_module::sqlite_statement* my_q = thisAgent->EpMem->epmem_stmts_graph->next_episode;
         my_q->bind_int(1, memory_id);
+        if (my_q->execute() == soar_module::row)
+        {
+            return_val = (epmem_time_id) my_q->column_int(0);
+        }
+
+        my_q->reinitialize();
+    }
+
+    ////////////////////////////////////////////////////////////////////////////
+    thisAgent->EpMem->epmem_timers->next->stop();
+    ////////////////////////////////////////////////////////////////////////////
+
+    return return_val;
+}
+
+/***************************************************************************
+ * Function     : epmem_next_query_episode
+ * Author       : Steven Jones
+ * Notes        : Returns the next valid temporal id subject to a given
+ *                constraint. Hard-coded as next time "event-counter"
+ *                attribute changes.
+ **************************************************************************/
+epmem_time_id epmem_next_query_episode(agent* thisAgent, epmem_time_id memory_id)
+{
+    ////////////////////////////////////////////////////////////////////////////
+    thisAgent->EpMem->epmem_timers->next->start();
+    ////////////////////////////////////////////////////////////////////////////
+
+    epmem_time_id return_val = EPMEM_MEMID_NONE;
+
+    if (memory_id != EPMEM_MEMID_NONE)
+    {
+        soar_module::sqlite_statement* my_q = thisAgent->EpMem->epmem_stmts_graph->next_query_episode;
+        my_q->bind_int(1, memory_id);
+        //This will eventually need another bind when it is expanded to not be hard-coded to a known WMG structure.
         if (my_q->execute() == soar_module::row)
         {
             return_val = (epmem_time_id) my_q->column_int(0);
@@ -5688,6 +5727,22 @@ void inline _epmem_respond_to_cmd_parse(agent* thisAgent, epmem_wme_list* cmds, 
                     good_cue = false;
                 }
             }
+            else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.epmem_sym_next_query)
+            {
+                if (((*w_p)->value->is_sti()) &&
+                        ((path == 0) || (path == 4))  ) // &&
+                        //(query == NULL))
+
+                {
+                    next = (*w_p)->value;
+                    //query = (*w_p)->value;
+                    path = 4;//Making up a brand new path for now since I'm not sure how to integrate later yet.
+                }
+                else
+                {
+                    good_cue = false;
+                }
+            }
             else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.epmem_sym_query)
             {
                 if (((*w_p)->value->is_sti()) &&
@@ -5968,6 +6023,15 @@ void epmem_respond_to_cmd(agent* thisAgent)
 
                     // add one to the cbr stat
                     thisAgent->EpMem->epmem_stats->cbr->set_value(thisAgent->EpMem->epmem_stats->cbr->get_value() + 1);
+                }
+                // next-query
+                else if (path == 4)
+                {//The below is still a copy of the old query code. unchanged.
+                    //We will need to add something like epmem_next_episode(thisAgent, state->id->epmem_info->last_memory) somewhere.
+                    dprint(DT_EPMEM_CMD, "--- ...next-query command.  Installing memory.\n");//Right now, just going for next subject to hard-coded constraint.
+                    epmem_install_memory(thisAgent, state, epmem_next_query_episode(thisAgent, state->id->epmem_info->last_memory), meta_wmes, retrieval_wmes);
+                    //This *WILL* have bad undefined behavior in the event that it is used when there is not yet already an episode that has been retrieved.
+                    //I will first implement as if I can assume that an episode has already been retrieved such that "next" is clearly defined.
                 }
             }
             else
