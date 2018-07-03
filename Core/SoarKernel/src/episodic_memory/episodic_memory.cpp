@@ -1,17 +1,7 @@
-/*------------------------------------------------------------------
-                       episodic_memory.cpp
-
-   @brief Soar's episodic memory system
-
-   @detailed
-
------------------------------------------------------------------- */
-
 #include "episodic_memory.h"
 
 #include "agent.h"
 #include "decide.h"
-#include "dprint.h"
 #include "ebc.h"
 #include "instantiation.h"
 #include "preference.h"
@@ -371,7 +361,6 @@ inline void epmem_reverse_hash_str(agent* thisAgent, epmem_hash_id s_id_lookup, 
     (void)res; // quells compiler warning
     if (res != soar_module::row)
     {
-        dprint(DT_DEBUG,  "epmem_reverse_hash_str crashing on s_id %u\n", s_id_lookup);
         epmem_close(thisAgent);
     }
     assert(res == soar_module::row);
@@ -1366,12 +1355,6 @@ inline void _epmem_process_buffered_wme_list(agent* thisAgent, Symbol* state, wm
     if (!epmem_wmes)
     {
         instantiation* my_justification_list = NIL;
-        dprint(DT_MILESTONES, "Asserting preferences of new architectural instantiation in _epem_process_buffered_wme_list...\n");
-//        thisAgent->explanationBasedChunker->set_learning_for_instantiation(inst);
-//        thisAgent->explanationBasedChunker->learn_EBC_rule(inst, &my_justification_list);
-
-        // if any justifications are created, assert their preferences manually
-        // (copied mainly from assert_new_preferences with respect to our circumstances)
         if (my_justification_list != NIL)
         {
             preference* just_pref = NIL;
@@ -5897,16 +5880,13 @@ void epmem_respond_to_cmd(agent* thisAgent)
     bool new_cue;
 
     bool do_wm_phase = false;
-    dprint_header(DT_EPMEM_CMD, PrintBefore, "Starting epmem_respond_to_cmd\n");
 
     while (state != NULL)
     {
-        dprint(DT_EPMEM_CMD, "=== Processing state %y\n", state);
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->EpMem->epmem_timers->api->start();
         ////////////////////////////////////////////////////////////////////////////
         // make sure this state has had some sort of change to the cmd
-        dprint(DT_EPMEM_CMD, "--- Checking for a change to a command...\n");
         new_cue = false;
         wme_count = 0;
         cmds = NULL;
@@ -5923,8 +5903,6 @@ void epmem_respond_to_cmd(agent* thisAgent)
                 // get state
                 parent_sym = syms.front();
                 syms.pop();
-
-                dprint(DT_EPMEM_CMD, "--- ...checking sym.%y\n", parent_sym);
 
                 // get children of the current identifier
                 wmes = epmem_get_augs_of_id(parent_sym, tc);
@@ -5977,7 +5955,6 @@ void epmem_respond_to_cmd(agent* thisAgent)
         // and there is something on the cue
         if (new_cue && wme_count)
         {
-            dprint(DT_EPMEM_CMD, "--- Processing new epmem command...\n");
             _epmem_respond_to_cmd_parse(thisAgent, cmds, good_cue, path, retrieve, next, previous, query, neg_query, prohibit, before, after, cue_wmes);
 
             ////////////////////////////////////////////////////////////////////////////
@@ -5990,13 +5967,11 @@ void epmem_respond_to_cmd(agent* thisAgent)
             // process command
             if (good_cue)
             {
-                dprint(DT_EPMEM_CMD, "--- ...good cue.\n");
                 thisAgent->explanationBasedChunker->clear_symbol_identity_map();
 
                 // retrieve
                 if (path == 1)
                 {
-                    dprint(DT_EPMEM_CMD, "--- ...retrieve command.  Installing memory.\n");
                     epmem_install_memory(thisAgent, state, retrieve, meta_wmes, retrieval_wmes);
 
                     // add one to the ncbr stat
@@ -6007,7 +5982,6 @@ void epmem_respond_to_cmd(agent* thisAgent)
                 {
                     if (next)
                     {
-                        dprint(DT_EPMEM_CMD, "--- ...next command.  Installing memory.\n");
                         epmem_install_memory(thisAgent, state, epmem_next_episode(thisAgent, state->id->epmem_info->last_memory), meta_wmes, retrieval_wmes);
 
                         // add one to the next stat
@@ -6015,7 +5989,6 @@ void epmem_respond_to_cmd(agent* thisAgent)
                     }
                     else
                     {
-                        dprint(DT_EPMEM_CMD, "--- ...previous command.  Installing memory.\n");
                         epmem_install_memory(thisAgent, state, epmem_previous_episode(thisAgent, state->id->epmem_info->last_memory), meta_wmes, retrieval_wmes);
 
                         // add one to the prev stat
@@ -6024,19 +5997,16 @@ void epmem_respond_to_cmd(agent* thisAgent)
 
                     if (state->id->epmem_info->last_memory == EPMEM_MEMID_NONE)
                     {
-                        dprint(DT_EPMEM_CMD, "--- ...adding failure result wmes.\n");
                         epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_failure, ((next) ? (next) : (previous)));
                     }
                     else
                     {
-                        dprint(DT_EPMEM_CMD, "--- ...adding success result wmes.\n");
                         epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_success, ((next) ? (next) : (previous)));
                     }
                 }
                 // query
                 else if (path == 3)
                 {
-                    dprint(DT_EPMEM_CMD, "--- ...query command.  Processing.\n");
                     epmem_process_query(thisAgent, state, query, neg_query, prohibit, before, after, cue_wmes, meta_wmes, retrieval_wmes);
 
                     // add one to the cbr stat
@@ -6054,23 +6024,19 @@ void epmem_respond_to_cmd(agent* thisAgent)
             }
             else
             {
-                dprint(DT_EPMEM_CMD, "--- ...adding bad command result wmes.\n");
                 epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_status, thisAgent->symbolManager->soarSymbols.epmem_sym_bad_cmd);
             }
 
             // clear prohibit list
-            dprint(DT_EPMEM_CMD, "--- ...clearing prohibit list.\n");
             prohibit.clear();
 
             if (!retrieval_wmes.empty() || !meta_wmes.empty())
             {
-                dprint(DT_EPMEM_CMD, "--- ...adding retrieved and architectural wmes.\n");
                 // process preference assertion en masse
                 epmem_process_buffered_wmes(thisAgent, state, cue_wmes, meta_wmes, retrieval_wmes);
 
                 // clear cache
                 {
-                    dprint(DT_EPMEM_CMD, "--- ...clearing buffer cache.\n");
                     symbol_triple_list::iterator mw_it;
 
                     for (mw_it = retrieval_wmes.begin(); mw_it != retrieval_wmes.end(); mw_it++)
@@ -6100,7 +6066,6 @@ void epmem_respond_to_cmd(agent* thisAgent)
 
             // clear cue wmes
             cue_wmes.clear();
-            dprint(DT_EPMEM_CMD, "--- ...done processing epmem command.\n");
         }
         else
         {
@@ -6115,27 +6080,21 @@ void epmem_respond_to_cmd(agent* thisAgent)
             delete cmds;
         }
 
-        dprint(DT_EPMEM_CMD, "=== Done processing state %y.  Proceeding to next goal up.\n", state);
-
         state = state->id->higher_goal;
     }
 
-    dprint(DT_EPMEM_CMD, "=== Checking if we need to do working memory phase...\n");
     if (do_wm_phase)
     {
-        dprint(DT_EPMEM_CMD, "=== ...doing working memory phase.\n");
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->EpMem->epmem_timers->wm_phase->start();
         ////////////////////////////////////////////////////////////////////////////
 
         do_working_memory_phase(thisAgent);
 
-        dprint(DT_EPMEM_CMD, "=== ...finished working memory phase.\n");
         ////////////////////////////////////////////////////////////////////////////
         thisAgent->EpMem->epmem_timers->wm_phase->stop();
         ////////////////////////////////////////////////////////////////////////////
     }
-    dprint_header(DT_EPMEM_CMD, PrintAfter, "Done excuting epmem_respond_to_cmd\n");
 }
 
 /***************************************************************************
