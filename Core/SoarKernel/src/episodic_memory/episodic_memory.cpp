@@ -3675,13 +3675,14 @@ epmem_time_id epmem_next_query_episode(agent* thisAgent, epmem_time_id memory_id
 
     epmem_time_id return_val = EPMEM_MEMID_NONE;
     uint64_t event_attribute_id = epmem_temporal_hash_str(thisAgent, "event-segmentation-counter", false);
+    uint64_t event_value_id = epmem_temporal_hash_int(thisAgent, event_id+1, false);
 
-    if (memory_id != EPMEM_MEMID_NONE)
+    if (memory_id != EPMEM_MEMID_NONE && event_value_id != NIL)
     {
         soar_module::sqlite_statement* my_q = thisAgent->EpMem->epmem_stmts_graph->next_query_episode;
         //my_q->bind_int(1, memory_id);
         my_q->bind_int(1, event_attribute_id);
-        my_q->bind_int(2, event_id+1);
+        my_q->bind_int(2, event_value_id);
         if (my_q->execute() == soar_module::row)
         {
             return_val = (epmem_time_id) my_q->column_int(0);
