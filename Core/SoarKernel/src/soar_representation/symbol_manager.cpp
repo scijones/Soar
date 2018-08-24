@@ -655,6 +655,7 @@ void Symbol_Manager::create_predefined_symbols()
     soarSymbols.epmem_sym = make_str_constant("epmem");
     soarSymbols.epmem_sym_cmd = make_str_constant("command");
     soarSymbols.epmem_sym_result = make_str_constant("result");
+    soarSymbols.epmem_sym_event_segmentation_counter = make_str_constant("event-segmentation-counter");
 
     soarSymbols.epmem_sym_retrieved = make_str_constant("retrieved");
     soarSymbols.epmem_sym_status = make_str_constant("status");
@@ -835,6 +836,7 @@ void Symbol_Manager::release_predefined_symbols()
     symbol_remove_ref(&(soarSymbols.epmem_sym));
     symbol_remove_ref(&(soarSymbols.epmem_sym_cmd));
     symbol_remove_ref(&(soarSymbols.epmem_sym_result));
+    symbol_remove_ref(&(soarSymbols.epmem_sym_event_segmentation_counter));
 
     symbol_remove_ref(&(soarSymbols.epmem_sym_retrieved));
     symbol_remove_ref(&(soarSymbols.epmem_sym_status));

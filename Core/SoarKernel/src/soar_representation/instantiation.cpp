@@ -1506,6 +1506,7 @@ instantiation* make_architectural_instantiation_for_memory_system(agent* thisAge
             add_cond_to_arch_inst(thisAgent, prev_cond, inst, pState->id->epmem_info->epmem_link_wme, false);
             add_cond_to_arch_inst(thisAgent, prev_cond, inst, pState->id->epmem_info->cmd_wme, false);
             add_cond_to_arch_inst(thisAgent, prev_cond, inst, pState->id->epmem_info->result_wme, false);
+            add_cond_to_arch_inst(thisAgent, prev_cond, inst, pState->id->epmem_info->epmem_event_segmentation_counter_wme, false);
         }
         for (wme_set::iterator c_it = pConds->begin(); c_it != pConds->end(); c_it++)
         {

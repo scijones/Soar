@@ -1904,6 +1904,17 @@ Symbol* create_new_impasse(agent* thisAgent, bool isa_goal, Symbol* object, Symb
         impasseID->id->epmem_info->cmd_wme = soar_module::add_module_wme(thisAgent, lepmem_header, thisAgent->symbolManager->soarSymbols.epmem_sym_cmd, lepmem_cmd_header);
         Symbol* lepmem_result_header = thisAgent->symbolManager->make_new_identifier('R', level);
         impasseID->id->epmem_info->result_wme = soar_module::add_module_wme(thisAgent, lepmem_header, thisAgent->symbolManager->soarSymbols.epmem_sym_result, lepmem_result_header);
+        if (impasse_type == NONE_IMPASSE_TYPE)
+        {//Since episodic memory only records top state and we are segmenting episodic memory,
+            Symbol* lepmem_event_segmentation_counter = thisAgent->symbolManager->make_int_constant(0);
+            //for now we assume that it should be only at the top state that we change segmentation.
+            impasseID->id->epmem_info->epmem_event_segmentation_counter_wme = soar_module::add_module_wme(thisAgent, lepmem_header, thisAgent->symbolManager->soarSymbols.epmem_sym_event_segmentation_counter, lepmem_event_segmentation_counter);
+            thisAgent->symbolManager->symbol_remove_ref(&lepmem_event_segmentation_counter);
+        }
+        else
+        {// I'm assuming that leaving epmem_event_segmentation_counter_wme uninitialized in episodic_memory.cpp's epmem_data_struct NIL on substates isn't the end of the world, but we'll see.
+            impasseID->id->epmem_info->epmem_event_segmentation_counter_wme = NIL;
+        }
 
 
         {

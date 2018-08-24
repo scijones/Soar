@@ -67,6 +67,7 @@ typedef struct predefined_sym_struct {
         Symbol*             epmem_sym;
         Symbol*             epmem_sym_cmd;
         Symbol*             epmem_sym_result;
+        Symbol*             epmem_sym_event_segmentation_counter;
 
         Symbol*             epmem_sym_retrieved;
         Symbol*             epmem_sym_status;

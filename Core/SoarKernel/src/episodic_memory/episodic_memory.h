@@ -406,6 +406,7 @@ typedef struct epmem_data_struct
     wme* cmd_wme;
     wme* result_wme;
     wme* epmem_time_wme;
+    wme* epmem_event_segmentation_counter_wme;// This should only be initialized at all when on the top state.
 
     preference_list* epmem_wmes;                            // preferences generated in last epmem
 } epmem_data;
