@@ -3027,7 +3027,6 @@ void epmem_new_episode(agent* thisAgent)
         //EpMem_Id_Delta* some_delta2 = new EpMem_Id_Delta();
         bool was_nothing = true;
 
-
         // all inserts
         {
             epmem_node_id* temp_node;
@@ -3216,16 +3215,20 @@ void epmem_new_episode(agent* thisAgent)
         {
             thisAgent->EpMem->epmem_wme_adds->clear();
         }
+        if (!was_nothing)
+        {
+            //Easy Method # 1: Working Memory Change Size Threshold:
+            uint64_t working_memory_delta_size = some_delta->additions_size() + some_delta->removals_size() + some_delta->additions_constant_size() + some_delta->removals_constant_size();
+        }
         if (!(was_nothing && thisAgent->EpMem->no_immediately_previous_change))//TODO: sjj -- It may be that cycle-specific timings are important to encode and this should be turned into an optional parameter for epmem compression.
         {//might be worth also adding the option to ignore no-change cycles altogether, not just a succession of them.
+            //A note about this push_back - invalidates old pointer w/ std::move!!!
             thisAgent->EpMem->sequitur_for_deltas->push_back(some_delta);//This is where a single cycle's delta is recorded outside of the standard episodic memory database indexing.
             //some_delta is a EpMem_Id_Delta*, so I should be able to use the EpMem_Id_Delta hash to compare this to a predefined/known delta. - initial epmem segmentation definitions will be in hash table = "constant" lookup check against segmentation triggers
             //If we pretend specific changes can be considered as those which designate a given segmentation, fine, but consider the case of a superset of those changes occuring during a cycle where the segmentation was defined as a subset of those changes.
             //one implementation = literally create a RHS function that turns what would have been a RHS-less elaboration instead into a call to EpMem to segment.
             //go all in on using operator selection as the trigger and just support via making rules instead of storing directly to WM the triggers.
             //(EST seems more in line with lossy Sequitur where instantiating a rule, but then saving the deltas at the start and finish w.r.t. the rule's specification, gives the "correct" storage of the event.
-            //Easy Method # 1: Working Memory Change Size Threshold:
-            uint64_t working_memory_delta_size = some_delta->additions_size() + some_delta->removals_size() + some_delta->additions_constant_size() + some_delta->removals_constant_size();
             //I can literally keep a histogram of this and record events as some arbitrary threshold of percentile. The first implementation will be even easier - a specification of a literal magnitude or size that is the threshold, not even stats-based.
             //Easy Method # 2: Rule Conditions that define events:
             //The only thing different from my first implementation will be not relying on a working-memory specification with the declarative information that says "hey, I'm an event" and instead it will be in rules directly.
