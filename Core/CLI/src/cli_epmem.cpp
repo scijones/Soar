@@ -54,7 +54,7 @@ bool CommandLineInterface::DoEpMem(const char pOp, const std::string* pAttr, con
         PrintCLIMessage_Item("merge:", thisAgent->EpMem->epmem_params->merge, 40);
         PrintCLIMessage_Section("Experimental Event Segmentation", 40);
         PrintCLIMessage_Item("segmentation-method:", thisAgent->EpMem->epmem_params->segmentation_method, 40);
-        PrintCLIMessage_Item("segmentation-threshold:", thisAgent->EpMem->epmem_params->delta_segmentation_threshold, 40);
+        PrintCLIMessage_Item("threshold:", thisAgent->EpMem->epmem_params->threshold, 40);
         PrintCLIMessage("");
 //        thisAgent->EpMem->epmem_params->print_summary(thisAgent);
         return true;
@@ -201,7 +201,7 @@ bool CommandLineInterface::DoEpMem(const char pOp, const std::string* pAttr, con
                 }
                 
             }
-            if (!strcmp(pAttr->c_str(), "delta_segmentation_threshold"))
+            if (!strcmp(pAttr->c_str(), "threshold"))
             {
                 if (thisAgent->EpMem->epmem_params->segmentation_method->get_value() != epmem_param_container::segmentation_method_choices::delta_threshold)
                 {

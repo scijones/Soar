@@ -188,8 +188,8 @@ epmem_param_container::epmem_param_container(agent* new_agent): soar_module::par
     segmentation_method->add_mapping(sequitur_compression, "sequitur-compression");
     add(segmentation_method);
 
-    delta_segmentation_threshold = new soar_module::integer_param("delta-segmentation-threshold", 20, new soar_module::gt_predicate<int64_t>(1, true), new epmem_db_predicate<int64_t>(thisAgent));
-    add(delta_segmentation_threshold);
+    threshold = new soar_module::integer_param("threshold", 20, new soar_module::gt_predicate<int64_t>(1, true), new epmem_db_predicate<int64_t>(thisAgent));
+    add(threshold);
 }
 
 //
@@ -1131,7 +1131,7 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     next_episode = new soar_module::sqlite_statement(new_db, "SELECT episode_id FROM epmem_episodes WHERE episode_id>? ORDER BY episode_id ASC LIMIT 1");
     add(next_episode);
 
-    next_query_episode = new soar_module::sqlite_statement(new_db, "SELECT ewcr.start_episode_id FROM epmem_wmes_constant_range ewcr INNER JOIN epmem_wmes_constant ewc WHERE ewc.wc_id = ewcr.wc_id AND ewc.parent_n_id=0 and ewc.attribute_s_id=? AND ewc.value_s_id=?");//I make the assumption that there always exists an event counter architectural WME.
+    next_query_episode = new soar_module::sqlite_statement(new_db, "SELECT ewcr.start_episode_id FROM epmem_wmes_constant_range ewcr INNER JOIN epmem_wmes_constant ewc ON ewc.wc_id = ewcr.wc_id INNER JOIN epmem_wmes_identifier ewi ON ewc.parent_n_id = ewi.child_n_id WHERE ewi.parent_n_id=0 AND ewi.attribute_s_id=? AND ewc.attribute_s_id=? AND ewc.value_s_id=?");//"SELECT ewcr.start_episode_id FROM epmem_wmes_constant_range ewcr INNER JOIN epmem_wmes_constant ewc WHERE ewc.wc_id = ewcr.wc_id AND ewc.parent_n_id=? and ewc.attribute_s_id=? AND ewc.value_s_id=?");//I make the assumption that there always exists an event counter architectural WME.
     add(next_query_episode);//The initial implementation will be with respect to a known hard constraint on the working memory graph change to expect. ("mapping" in epmem results would allow for more freedom, but we are starting simple.)
     //I have now three arguments. The first is still the episode id. The second is the attribute id. The third is the value id. I assume a parent of 0 (root state node).
     //I'll end up with a wc_id from the parent,attr,child. Given that the event counter only increments, there is only one interval in which this wc_id will exist. Thus, the indexing in epmem_wmes_constant_range is suitable.
@@ -3247,15 +3247,20 @@ void epmem_new_episode(agent* thisAgent)
         {
             thisAgent->EpMem->epmem_wme_adds->clear();
         }
-        if (!was_nothing && working_memory_delta_size >= thisAgent->EpMem->epmem_params->delta_segmentation_threshold->get_value())
-        {
+        if (!was_nothing && working_memory_delta_size >= thisAgent->EpMem->epmem_params->threshold->get_value())
+        {// Need one more trigger based on whether or not previous cycle also had a large change, or need to complicate query to allow for events of a single cycle (weird).
             //Easy Method # 1: Working Memory Change Size Threshold:
             //working_memory_delta_size = //some_delta->additions_size() + some_delta->removals_size() + some_delta->additions_constant_size() + some_delta->removals_constant_size();
             //The epmem option for event-delta-size sets a threshold that, if met here, increments the event segmentaiton counter.
             //The thing to do when this is triggered is to increment the architectural wme of event-segmentation-counter under the topstate epmem wme.
             thisAgent->EpMem->event_segmentation_counter = thisAgent->EpMem->event_segmentation_counter + 1;
+            if (thisAgent->top_state->id->epmem_info->epmem_event_segmentation_counter_wme != NIL)
+            {//This if check shouldn't actually ever be needed.
+                soar_module::remove_module_wme(thisAgent, thisAgent->top_state->id->epmem_info->epmem_event_segmentation_counter_wme);
+            }
+
             Symbol* lepmem_event_segmentation_counter = thisAgent->symbolManager->make_int_constant(thisAgent->EpMem->event_segmentation_counter);
-            soar_module::add_module_wme(thisAgent, thisAgent->top_state->id->epmem_info->epmem_link_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_event_segmentation_counter, lepmem_event_segmentation_counter);
+            thisAgent->top_state->id->epmem_info->epmem_event_segmentation_counter_wme = soar_module::add_module_wme(thisAgent, thisAgent->top_state->id->epmem_info->epmem_link_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_event_segmentation_counter, lepmem_event_segmentation_counter);
             thisAgent->symbolManager->symbol_remove_ref(&lepmem_event_segmentation_counter);
         }
         if (thisAgent->EpMem->epmem_params->segmentation_method->get_value() == epmem_param_container::sequitur_compression)
@@ -3464,7 +3469,7 @@ void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_
     //A reserved attribute will be assumed - "event-segmentation-counter" (should be verbose enough).
     //A query to the epmem database for the attribute id associated with this string lets us then check with an "if" below during construction.
     //The following (before "install memory" is the code to find the relevant attribute).
-    uint64_t event_attribute_id = epmem_temporal_hash_str(thisAgent, "event-segmentation-counter", false);
+    uint64_t event_attribute_id = epmem_temporal_hash_str(thisAgent, thisAgent->symbolManager->soarSymbols.epmem_sym_event_segmentation_counter->to_string(), false);
 
     // install memory
     {
@@ -3709,15 +3714,17 @@ epmem_time_id epmem_next_query_episode(agent* thisAgent, epmem_time_id memory_id
     ////////////////////////////////////////////////////////////////////////////
 
     epmem_time_id return_val = EPMEM_MEMID_NONE;
-    uint64_t event_attribute_id = epmem_temporal_hash_str(thisAgent, "event-segmentation-counter", false);
+    uint64_t epmem_link_id = epmem_temporal_hash_str(thisAgent, thisAgent->symbolManager->soarSymbols.epmem_sym->sc->to_string(), false);
+    uint64_t event_attribute_id = epmem_temporal_hash_str(thisAgent, thisAgent->symbolManager->soarSymbols.epmem_sym_event_segmentation_counter->to_string(), false);
+    //For this to work, exclusions must not exclude the entirety of epmem, but rather the results and command (and perhaps present-id) sublinks.
     uint64_t event_value_id = epmem_temporal_hash_int(thisAgent, event_id+1, false);
 
     if (memory_id != EPMEM_MEMID_NONE && event_value_id != NIL)
     {
         soar_module::sqlite_statement* my_q = thisAgent->EpMem->epmem_stmts_graph->next_query_episode;
-        //my_q->bind_int(1, memory_id);
-        my_q->bind_int(1, event_attribute_id);
-        my_q->bind_int(2, event_value_id);
+        my_q->bind_int(1, epmem_link_id);
+        my_q->bind_int(2, event_attribute_id);
+        my_q->bind_int(3, event_value_id);
         if (my_q->execute() == soar_module::row)
         {
             return_val = (epmem_time_id) my_q->column_int(0);
@@ -5796,6 +5803,22 @@ void inline _epmem_respond_to_cmd_parse(agent* thisAgent, epmem_wme_list* cmds, 
                     good_cue = false;
                 }
             }
+            else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.epmem_sym_segment)
+            {
+                if (((*w_p)->value->is_sti()) &&
+                        ((path == 0) || (path == 5))  ) // &&
+                        //(query == NULL))
+
+                {
+                    next = (*w_p)->value;
+                    //query = (*w_p)->value;
+                    path = 5;//Making up a brand new path for now since I'm not sure how to integrate later yet.
+                }
+                else
+                {
+                    good_cue = false;
+                }
+            }
             else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.epmem_sym_query)
             {
                 if (((*w_p)->value->is_sti()) &&
@@ -6072,6 +6095,18 @@ void epmem_respond_to_cmd(agent* thisAgent)
                     epmem_install_memory(thisAgent, state, epmem_next_query_episode(thisAgent, state->id->epmem_info->last_memory, state->id->epmem_info->last_event), meta_wmes, retrieval_wmes);
                     //This *WILL* have bad undefined behavior in the event that it is used when there is not yet already an episode that has been retrieved.
                     //I will first implement as if I can assume that an episode has already been retrieved such that "next" is clearly defined.
+                }
+                else if (path == 5)
+                {//This is just meant to increment the event-segmentation-counter wme under the top-state epmem link.
+                    thisAgent->EpMem->event_segmentation_counter = thisAgent->EpMem->event_segmentation_counter + 1;
+                    if (thisAgent->top_state->id->epmem_info->epmem_event_segmentation_counter_wme != NIL)
+                    {//This if check shouldn't actually ever be needed.
+                        soar_module::remove_module_wme(thisAgent, thisAgent->top_state->id->epmem_info->epmem_event_segmentation_counter_wme);
+                    }
+
+                    Symbol* lepmem_event_segmentation_counter = thisAgent->symbolManager->make_int_constant(thisAgent->EpMem->event_segmentation_counter);
+                    thisAgent->top_state->id->epmem_info->epmem_event_segmentation_counter_wme = soar_module::add_module_wme(thisAgent, thisAgent->top_state->id->epmem_info->epmem_link_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_event_segmentation_counter, lepmem_event_segmentation_counter);
+                    thisAgent->symbolManager->symbol_remove_ref(&lepmem_event_segmentation_counter);
                 }
             }
             else

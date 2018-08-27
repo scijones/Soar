@@ -51,7 +51,7 @@ class epmem_param_container: public soar_module::param_container
         enum merge_choices { merge_none, merge_add };
 
         // segmentation
-        enum segmentation_method_choices { delta_threshold, sequitur_compression };
+        enum segmentation_method_choices { agent_initiated, delta_threshold, sequitur_compression };
 
         ////////////////////////////////////////////////////////////
         ////////////////////////////////////////////////////////////
@@ -87,7 +87,7 @@ class epmem_param_container: public soar_module::param_container
 
         // segmentation
         soar_module::constant_param<segmentation_method_choices>* segmentation_method;
-        soar_module::integer_param* delta_segmentation_threshold;
+        soar_module::integer_param* threshold;
 
         void print_settings(agent* thisAgent);
         void print_summary(agent* thisAgent);
