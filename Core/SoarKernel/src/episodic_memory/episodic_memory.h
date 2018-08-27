@@ -87,6 +87,7 @@ class epmem_param_container: public soar_module::param_container
 
         // segmentation
         soar_module::constant_param<segmentation_method_choices>* segmentation_method;
+        soar_module::integer_param* delta_segmentation_threshold;
 
         void print_settings(agent* thisAgent);
         void print_summary(agent* thisAgent);
@@ -727,6 +728,7 @@ class EpMem_Manager
 
         jw::Sequitur<EpMem_Id_Delta>* sequitur_for_deltas;
         bool no_immediately_previous_change;
+        uint64_t event_segmentation_counter;
         friend std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta);
     private:
 

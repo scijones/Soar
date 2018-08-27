@@ -187,6 +187,9 @@ epmem_param_container::epmem_param_container(agent* new_agent): soar_module::par
     segmentation_method->add_mapping(delta_threshold, "delta-threshold");
     segmentation_method->add_mapping(sequitur_compression, "sequitur-compression");
     add(segmentation_method);
+
+    delta_segmentation_threshold = new soar_module::integer_param("delta-segmentation-threshold", 20, new soar_module::gt_predicate<int64_t>(1, true), new epmem_db_predicate<int64_t>(thisAgent));
+    add(delta_segmentation_threshold);
 }
 
 //
@@ -3035,7 +3038,9 @@ void epmem_new_episode(agent* thisAgent)
         {
             some_delta = new EpMem_Id_Delta(thisAgent);
         }
-        //EpMem_Id_Delta* some_delta2 = new EpMem_Id_Delta();
+
+        uint64_t working_memory_delta_size = 0;
+
         bool was_nothing = true;
 
         // all inserts
@@ -3062,6 +3067,7 @@ void epmem_new_episode(agent* thisAgent)
                     some_delta->add_addition_constant(*temp_node);
                 }
                 was_nothing = false;
+                ++working_memory_delta_size;
 
                 // update min
                 (*thisAgent->EpMem->epmem_node_mins)[static_cast<size_t>((*temp_node) - 1)] = time_counter;
@@ -3093,6 +3099,7 @@ void epmem_new_episode(agent* thisAgent)
                     some_delta->add_addition(*temp_node);
                 }
                 was_nothing = false;
+                ++working_memory_delta_size;
 
                 // update min
                 (*thisAgent->EpMem->epmem_edge_mins)[static_cast<size_t>((*temp_node) - 1)] = time_counter;
@@ -3133,6 +3140,7 @@ void epmem_new_episode(agent* thisAgent)
                             some_delta->add_removal_constant(r->first);
                         }
                         was_nothing = false;
+                        ++working_memory_delta_size;
 
                         range_start = (*thisAgent->EpMem->epmem_node_mins)[static_cast<size_t>(r->first - 1)];
                         range_end = (time_counter - 1);
@@ -3178,6 +3186,7 @@ void epmem_new_episode(agent* thisAgent)
                         some_delta->add_removal(r->first.first);
                     }
                     was_nothing = false;
+                    ++working_memory_delta_size;
 
                     range_start = (*thisAgent->EpMem->epmem_edge_mins)[static_cast<size_t>(r->first.first - 1)];
                     range_end = (time_counter - 1);
@@ -3238,14 +3247,19 @@ void epmem_new_episode(agent* thisAgent)
         {
             thisAgent->EpMem->epmem_wme_adds->clear();
         }
+        if (!was_nothing && working_memory_delta_size >= thisAgent->EpMem->epmem_params->delta_segmentation_threshold->get_value())
+        {
+            //Easy Method # 1: Working Memory Change Size Threshold:
+            //working_memory_delta_size = //some_delta->additions_size() + some_delta->removals_size() + some_delta->additions_constant_size() + some_delta->removals_constant_size();
+            //The epmem option for event-delta-size sets a threshold that, if met here, increments the event segmentaiton counter.
+            //The thing to do when this is triggered is to increment the architectural wme of event-segmentation-counter under the topstate epmem wme.
+            thisAgent->EpMem->event_segmentation_counter = thisAgent->EpMem->event_segmentation_counter + 1;
+            Symbol* lepmem_event_segmentation_counter = thisAgent->symbolManager->make_int_constant(thisAgent->EpMem->event_segmentation_counter);
+            soar_module::add_module_wme(thisAgent, thisAgent->top_state->id->epmem_info->epmem_link_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_event_segmentation_counter, lepmem_event_segmentation_counter);
+            thisAgent->symbolManager->symbol_remove_ref(&lepmem_event_segmentation_counter);
+        }
         if (thisAgent->EpMem->epmem_params->segmentation_method->get_value() == epmem_param_container::sequitur_compression)
         {
-            if (!was_nothing)
-            {
-                //Easy Method # 1: Working Memory Change Size Threshold:
-                uint64_t working_memory_delta_size = some_delta->additions_size() + some_delta->removals_size() + some_delta->additions_constant_size() + some_delta->removals_constant_size();
-                //The epmem option for event-delta-size sets a threshold that, if met here, increments the event segmentaiton counter.
-            }
             if (!(was_nothing && thisAgent->EpMem->no_immediately_previous_change))//TODO: sjj -- It may be that cycle-specific timings are important to encode and this should be turned into an optional parameter for epmem compression.
             {//might be worth also adding the option to ignore no-change cycles altogether, not just a succession of them.
                 //A note about this push_back - invalidates old pointer w/ std::move!!!
@@ -6792,6 +6806,7 @@ EpMem_Manager::EpMem_Manager(agent* myAgent)
     epmem_validation = 0;
 
     sequitur_for_deltas = new jw::Sequitur<EpMem_Id_Delta>();
+    event_segmentation_counter = 0;
     no_immediately_previous_change = false;
 };
 
