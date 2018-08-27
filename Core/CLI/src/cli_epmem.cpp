@@ -52,6 +52,8 @@ bool CommandLineInterface::DoEpMem(const char pOp, const std::string* pAttr, con
         PrintCLIMessage_Item("timers:", thisAgent->EpMem->epmem_params->timers, 40);
         PrintCLIMessage_Section("Experimental", 40);
         PrintCLIMessage_Item("merge:", thisAgent->EpMem->epmem_params->merge, 40);
+        PrintCLIMessage_Section("Experimental Event Segmentation", 40);
+        PrintCLIMessage_Item("segmentation-method:", thisAgent->EpMem->epmem_params->segmentation_method, 40);
         PrintCLIMessage("");
 //        thisAgent->EpMem->epmem_params->print_summary(thisAgent);
         return true;

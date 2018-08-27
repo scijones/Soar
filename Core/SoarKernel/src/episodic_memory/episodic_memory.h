@@ -50,6 +50,9 @@ class epmem_param_container: public soar_module::param_container
         enum gm_ordering_choices { gm_order_undefined, gm_order_dfs, gm_order_mcv };
         enum merge_choices { merge_none, merge_add };
 
+        // segmentation
+        enum segmentation_method_choices { delta_threshold, sequitur_compression };
+
         ////////////////////////////////////////////////////////////
         ////////////////////////////////////////////////////////////
 
@@ -60,6 +63,7 @@ class epmem_param_container: public soar_module::param_container
         soar_module::constant_param<trigger_choices>* trigger;
         soar_module::constant_param<force_choices>* force;
         soar_module::sym_set_param* exclusions;
+        soar_module::sym_set_param* sequitur_exclusions;//For example, incrementing counters cripple naive sequitur to the point of uselessness, but may be good to store independently.
 
         // storage
         soar_module::constant_param<db_choices>* database;
@@ -80,6 +84,9 @@ class epmem_param_container: public soar_module::param_container
         // experimental
         soar_module::constant_param<gm_ordering_choices>* gm_ordering;
         soar_module::constant_param<merge_choices>* merge;
+
+        // segmentation
+        soar_module::constant_param<segmentation_method_choices>* segmentation_method;
 
         void print_settings(agent* thisAgent);
         void print_summary(agent* thisAgent);
