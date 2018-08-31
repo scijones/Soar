@@ -94,7 +94,6 @@ epmem_param_container::epmem_param_container(agent* new_agent): soar_module::par
     // exclusions - this is initialized with "epmem" directly after hash tables
     exclusions = new soar_module::sym_set_param("exclusions", new soar_module::f_predicate<const char*>, thisAgent);
     add(exclusions);
-    // Need a copy of this for use in Sequitur.
 
 
     ////////////////////
@@ -184,12 +183,25 @@ epmem_param_container::epmem_param_container(agent* new_agent): soar_module::par
 
     // segmentation
     segmentation_method = new soar_module::constant_param<segmentation_method_choices>("segmentation-method", delta_threshold, new soar_module::f_predicate<segmentation_method_choices>());
+    segmentation_method->add_mapping(agent_initiated, "agent-initiated");
     segmentation_method->add_mapping(delta_threshold, "delta-threshold");
     segmentation_method->add_mapping(sequitur_compression, "sequitur-compression");
+    segmentation_method->add_mapping(scrpkf, "scrpkf");
+    segmentation_method->add_mapping(window_entropy, "window-entropy");
     add(segmentation_method);
+    // There is an daditional implicit method - the agent is allowed to segment manually with rules that issue the segment command to the epmem link.
+    // agent-initiated means that the implicit method is the only method.
 
     threshold = new soar_module::integer_param("threshold", 20, new soar_module::gt_predicate<int64_t>(1, true), new epmem_db_predicate<int64_t>(thisAgent));
     add(threshold);
+
+    sequitur_exclusions = new soar_module::sym_set_param("sequitur-exclusions", new soar_module::f_predicate<const char*>, thisAgent);
+    add(sequitur_exclusions);
+
+    segmentation_inclusions = new soar_module::sym_set_param("segmentation-inclusions", new soar_module::f_predicate<const char*>, thisAgent);
+    add(segmentation_inclusions); //For the scrpkf method, it is a small subset of input which will be used for segmentation. This subset will also be tested for whether or not the wme values are doubles.
+    //The sliding window entropy method will also want this option. Sequitur, delta-threshold, and agent-initiated will not at least to start.
+
 }
 
 //

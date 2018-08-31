@@ -55,6 +55,8 @@ bool CommandLineInterface::DoEpMem(const char pOp, const std::string* pAttr, con
         PrintCLIMessage_Section("Experimental Event Segmentation", 40);
         PrintCLIMessage_Item("segmentation-method:", thisAgent->EpMem->epmem_params->segmentation_method, 40);
         PrintCLIMessage_Item("threshold:", thisAgent->EpMem->epmem_params->threshold, 40);
+        PrintCLIMessage_Item("sequitur-exclusions:", thisAgent->EpMem->epmem_params->sequitur_exclusions, 40);
+        PrintCLIMessage_Item("segmentation-inclusions:", thisAgent->EpMem->epmem_params->segmentation_inclusions, 40);
         PrintCLIMessage("");
 //        thisAgent->EpMem->epmem_params->print_summary(thisAgent);
         return true;

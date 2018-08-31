@@ -51,7 +51,7 @@ class epmem_param_container: public soar_module::param_container
         enum merge_choices { merge_none, merge_add };
 
         // segmentation
-        enum segmentation_method_choices { agent_initiated, delta_threshold, sequitur_compression };
+        enum segmentation_method_choices { agent_initiated, delta_threshold, sequitur_compression, scrpkf, window_entropy };
 
         ////////////////////////////////////////////////////////////
         ////////////////////////////////////////////////////////////
@@ -63,7 +63,6 @@ class epmem_param_container: public soar_module::param_container
         soar_module::constant_param<trigger_choices>* trigger;
         soar_module::constant_param<force_choices>* force;
         soar_module::sym_set_param* exclusions;
-        soar_module::sym_set_param* sequitur_exclusions;//For example, incrementing counters cripple naive sequitur to the point of uselessness, but may be good to store independently.
 
         // storage
         soar_module::constant_param<db_choices>* database;
@@ -88,6 +87,8 @@ class epmem_param_container: public soar_module::param_container
         // segmentation
         soar_module::constant_param<segmentation_method_choices>* segmentation_method;
         soar_module::integer_param* threshold;
+        soar_module::sym_set_param* sequitur_exclusions;//For example, incrementing counters cripple naive sequitur to the point of uselessness, but may be good to store independently.
+        soar_module::sym_set_param* segmentation_inclusions;
 
         void print_settings(agent* thisAgent);
         void print_summary(agent* thisAgent);
@@ -725,6 +726,47 @@ class EpMem_Manager
         epmem_rit_state epmem_rit_state_graph[2];
 
         uint64_t epmem_validation;
+
+        // Segmentation
+
+        //For the window_entropy segmentation method, we will have a window size parameter and a given entropy measure.
+        //I will assume continuous data in the same form as the scrpkf model and I will use permutation entropy.
+        //A limitation is that the window size should be large enough that the time series data is stationary within the window.
+        //Using matlabcentral fast algorithm. or literally any simple sliding window measure.
+
+
+        //For the scrpkf model, we need some data structures that keep track of kalman filter style metadata.
+        //Theoretically, this could be separated into a perceptual component that isn't even in the architecture and an architectural assumption of a SCRP prior for state transition where the architecture and a kalman-filter-like perception talk to each other.
+        //Eventually, this will have to be optionally a particle filter or EKF or similar, but for now I implement here and as a simple kalman filter replication of Gershman 2014. TODO: at least make a particle filter marginalization.
+        //TODO: sjj - This really should be made into a scrpkf data structure that is itself just referenced here.
+        //          - Maybe in the future, this would be nice to have several of and they'd be linked to specific parts of the state.
+        //          - Actually, this has to be done this way so that the relevant data structures are initialized only after I have sufficient parameters to initialize them. This will be completed via CLI command.
+        // The parameters for the DP-KF noted in Gershman 2014 that I call the scrpkf method for segmentation.
+        /*actual state was scaled to [0, 100] -
+         * w - decay term for relevance of an older mode.
+         * r[1, n] - sensory noise covariance matrix diagonals. - <20 in paper - could be inferred using other kalman filter noise estimation methods. - For a given embodiment (such as with LIDAR and known atmosphere/surfaces), may be reasonable to hard-code.
+         * v[1, n] - response noise variance diagonals - assume responses from participants based on anisotropic filtering of state. - <10 in paper
+         * q[1, n] - diffusion noise covariance matrix diagonals. - <30 in paper - could be inferred using other kalman filter noise estimation methods. - could also perhaps be learned as referring to BLA decay for an element or similar.
+         * alpha >=0 - This describes the assumed underlying probability of transitioning to an altogether new mode, learning "slower" with smaller alpha.
+         * beta >= 0 - This describes the stickiness/persistence once in a given perceptual mode. Should rarely ever be = 0.
+         *     In the future, can imagine having another process motivate a selection of alpha and/or beta. For example, another segmentation method may give an independent measure of state persistence or novel observation rate.
+         */
+        // The method also has data structures which are incrementally updated and maintained from cycle to cycle.
+        // Each cycle is an inference for p(x^k_t|S_(1:t)), which is the prob of a given state mode at that time, given the history of sensory measurements.
+        // This is calculated by approximating the calculation to be that of a sum over all known perceptual modes for the probability of observing that state mode, given that it is really that mode multiplied by the probability that
+        // it really is that mode, given the history of estimation of modes (a "prior" given by the sticky chinese restaurant process). (It's a kalman-filter-like Bayes-Rule Style likelihood calculation.)
+        //The incremental updating inference and associated data structures are listed here:
+        /*
+         * increasing length vector of perceptual modes - z
+         * current sensory measurement - s
+         * current estimate of state vector as of previous timestep - xhat
+         * previous timestep estimate of state vector - xhat_t_minus_1
+         * additional params for state vector mean for a new mode of mu_naught and covariance diagonal lambda_naught (initializations for a new mode) (could just be sensory measurement and a bullcrap initial covariance)
+         * kalman gain per mode and per dimension - mu_k_d
+         * (previous param list above)
+         */
+
+
 
         jw::Sequitur<EpMem_Id_Delta>* sequitur_for_deltas;
         bool no_immediately_previous_change;
