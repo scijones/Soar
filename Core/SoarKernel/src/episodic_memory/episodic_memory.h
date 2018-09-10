@@ -765,6 +765,7 @@ class EpMem_Manager
          * kalman gain per mode and per dimension - mu_k_d
          * (previous param list above)
          */
+        // need summary statistics for each mode. need the mean and covariance for stimuli belonging to a common mode. assignment is argmax.
 
 
 

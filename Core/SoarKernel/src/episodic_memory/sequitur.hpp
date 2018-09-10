@@ -357,7 +357,9 @@ namespace jw
 
         //make a new rule representing digram:
         RuleTail * rule_tail = new RuleTail();
-        RuleHead * rule_head = new RuleHead(id_generator.get(), rule_tail);
+        RuleHead * rule_head = new RuleHead(id_generator.get(), rule_tail);//sjj - I'm going to add an additional requirement to what constitutes a rule. I'm assuming that digrams' constituent symbols are additive structures.
+                                                                           //This means that a new rule is also a symbol, which is created by adding the symbols which create the rule. This differs from Sequitur in that each Rule could effectively split the grammar stream.
+                                                                           //Two rules could have the same symbol that they represent, but where they compose different orderings/symbols to create that top-level symbol.
 
         Symbol * rule_item1 = rule_head->insertAfter(match1->clone().release());
         Symbol * rule_item2 = rule_item1->insertAfter(match1_second->clone().release());
