@@ -2908,7 +2908,7 @@ inline void _epmem_store_level(agent* thisAgent,
                 (*w_p)->epmem_id = EPMEM_NODEID_BAD;
                 (*w_p)->epmem_valid = thisAgent->EpMem->epmem_validation;
 
-                my_hash = epmem_temporal_hash(thisAgent, (*w_p)->attr);
+                my_hash = epmem_temporal_hash(thisAgent, (*w_p)->attr);//For delta purposes, when a nominal delta is wanted, this gives us parent and attribute ids. Can then just store this and look for match in removals.
                 my_hash2 = epmem_temporal_hash(thisAgent, (*w_p)->value);
 
                 // try to get node id
@@ -3036,6 +3036,10 @@ void epmem_new_episode(agent* thisAgent)
                         if (! wmes->empty())
                         {
                             _epmem_store_level(thisAgent, parent_syms, parent_ids, tc, wmes->begin(), wmes->end(), parent_id, time_counter, id_reservations, new_identifiers, epmem_node, epmem_edge);
+                            //sequitur version of this could have a hook where we keep track of a map with parent_id, attr_id, for each constant value.
+                            //Then we compare in removals. Where there is a removal and an add, the delta could instead note a magnitude change.
+                            //more memory usage, but still scales in constant time with limited number of WME changes on a cycle.
+                            //Might not allow multi-valued attributes (could just ignore) (depends on internal handling/reuse of attr symbol - if multiple instances within WMem have unique attr ids, essentially "not" multivalued and all good.)
                         }
                         delete wmes;
                     }
@@ -3142,7 +3146,9 @@ void epmem_new_episode(agent* thisAgent)
                         // remove NOW entry
                         // id = ?
                         thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_constant_now->bind_int(1, r->first);
-                        thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_constant_now->execute(soar_module::op_reinit);
+                        thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_constant_now->execute(soar_module::op_reinit);// For conversion of doubles to nominal values, will initially try greater than less than
+                        //This means that there should first be a select statement here that finds the parent id and attribute for the deleted wme. If the deleted attr and value have a parent and attr with an added value this cycle,
+                        //will instead consider that for the sake of deltas as a greater than or a less than instead of a unique replacement.
                         /*
                          * This is where we know we've taken something out of working memory.
                          * This is when we should keep track of the removal for the sake of Sequitur.
