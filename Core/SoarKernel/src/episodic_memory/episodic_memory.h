@@ -650,8 +650,8 @@ typedef std::priority_queue<epmem_interval*, std::vector<epmem_interval*>, epmem
 
 //We want an ordered set for now because I can't rule out the use of range iteration. This means that we are O(log(delta))
 //when we could be O(1) (when it comes to lookup, later).
-//Update: Actually, I'll try for unordered first to see if I can get away with it.
-typedef std::set<uint64_t> epmem_id_delta_set;
+typedef std::set<uint64_t> epmem_id_delta_set;//These should probably be int64_t's given sqlite's inherent int64_t limitation.
+typedef std::set<std::pair<std::pair<uint64_t,uint64_t>, bool>> epmem_id_num_delta_set;//Keeping same-address number changes as sign-of-the-delta-only.
 
 //One of these is created every epmem timestep.
 class EpMem_Id_Delta
@@ -665,6 +665,7 @@ class EpMem_Id_Delta
         void add_removal(uint64_t);
         void add_addition_constant(uint64_t);
         void add_removal_constant(uint64_t);
+        void add_number_change(std::pair<std::pair<uint64_t,uint64_t>, bool>);
         bool operator==(const EpMem_Id_Delta &other) const;
         bool operator!=(const EpMem_Id_Delta &other) const;
         std::size_t hash() const;
@@ -672,6 +673,8 @@ class EpMem_Id_Delta
         epmem_id_delta_set::const_iterator removals_begin() const;
         epmem_id_delta_set::const_iterator additions_end() const;
         epmem_id_delta_set::const_iterator removals_end() const;
+        epmem_id_num_delta_set::const_iterator number_changes_begin() const;
+        epmem_id_num_delta_set::const_iterator number_changes_end() const;
         epmem_id_delta_set::const_iterator additions_constant_begin() const;
         epmem_id_delta_set::const_iterator removals_constant_begin() const;
         epmem_id_delta_set::const_iterator additions_constant_end() const;
@@ -680,12 +683,14 @@ class EpMem_Id_Delta
         uint64_t removals_size() const;
         uint64_t additions_constant_size() const;
         uint64_t removals_constant_size() const;
+        uint64_t number_changes_size() const;
         friend std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta);
     private:
         epmem_id_delta_set* additions;
         epmem_id_delta_set* removals;
         epmem_id_delta_set* additions_constant;
         epmem_id_delta_set* removals_constant;
+        epmem_id_num_delta_set* number_changes;
         agent* myAgent;
 };
 

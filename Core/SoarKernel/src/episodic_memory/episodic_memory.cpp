@@ -2480,7 +2480,9 @@ inline void _epmem_store_level(agent* thisAgent,
                                std::map< wme*, epmem_id_reservation* >& id_reservations,
                                std::set< Symbol* >& new_identifiers,
                                std::queue< epmem_node_id >& epmem_node,
-                               std::queue<std::pair<epmem_node_id,int64_t>>& epmem_edge)
+                               std::queue<std::pair<epmem_node_id,int64_t>>& epmem_edge,
+                               std::unordered_map<std::pair<int64_t,int64_t>,double>& float_deltas,
+                               std::unordered_map<std::pair<int64_t,int64_t>,int64_t>& int_deltas)
 {
     epmem_wme_list::iterator w_p;
     bool value_known_apriori = false;
@@ -2911,6 +2913,17 @@ inline void _epmem_store_level(agent* thisAgent,
                 my_hash = epmem_temporal_hash(thisAgent, (*w_p)->attr);//For delta purposes, when a nominal delta is wanted, this gives us parent and attribute ids. Can then just store this and look for match in removals.
                 my_hash2 = epmem_temporal_hash(thisAgent, (*w_p)->value);
 
+                switch ((*w_p)->value->symbol_type)
+                {
+                    case INT_CONSTANT_SYMBOL_TYPE:
+                        int_deltas.emplace(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->ic->value);
+                        break;
+
+                    case FLOAT_CONSTANT_SYMBOL_TYPE:
+                        float_deltas.emplace(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value);
+                        break;
+                }
+
                 // try to get node id
                 {
                     // parent_n_id=? AND attribute_s_id=? AND value_s_id=?
@@ -2998,6 +3011,8 @@ void epmem_new_episode(agent* thisAgent)
         // seen nodes (non-identifiers) and edges (identifiers)
         std::queue<epmem_node_id> epmem_node;
         std::queue<std::pair<epmem_node_id,int64_t>> epmem_edge;//epmem_edge now needs to keep track of the lti status/identity of the wmenode/epmemedge
+        std::unordered_map<std::pair<int64_t,int64_t>,double> potential_float_deltas;
+        std::unordered_map<std::pair<int64_t,int64_t>,int64_t> potential_int_deltas;
 
         // walk appropriate levels
         {
@@ -3035,7 +3050,7 @@ void epmem_new_episode(agent* thisAgent)
                         wmes = epmem_get_augs_of_id(parent_sym, tc);
                         if (! wmes->empty())
                         {
-                            _epmem_store_level(thisAgent, parent_syms, parent_ids, tc, wmes->begin(), wmes->end(), parent_id, time_counter, id_reservations, new_identifiers, epmem_node, epmem_edge);
+                            _epmem_store_level(thisAgent, parent_syms, parent_ids, tc, wmes->begin(), wmes->end(), parent_id, time_counter, id_reservations, new_identifiers, epmem_node, epmem_edge, potential_float_deltas, potential_int_deltas);
                             //sequitur version of this could have a hook where we keep track of a map with parent_id, attr_id, for each constant value.
                             //Then we compare in removals. Where there is a removal and an add, the delta could instead note a magnitude change.
                             //more memory usage, but still scales in constant time with limited number of WME changes on a cycle.
@@ -3142,6 +3157,12 @@ void epmem_new_episode(agent* thisAgent)
                 {
                     if (r->second)
                     {
+
+                        //To check for removal where there is also addition with the same parent and attribute
+                        thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->bind_int(1,r->first);//gets parent, attr, value from wc_id.
+                        /* potential_int_deltas maps parent and attr to value for int additions.
+                         * potential_float_deltas maps parent and attr to value for float additions.*/
+
 
                         // remove NOW entry
                         // id = ?
@@ -6280,6 +6301,10 @@ void EpMem_Id_Delta::add_removal_constant(uint64_t newly_removed_epmem_id)
 {
     this->removals_constant->insert(newly_removed_epmem_id);
 }
+void add_number_change(std::pair<std::pair<uint64_t,uint64_t>, bool> newly_changed_number)
+{
+    this->number_changes->insert(newly_changed_number);
+}
 uint64_t EpMem_Id_Delta::additions_size() const
 {
     return additions->size();
@@ -6295,6 +6320,10 @@ uint64_t EpMem_Id_Delta::additions_constant_size() const
 uint64_t EpMem_Id_Delta::removals_constant_size() const
 {
     return removals_constant->size();
+}
+uint64_t EpMem_Id_Delta::number_changes_size() const
+{
+    return number_changes->size();
 }
 epmem_id_delta_set::const_iterator EpMem_Id_Delta::additions_begin() const
 {
@@ -6327,6 +6356,14 @@ epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_constant_begin() con
 epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_constant_end() const
 {
     return removals_constant->cend();
+}
+epmem_id_num_delta_set::const_iterator EpMem_Id_Delta::number_changes_begin() const
+{
+    return number_changes->cbegin();
+}
+epmem_id_num_delta_set::const_iterator EpMem_Id_Delta::number_changes_end() const
+{
+    return number_changes->cend();
 }
 bool EpMem_Id_Delta::operator ==(const EpMem_Id_Delta &other) const
 {
