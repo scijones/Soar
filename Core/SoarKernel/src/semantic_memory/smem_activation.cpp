@@ -1193,11 +1193,49 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                     pre_logd_wma = pow(static_cast<double>(smem_max_cycle+settings->base_unused_age_offset->get_value()),static_cast<double>(-(settings->base_decay->get_value())));
                     wma_multiplicative_factor = pre_logd_wma/(1.0+pre_logd_wma);
                 }
+                if (maximum_edge_weight == 0 && settings->spreading_use_only->get_value() == smem_param_container::association)
                 {
-                    raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
+                    soar_module::sqlite_statement* maximum_edge_weight_query = new soar_module::sqlite_statement(DB, "SELECT MAX(edge_weight) FROM smem_augmentations;");
+                    maximum_edge_weight_query->prepare();
+                    maximum_edge_weight_query->execute();
+                    maximum_edge_weight = maximum_edge_weight_query->column_double(0)+.0001;
+                    delete maximum_edge_weight_query;
+                }
+                {
+                    if (settings->spreading_use_only->get_value() == smem_param_container::fan)
+                    {
+                        SQL->act_lti_child_lti_ct_get->bind_int(1, calc_current_spread->column_int(4));
+                        SQL->act_lti_child_lti_ct_get->execute();
+                        uint64_t num_lti_edges = SQL->act_lti_child_lti_ct_get->column_int(0);
+                        assert(num_lti_edges > 0);
+                        SQL->act_lti_child_lti_ct_get->reinitialize();
+                        raw_prob = wma_multiplicative_factor*(1.0/(static_cast<double>(num_lti_edges)));
+                    }
+
+                    if (settings->spreading_use_only->get_value() == smem_param_container::association)
+                    {
+                        soar_module::sqlite_statement* super_explicit_edge_weight = new soar_module::sqlite_statement(DB, "SELECT edge_weight FROM smem_augmentations WHERE lti_id=? AND value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR "");
+                        super_explicit_edge_weight->prepare();
+                        super_explicit_edge_weight->bind_int(1,calc_current_spread->column_int(4));
+                        super_explicit_edge_weight->bind_int(2,*candidate);
+                        super_explicit_edge_weight->execute();
+                        raw_prob = wma_multiplicative_factor*(super_explicit_edge_weight->column_double(0))/(maximum_edge_weight);//(1.0/((double)num_lti_edges));//(calc_current_spread->column_double(2))/(database_denom_max);//(1.0/((double)num_lti_edges));//((double)(calc_current_spread->column_double(2)))/(database_denom_max);//(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
+                        delete super_explicit_edge_weight;
+                    }
+                    if (settings->spreading_use_only->get_value() == smem_param_container::both)
+                    {
+                        raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
+                    }
                 }
                 //offset = (settings->spreading_baseline->get_value())/(calc_spread->column_double(1));
-                offset = (settings->spreading_baseline->get_value())/baseline_denom;//(settings->spreading_limit->get_value());
+                if (settings->spreading_use_only->get_value() == smem_param_container::association)
+                {
+                    offset = (settings->spreading_baseline->get_value()/maximum_edge_weight)/baseline_denom;//(settings->spreading_limit->get_value());///database_denom_max
+                }
+                else
+                {
+                    offset = (settings->spreading_baseline->get_value())/baseline_denom;//(settings->spreading_limit->get_value());///database_denom_max
+                }
                 additional = (raw_prob > offset ? raw_prob : offset);//(log(raw_prob)-log(offset));//This is a hack to prevent bad values for low wma spread.//additional = (raw_prob > offset ? raw_prob : offset+offset*.1);//(log(raw_prob)-log(offset));//This is a hack to prevent bad values for low wma spread.
                 spread = (spread == 0 ? additional : additional+spread);//Now, we've adjusted the activation according to this new addition.
                 ////////////////////////////////////////////////////////////////////////////

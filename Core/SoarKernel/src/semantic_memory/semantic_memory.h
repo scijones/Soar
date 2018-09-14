@@ -108,6 +108,7 @@ class SMem_Manager
         std::set<uint64_t>* smem_context_additions;
         std::set<uint64_t>* smem_context_removals;
         smem_update_map* smem_edges_to_update;
+        double maximum_edge_weight = 0;
 
     private:
 

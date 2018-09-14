@@ -117,6 +117,13 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
 
     /* The following are spreading activation settings */
 
+    // RAT-specific spreading manipulation
+    spreading_use_only = new soar_module::constant_param<use_only_choices>("spreading-use-only", both, new soar_module::f_predicate<use_only_choices>());
+    spreading_use_only->add_mapping(both, "both");
+    spreading_use_only->add_mapping(association, "association");
+    spreading_use_only->add_mapping(fan, "fan");
+    add(spreading_use_only);
+
     // spreading baseline - This sets the value at which we consider spread too small.
     spreading_baseline = new soar_module::decimal_param("spreading-baseline", 0.0001, new  soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
     add(spreading_baseline);
@@ -360,6 +367,7 @@ void smem_param_container::print_settings(agent* thisAgent)
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-edge-updating", spreading_edge_updating->get_string(), 55).c_str(), "on, off");
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-wma-source", spreading_wma_source->get_string(), 55).c_str(), "on, off");
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-edge-update-factor", spreading_edge_update_factor->get_string(), 55).c_str(), "1 > decimal > 0");
+    outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-use-only", spreading_use_only->get_string(), 55).c_str(), "both, association, fan");
     outputManager->printa(thisAgent, "------------- Database Optimization Settings ----------\n");
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("lazy-commit", lazy_commit->get_string(), 55).c_str(), "Delay writing semantic store until exit");
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("optimization", opt->get_string(), 55).c_str(), "safety, performance");
