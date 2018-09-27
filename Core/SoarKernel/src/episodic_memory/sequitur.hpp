@@ -117,6 +117,7 @@ namespace jw
         void printThisRule(uint someRule) const;
         void printRules() const;
         void printDigramIndex() const;
+        uint64_t countRules() const;
 
         unsigned size() const { return length; }
 
@@ -612,6 +613,12 @@ namespace jw
             printList(rule_pair.second, 0);
             std::cout << std::endl;
             }
+        }
+
+    template<typename Type>
+    uint64_t Sequitur<Type>::countRules() const
+        {
+            return rule_index.size();
         }
 
     template<typename Type>

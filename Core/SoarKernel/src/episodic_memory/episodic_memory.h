@@ -650,8 +650,9 @@ typedef std::priority_queue<epmem_interval*, std::vector<epmem_interval*>, epmem
 
 //We want an ordered set for now because I can't rule out the use of range iteration. This means that we are O(log(delta))
 //when we could be O(1) (when it comes to lookup, later).
-typedef std::set<uint64_t> epmem_id_delta_set;//These should probably be int64_t's given sqlite's inherent int64_t limitation.
-typedef std::set<std::pair<std::pair<uint64_t,uint64_t>, bool>> epmem_id_num_delta_set;//Keeping same-address number changes as sign-of-the-delta-only.
+typedef std::set<int64_t> epmem_id_delta_set;//These should probably be int64_t's given sqlite's inherent int64_t limitation.
+typedef std::set<std::pair<std::pair<int64_t,int64_t>, bool>> epmem_id_num_delta_set;//Keeping same-address number changes as sign-of-the-delta-only.
+//Purely for consistency, I may make two sets, one for greater-than, one for less-than. (Equality would be intentionally omitted.)
 
 //One of these is created every epmem timestep.
 class EpMem_Id_Delta
@@ -661,13 +662,14 @@ class EpMem_Id_Delta
         EpMem_Id_Delta(EpMem_Id_Delta&& other);
         EpMem_Id_Delta(const EpMem_Id_Delta& other);
         ~EpMem_Id_Delta();
-        void add_addition(uint64_t);
-        void add_removal(uint64_t);
-        void add_addition_constant(uint64_t);
-        void add_removal_constant(uint64_t);
-        void add_number_change(std::pair<std::pair<uint64_t,uint64_t>, bool>);
+        void add_addition(int64_t);
+        void add_removal(int64_t);
+        void add_addition_constant(int64_t);
+        void add_removal_constant(int64_t);
+        void add_number_change(int64_t,int64_t, bool);
         bool operator==(const EpMem_Id_Delta &other) const;
         bool operator!=(const EpMem_Id_Delta &other) const;
+        EpMem_Id_Delta operator+(const EpMem_Id_Delta &other) const;
         std::size_t hash() const;
         epmem_id_delta_set::const_iterator additions_begin() const;
         epmem_id_delta_set::const_iterator removals_begin() const;
@@ -684,6 +686,7 @@ class EpMem_Id_Delta
         uint64_t additions_constant_size() const;
         uint64_t removals_constant_size() const;
         uint64_t number_changes_size() const;
+        epmem_id_num_delta_set::const_iterator number_changes_find(int64_t parent, int64_t attr, bool value_change) const;
         friend std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta);
     private:
         epmem_id_delta_set* additions;
@@ -731,6 +734,10 @@ class EpMem_Manager
         epmem_rit_state epmem_rit_state_graph[2];
 
         uint64_t epmem_validation;
+        EpMem_Id_Delta* prev_delta;
+
+        std::map<std::pair<int64_t,int64_t>, double> val_at_last_change;
+        std::map<std::pair<int64_t,int64_t>, bool> change_at_last_change;
 
         // Segmentation
 
