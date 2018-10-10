@@ -3194,65 +3194,68 @@ void epmem_new_episode(agent* thisAgent)
 
                         bool did_already = false;
                         //First, we can check if there exists a parent,attr in either potential delta map before doing further processing.
-                        if (potential_float_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash)) != potential_float_deltas.end() || potential_int_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash)) != potential_int_deltas.end())
+                        if (thisAgent->EpMem->epmem_params->segmentation_method->get_value() == epmem_param_container::sequitur_compression)
                         {
-                            /* potential_int_deltas maps parent and attr to value for int additions.
-                             * potential_float_deltas maps parent and attr to value for float additions.*/
-                            Symbol* value = epmem_reverse_hash(thisAgent, value_hash);
-                            if (value->symbol_type == FLOAT_CONSTANT_SYMBOL_TYPE)
+                            if (potential_float_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash)) != potential_float_deltas.end() || potential_int_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash)) != potential_int_deltas.end())
                             {
-                                std::map<std::pair<int64_t,int64_t>,std::pair<int64_t,double>>::iterator delta_it = potential_float_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash));
-                                if (delta_it == potential_float_deltas.end())
-                                {//This means that we did not find a change and should process as an addition or subtraction.
-                                    //If we remove each potential delta that turns out to really be a delta, those which remain can be iterated over as adds.
-                                    //This means that if we don't have a match, we simply have a removal.
-                                    some_delta->add_removal_constant(r->first);
-                                    c_change_only = false;
-                                    thisAgent->EpMem->change_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
-                                    thisAgent->EpMem->val_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
-                                    //could be double to int transition.
-                                }
-                                else
-                                {//If we have a change, then we can make sure not to treat as an addition or a subtraction and here add to the change table, but also prevent from being added to the remove table.
-                                //Things which were added, but not also removed, those will be later treated as final additions for sequitur.
-                                    //double change = delta_it->second.second - value->fc->value;
-                                    double change = thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] - value->fc->value;
-                                    if (change > 0.1 || change < -0.1)//need a characterization of sensor noise.
-                                    {
-                                        thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
-                                        if (thisAgent->EpMem->prev_delta->number_changes_find(parent_hash, attr_hash, change > 0.0) == thisAgent->EpMem->prev_delta->number_changes_end() && (thisAgent->EpMem->change_at_last_change.find(std::pair<int64_t,int64_t>(parent_hash, attr_hash)) == thisAgent->EpMem->change_at_last_change.end() || change > 0.0 != thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)]))
+                                /* potential_int_deltas maps parent and attr to value for int additions.
+                                 * potential_float_deltas maps parent and attr to value for float additions.*/
+                                Symbol* value = epmem_reverse_hash(thisAgent, value_hash);
+                                if (value->symbol_type == FLOAT_CONSTANT_SYMBOL_TYPE)
+                                {
+                                    std::map<std::pair<int64_t,int64_t>,std::pair<int64_t,double>>::iterator delta_it = potential_float_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash));
+                                    if (delta_it == potential_float_deltas.end())
+                                    {//This means that we did not find a change and should process as an addition or subtraction.
+                                        //If we remove each potential delta that turns out to really be a delta, those which remain can be iterated over as adds.
+                                        //This means that if we don't have a match, we simply have a removal.
+                                        some_delta->add_removal_constant(r->first);
+                                        c_change_only = false;
+                                        thisAgent->EpMem->change_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
+                                        thisAgent->EpMem->val_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
+                                        //could be double to int transition.
+                                    }
+                                    else
+                                    {//If we have a change, then we can make sure not to treat as an addition or a subtraction and here add to the change table, but also prevent from being added to the remove table.
+                                    //Things which were added, but not also removed, those will be later treated as final additions for sequitur.
+                                        //double change = delta_it->second.second - value->fc->value;
+                                        double change = thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] - value->fc->value;
+                                        if (change > 0.1 || change < -0.1)//need a characterization of sensor noise.
                                         {
-                                            some_delta->add_number_change(parent_hash, attr_hash, change > 0.0);//std::pair<std::pair<int64_t,int64_t>, bool>
                                             thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
-                                            thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = change > 0.0;
+                                            if (thisAgent->EpMem->prev_delta->number_changes_find(parent_hash, attr_hash, change > 0.0) == thisAgent->EpMem->prev_delta->number_changes_end() && (thisAgent->EpMem->change_at_last_change.find(std::pair<int64_t,int64_t>(parent_hash, attr_hash)) == thisAgent->EpMem->change_at_last_change.end() || change > 0.0 != thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)]))
+                                            {
+                                                some_delta->add_number_change(parent_hash, attr_hash, change > 0.0);//std::pair<std::pair<int64_t,int64_t>, bool>
+                                                thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
+                                                thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = change > 0.0;
+                                            }
                                         }
+                                        //potential_float_deltas.erase(delta_it);
+                                        potential_delta_ids.erase(delta_it->second.first);
                                     }
-                                    //potential_float_deltas.erase(delta_it);
-                                    potential_delta_ids.erase(delta_it->second.first);
+                                    did_already = true;
                                 }
-                                did_already = true;
-                            }
-                            else if (value->symbol_type == INT_CONSTANT_SYMBOL_TYPE)
-                            {//same processing, just ints.
-                                std::map<std::pair<int64_t,int64_t>,std::pair<int64_t,int64_t>>::iterator delta_it = potential_int_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash));
-                                if (delta_it == potential_int_deltas.end())
-                                {
-                                    some_delta->add_removal_constant(r->first);
-                                    c_change_only = false;
-                                    thisAgent->EpMem->change_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
-                                }
-                                else
-                                {
-                                    int64_t change = delta_it->second.second - value->ic->value;
-                                    if (change != 0 && (thisAgent->EpMem->change_at_last_change.find(std::pair<int64_t,int64_t>(parent_hash, attr_hash)) == thisAgent->EpMem->change_at_last_change.end() || change > 0 != thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)]))
+                                else if (value->symbol_type == INT_CONSTANT_SYMBOL_TYPE)
+                                {//same processing, just ints.
+                                    std::map<std::pair<int64_t,int64_t>,std::pair<int64_t,int64_t>>::iterator delta_it = potential_int_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash));
+                                    if (delta_it == potential_int_deltas.end())
                                     {
-                                        some_delta->add_number_change(parent_hash, attr_hash, change > 0);//std::pair<std::pair<int64_t,int64_t>, bool>
-                                        thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = change > 0;
+                                        some_delta->add_removal_constant(r->first);
+                                        c_change_only = false;
+                                        thisAgent->EpMem->change_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
                                     }
-                                    //potential_int_deltas.erase(delta_it);
-                                    potential_delta_ids.erase(delta_it->second.first);
+                                    else
+                                    {
+                                        int64_t change = delta_it->second.second - value->ic->value;
+                                        if (change != 0 && (thisAgent->EpMem->change_at_last_change.find(std::pair<int64_t,int64_t>(parent_hash, attr_hash)) == thisAgent->EpMem->change_at_last_change.end() || change > 0 != thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)]))
+                                        {
+                                            some_delta->add_number_change(parent_hash, attr_hash, change > 0);//std::pair<std::pair<int64_t,int64_t>, bool>
+                                            thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = change > 0;
+                                        }
+                                        //potential_int_deltas.erase(delta_it);
+                                        potential_delta_ids.erase(delta_it->second.first);
+                                    }
+                                    did_already = true;
                                 }
-                                did_already = true;
                             }
                         }
                         //If we did not trigger the if, then we did not find a change and should process as an addition or subtraction.
@@ -3303,13 +3306,16 @@ void epmem_new_episode(agent* thisAgent)
                 // At this point, we can iterate through the remaining potential deltas and treat them as additions.
                 //loop over remaining potential delta ids.
                 //wc_ids *are* epmem_ids.
-                std::set<epmem_node_id>::iterator potential_delta_ids_it;
-                std::set<epmem_node_id>::iterator potential_delta_ids_begin = potential_delta_ids.begin();
-                std::set<epmem_node_id>::iterator potential_delta_ids_end = potential_delta_ids.end();
-                for (potential_delta_ids_it = potential_delta_ids_begin; potential_delta_ids_it != potential_delta_ids_end; ++potential_delta_ids_it)
+                if (thisAgent->EpMem->epmem_params->segmentation_method->get_value() == epmem_param_container::sequitur_compression)
                 {
-                    some_delta->add_addition_constant(*potential_delta_ids_it);
-                    c_change_only = false;
+                    std::set<epmem_node_id>::iterator potential_delta_ids_it;
+                    std::set<epmem_node_id>::iterator potential_delta_ids_begin = potential_delta_ids.begin();
+                    std::set<epmem_node_id>::iterator potential_delta_ids_end = potential_delta_ids.end();
+                    for (potential_delta_ids_it = potential_delta_ids_begin; potential_delta_ids_it != potential_delta_ids_end; ++potential_delta_ids_it)
+                    {
+                        some_delta->add_addition_constant(*potential_delta_ids_it);
+                        c_change_only = false;
+                    }
                 }
             }
 
@@ -6006,13 +6012,15 @@ void inline _epmem_respond_to_cmd_parse(agent* thisAgent, epmem_wme_list* cmds, 
             else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.epmem_sym_before)
             {
                 if (((*w_p)->value->symbol_type == INT_CONSTANT_SYMBOL_TYPE) &&
-                        ((path == 0) || (path == 3)))
+                        ((path == 0) || (path == 3) || (path == 4)))
                 {
                     if ((before == EPMEM_MEMID_NONE) || (static_cast<epmem_time_id>((*w_p)->value->ic->value) < before))
                     {
                         before = (*w_p)->value->ic->value;
                     }
-                    path = 3;
+                    //path = 3;
+                    //Changing the logic here. I will allow this to remain 0 instead of changing to 3. The significance is that good_cue may be false because the path remains 0 instead of it being 3 and query == NULL
+                    //path = 0;
                 }
                 else
                 {
@@ -6022,13 +6030,13 @@ void inline _epmem_respond_to_cmd_parse(agent* thisAgent, epmem_wme_list* cmds, 
             else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.epmem_sym_after)
             {
                 if (((*w_p)->value->symbol_type == INT_CONSTANT_SYMBOL_TYPE) &&
-                        ((path == 0) || (path == 3)))
+                        ((path == 0) || (path == 3) || (path == 4)))
                 {
                     if (after < static_cast<epmem_time_id>((*w_p)->value->ic->value))
                     {
                         after = (*w_p)->value->ic->value;
                     }
-                    path = 3;
+                    //path = 3;
                 }
                 else
                 {
@@ -6598,7 +6606,7 @@ bool EpMem_Id_Delta::operator !=(const EpMem_Id_Delta &other) const
 
 EpMem_Id_Delta EpMem_Id_Delta::operator +(const EpMem_Id_Delta &other) const
 {
-    EpMem_Id_Delta sum;
+    EpMem_Id_Delta sum(other);
     //The logic for the sum is to add all of the first delta to the sum. then, the second delta will either also add or change the sum. Additions that are removed must be cancelled out. Similarly, removals that are added must be cancelled out.
     //Additionally, number_changes that do not agree must be given recalculated. Finally, number_changes that do not exist in either the first or the second must be turned into either additions or removals.
     //This all allows a rule to be represented as a single delta.
