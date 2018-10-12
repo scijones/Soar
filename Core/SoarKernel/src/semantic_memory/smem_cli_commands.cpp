@@ -823,6 +823,110 @@ Symbol* SMem_Manager::parse_constant_attr(soar::Lexeme* lexeme)
     return return_val;
 }
 
+bool SMem_Manager::CLI_bla_init(int64_t bla_time, const char* bla_inits_str, std::string** err_msg)
+{
+    attach();
+    //This function accepts paren-surrounded pairs of numbers similar to smem --add {...} but where the pairs are separated by a space and represent an lti and its frequency of activation.
+    //errors arise when the lti is not an integer, when it has not been added already, when the bla frequency is not an integer, when bla is not the activation mode, when there already exists bla... (more?)
+    uint64_t clause_count = 0;
+
+    soar::Lexer lexer(thisAgent, bla_inits_str);
+    //consume next token.
+    lexer.get_lexeme();
+
+    bool good_cmd = lexer.current_lexeme.type == L_PAREN_LEXEME;
+    std::list<int64_t> ltis;
+    std::list<int64_t> freqs;
+
+    int64_t lti_val;
+    int64_t freq_val;
+    // While there is parsing to be done:
+    std::string num;
+    while ((lexer.current_lexeme.type == L_PAREN_LEXEME) && good_cmd)
+    {
+        ++clause_count;
+        //First, consume the left paren.
+        lexer.get_lexeme();
+        if (lexer.current_lexeme.type == AT_LEXEME && good_cmd)
+        {
+            lexer.get_lexeme();
+        }
+        if (lexer.current_lexeme.type == INT_CONSTANT_LEXEME)
+            lti_val = lexer.current_lexeme.int_val;
+        if (lexer.current_lexeme.type == INT_CONSTANT_LEXEME && lti_val > 0 && lti_exists(lti_val))
+        {
+            ltis.push_back(lti_val);
+        }
+        else
+        {
+            to_string(clause_count, num);
+            (*err_msg)->append("Error: Clause ");
+            (*err_msg)->append(num);
+            (*err_msg)->append(" contained a malformed LTI.");
+            good_cmd = false;
+            break;
+        }
+        lexer.get_lexeme();
+        if (lexer.current_lexeme.type == INT_CONSTANT_LEXEME)
+            freq_val = lexer.current_lexeme.int_val;
+        if (lexer.current_lexeme.type == INT_CONSTANT_LEXEME && freq_val > 0)
+        {
+            freqs.push_back(freq_val);
+        }
+        else
+        {
+            to_string(clause_count, num);
+            (*err_msg)->append("Error: Clause ");
+            (*err_msg)->append(num);
+            (*err_msg)->append(" contained a non-positive-integer frequency.");
+            good_cmd = false;
+            break;
+        }
+        lexer.get_lexeme();
+        if (lexer.current_lexeme.type == R_PAREN_LEXEME)
+        {
+            lexer.get_lexeme();
+        }
+        else
+        {
+            to_string(clause_count, num);
+            (*err_msg)->append("Error: Clause ");
+            (*err_msg)->append(num);
+            (*err_msg)->append(" did not end with a right paren.");
+            good_cmd = false;
+            break;
+        }
+    }
+    if (!good_cmd)
+    {
+        return good_cmd;
+    }
+    else
+    {//We have a good command and can now issue the changes/initializations to the database.
+        smem_max_cycle++;
+        std::list<int64_t>::iterator ltis_it;
+        std::list<int64_t>::iterator ltis_begin = ltis.begin();
+        std::list<int64_t>::iterator ltis_end = ltis.end();
+        std::list<int64_t>::iterator freqs_it = freqs.begin();
+        for (ltis_it = ltis_begin; ltis_it != ltis_end; ++ltis_it)
+        {
+            lti_activate(static_cast<uint64_t>(*ltis_it), true, SMEM_ACT_MAX, static_cast<double>(*freqs_it), false);
+            ++freqs_it;
+        }
+        smem_max_cycle+=bla_time;
+        //the logic can be changed in the future, but as a first pass hack, I'm implementing this by
+        //having the timer go up once, then giving everything the right number of touches, then incrementing
+        //the timer by the desired gap between the frequency initialization timestep and the agent's to-be-current-time.
+        freqs_it = freqs.begin();
+        for (ltis_it = ltis_begin; ltis_it != ltis_end; ++ltis_it)
+        {
+            lti_activate(static_cast<uint64_t>(*ltis_it), false, SMEM_ACT_MAX, static_cast<double>(*freqs_it), false);
+            ++freqs_it;
+        }
+    }
+    return good_cmd;
+}
+
 bool SMem_Manager::parse_add_clause(soar::Lexer* lexer, str_to_ltm_map* str_to_LTMs, ltm_set* newbies)
 {
     bool return_val = false;
