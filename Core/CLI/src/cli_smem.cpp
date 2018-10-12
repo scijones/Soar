@@ -145,6 +145,32 @@ bool CommandLineInterface::DoSMem(const char pOp, const std::string* pArg1, cons
         }
         return true;
     }
+    else if (pOp == 'l')
+    {
+        std::string* err = new std::string("");
+        if (thisAgent->SMem->settings->activation_mode->get_value() != smem_param_container::act_base)
+        {
+            return SetError("The activation-mode must be set to base-level.\n");
+        }
+        int64_t counter = 1;
+        from_c_string(counter, pArg1->c_str());
+        if (counter <= 0)
+        {
+            return SetError("The fake time of initialization must be at least 1.\n");
+        }
+        bool result = thisAgent->SMem->CLI_bla_init(counter, pArg2->c_str(), &(err));
+
+        if (!result)
+        {
+            SetError(*err);
+        }
+        else
+        {
+            PrintCLIMessage("Base-level initialization given to SMem.");
+        }
+        delete err;
+        return result;
+    }
     else if (pOp == 'h')
     {
         uint64_t lti_id = NIL;

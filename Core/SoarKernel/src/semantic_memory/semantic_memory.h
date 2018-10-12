@@ -68,6 +68,7 @@ class SMem_Manager
         bool        CLI_add(const char* str_to_LTMs, std::string** err_msg);
         bool        CLI_query(const char* ltms, std::string** err_msg, std::string** result_message, uint64_t number_to_retrieve);
         bool        CLI_remove(const char* ltms, std::string** err_msg, std::string** result_message, bool force = false);
+        bool        CLI_bla_init(int64_t bla_time, const char* bla_inits_str, std::string** err_msg);
 
         void        calc_spread_trajectories();
         void        invalidate_trajectories(uint64_t lti_parent_id, std::map<uint64_t, int64_t>* delta_children);

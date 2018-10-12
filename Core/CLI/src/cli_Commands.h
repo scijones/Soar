@@ -1293,6 +1293,7 @@ namespace cli
                     {'g', "get",        OPTARG_NONE},
                     {'h', "history",    OPTARG_NONE},//Testing/unstable - 23-7-2014
                     {'i', "init",       OPTARG_NONE},
+                    {'l', "bla-init",   OPTARG_NONE},
                     {'P', "precalculate", OPTARG_NONE},
                     {'q', "query",      OPTARG_NONE},//Testing/unstable - 23-7-2014
                     {'r', "remove",     OPTARG_NONE},//Testing/unstable - 23-7-2014
@@ -1371,6 +1372,16 @@ namespace cli
                         }
 
                         return cli.DoSMem(option, &(argv[2]), 0);
+                    }
+                    case 'l':
+                    {
+                        // case: bla-init requires two non-option arguments
+                        if (!opt.CheckNumNonOptArgs(2, 2))
+                        {
+                            return cli.SetError(opt.GetError().c_str());
+                        }
+
+                        return cli.DoSMem(option, &(argv[2]), &(argv[3]));
                     }
                     case 'c':
                     case 'i':
