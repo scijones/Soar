@@ -244,7 +244,7 @@ namespace jw
     //    Else
     //        Do nothing (because other digram is overlapping).
     template<typename Type>
-    void Sequitur<Type>::linkMade(Symbol * first)
+    void Sequitur<Type>::linkMade(Symbol * first) //will change this and linkmade to return a type back to epmem so that epmem can communicate to SMem.
         {
         assert(first != nullptr && "###linkMade: No nullptr expected here###");
         assert(first->isNext() && "###linkMade: digram has only one symbol###");
@@ -361,7 +361,7 @@ namespace jw
         RuleHead * rule_head = new RuleHead(id_generator.get(), rule_tail);//sjj - I'm going to add an additional requirement to what constitutes a rule. I'm assuming that digrams' constituent symbols are additive structures.
                                                                            //This means that a new rule is also a symbol, which is created by adding the symbols which create the rule. This differs from Sequitur in that each Rule could effectively split the grammar stream.
                                                                            //Two rules could have the same symbol that they represent, but where they compose different orderings/symbols to create that top-level symbol.
-
+                                                                           //sjj - Actually, for now, not as concerned about this - will instead focus on transferring rules to SMem(then->WMem).
         Symbol * rule_item1 = rule_head->insertAfter(match1->clone().release());
         Symbol * rule_item2 = rule_item1->insertAfter(match1_second->clone().release());
         rule_item2->insertAfter(rule_tail);
@@ -383,7 +383,7 @@ namespace jw
         //return pair of locations:
         return std::make_pair(loc1, loc2);
         }
-
+//sjj - idea is that swapForExistingRule and swapForNewRule will both interact with SMem storage of those very same rules.
     template<typename Type>
     Symbol * Sequitur<Type>::swapForExistingRule(Symbol *first, RuleHead *rule_head)
         {
