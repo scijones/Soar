@@ -60,6 +60,8 @@ class smem_param_container: public soar_module::param_container
         soar_module::decimal_param* spreading_edge_update_factor;
         soar_module::constant_param<use_only_choices>* spreading_use_only;
         soar_module::boolean_param* base_inhibition;
+        soar_module::decimal_param* inhibition_scale;
+        soar_module::decimal_param* inhibition_decay;
 
         void print_settings(agent* thisAgent);
         void print_summary(agent* thisAgent);
