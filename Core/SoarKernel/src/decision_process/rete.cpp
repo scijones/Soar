@@ -1482,7 +1482,7 @@ void add_wme_to_rete(agent* thisAgent, wme* w)
             {
                 // add to add set
                 thisAgent->EpMem->epmem_wme_adds->insert(w->id);
-            }
+            }//It would be super inefficient, but if I was to include substate stuff for epmem, this would be the place. I could also check for a new substate root id. epmem_store_levels would maybe need help as well.
         }
     }
 }

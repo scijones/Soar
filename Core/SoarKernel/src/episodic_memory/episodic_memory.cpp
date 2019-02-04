@@ -4319,7 +4319,7 @@ bool epmem_register_pedges(epmem_node_id parent, epmem_literal* literal, epmem_p
         {
             pedge_sql->bind_int(bind_pos++, LLONG_MAX);
         }
-        pedge_sql->bind_int(bind_pos++, triple.parent_n_id);
+        pedge_sql->bind_int(bind_pos++, triple.parent_n_id);//As long as the initial parent has an epmem_id which identifies the root as belonging to a given state, we're good. about initialization of new states to have good epmem ids.
         pedge_sql->bind_int(bind_pos++, triple.attribute_s_id);
         if (has_value)
         {
@@ -4895,9 +4895,9 @@ void epmem_process_query(agent* thisAgent, Symbol* state, Symbol* pos_query, Sym
         {
             // insert dummy unique edge and interval end point queries for DNF root
             // we make an SQL statement just so we don't have to do anything special at cleanup
-            epmem_triple triple = {EPMEM_NODEID_BAD, EPMEM_NODEID_BAD, EPMEM_NODEID_ROOT};
-            epmem_pedge* root_pedge;
-            thisAgent->memoryManager->allocate_with_pool(MP_epmem_pedge, &root_pedge);
+            epmem_triple triple = {EPMEM_NODEID_BAD, EPMEM_NODEID_BAD, EPMEM_NODEID_ROOT};// Naive way to make all of this work with fat epmem is to loop over everything where epmem_nodeid_root changes each cycle, search for each substate depth.
+            epmem_pedge* root_pedge;                                                      // The only other thing that would have to change is to check within the rete code that adds wmes to the rete for whether or not the link being added is
+            thisAgent->memoryManager->allocate_with_pool(MP_epmem_pedge, &root_pedge);    // the substate root which has the superstate link. (could recurse from there). (Substate creation may have weird ordering, but should start w/state root.
             root_pedge->triple = triple;
             root_pedge->value_is_id = EPMEM_RIT_STATE_EDGE;
             new(&(root_pedge->literals)) epmem_literal_set();
