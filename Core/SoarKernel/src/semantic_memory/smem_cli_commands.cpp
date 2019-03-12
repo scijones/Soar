@@ -836,10 +836,10 @@ bool SMem_Manager::CLI_bla_init(int64_t bla_time, const char* bla_inits_str, std
 
     bool good_cmd = lexer.current_lexeme.type == L_PAREN_LEXEME;
     std::list<int64_t> ltis;
-    std::list<int64_t> freqs;
+    std::list<double> freqs;
 
     int64_t lti_val;
-    int64_t freq_val;
+    double freq_val;
     // While there is parsing to be done:
     std::string num;
     while ((lexer.current_lexeme.type == L_PAREN_LEXEME) && good_cmd)
@@ -867,9 +867,9 @@ bool SMem_Manager::CLI_bla_init(int64_t bla_time, const char* bla_inits_str, std
             break;
         }
         lexer.get_lexeme();
-        if (lexer.current_lexeme.type == INT_CONSTANT_LEXEME)
-            freq_val = lexer.current_lexeme.int_val;
-        if (lexer.current_lexeme.type == INT_CONSTANT_LEXEME && freq_val > 0)
+        if (lexer.current_lexeme.type == FLOAT_CONSTANT_LEXEME)
+            freq_val = lexer.current_lexeme.float_val;
+        if (lexer.current_lexeme.type == FLOAT_CONSTANT_LEXEME && freq_val > 0.0)
         {
             freqs.push_back(freq_val);
         }
@@ -878,7 +878,7 @@ bool SMem_Manager::CLI_bla_init(int64_t bla_time, const char* bla_inits_str, std
             to_string(clause_count, num);
             (*err_msg)->append("Error: Clause ");
             (*err_msg)->append(num);
-            (*err_msg)->append(" contained a non-positive-integer frequency.");
+            (*err_msg)->append(" contained a non-positive-double frequency.");
             good_cmd = false;
             break;
         }
@@ -907,7 +907,7 @@ bool SMem_Manager::CLI_bla_init(int64_t bla_time, const char* bla_inits_str, std
         std::list<int64_t>::iterator ltis_it;
         std::list<int64_t>::iterator ltis_begin = ltis.begin();
         std::list<int64_t>::iterator ltis_end = ltis.end();
-        std::list<int64_t>::iterator freqs_it = freqs.begin();
+        std::list<double>::iterator freqs_it = freqs.begin();
         for (ltis_it = ltis_begin; ltis_it != ltis_end; ++ltis_it)
         {
             lti_activate(static_cast<uint64_t>(*ltis_it), true, SMEM_ACT_MAX, static_cast<double>(*freqs_it), false);
