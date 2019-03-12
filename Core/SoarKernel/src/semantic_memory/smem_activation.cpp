@@ -1189,11 +1189,15 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                 timers->spreading_7_2_5->start();
                 ////////////////////////////////////////////////////////////////////////////
                 double wma_multiplicative_factor = pre_logd_wma/(1.0+pre_logd_wma);//1;//pre_logd_wma/(1.0+pre_logd_wma);
-                if (!used_wma || pre_logd_wma == 0)
+                if (thisAgent->SMem->settings->spreading_wma_source->get_value() == true && (!used_wma || pre_logd_wma == 0))
                 {
                     //wma_multiplicative_factor = 1; This is actually bad. Since probabilities max at one, I rewarded not having wma.
                     pre_logd_wma = pow(static_cast<double>(smem_max_cycle+settings->base_unused_age_offset->get_value()),static_cast<double>(-(settings->base_decay->get_value())));
                     wma_multiplicative_factor = pre_logd_wma/(1.0+pre_logd_wma);
+                }
+                if (thisAgent->SMem->settings->spreading_wma_source->get_value() == false)
+                {
+                    wma_multiplicative_factor = 1.0;
                 }
                 if (maximum_edge_weight == 0 && settings->spreading_use_only->get_value() == smem_param_container::association)
                 {
