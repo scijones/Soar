@@ -868,8 +868,14 @@ bool SMem_Manager::CLI_bla_init(int64_t bla_time, const char* bla_inits_str, std
         }
         lexer.get_lexeme();
         if (lexer.current_lexeme.type == FLOAT_CONSTANT_LEXEME)
+        {
             freq_val = lexer.current_lexeme.float_val;
-        if (lexer.current_lexeme.type == FLOAT_CONSTANT_LEXEME && freq_val > 0.0)
+        }
+        else if (lexer.current_lexeme.type == INT_CONSTANT_LEXEME)
+        {
+            freq_val = static_cast<double>(lexer.current_lexeme.int_val);
+        }
+        if ((lexer.current_lexeme.type == FLOAT_CONSTANT_LEXEME || lexer.current_lexeme.type == INT_CONSTANT_LEXEME) && freq_val > 0.0)
         {
             freqs.push_back(freq_val);
         }
