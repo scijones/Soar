@@ -1483,6 +1483,11 @@ void add_wme_to_rete(agent* thisAgent, wme* w)
                 // add to add set
                 thisAgent->EpMem->epmem_wme_adds->insert(w->id);
             }//It would be super inefficient, but if I was to include substate stuff for epmem, this would be the place. I could also check for a new substate root id. epmem_store_levels would maybe need help as well.
+            //The thing to check here and the thing which violates a lot of the logic for epmem is a check for something which could have a nodeid_bad, but is a new state root.
+            //(epmem_store_levels stores recursively from known ids. I'd want to initialize with a brand new id the same way the first store ever (top state root) occurs at initialization.)
+            //The real huge problem here is in search for episodes. One potential is to match in parallel across all "levels" (where ideally there is a practical limit in agent design to substate depth.)
+            //I'll first try to just add the new info and see if that works.
+
         }
     }
 }

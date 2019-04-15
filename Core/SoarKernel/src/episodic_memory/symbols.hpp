@@ -141,8 +141,9 @@ namespace jw
         public:
         friend class RuleSymbol;
 
-        RuleHead(unsigned int id, RuleTail * tail_in):
-            count(0), rule_id(id), tail(tail_in)
+        //$$ template<typename Type>
+        RuleHead(unsigned int id, RuleTail * tail_in):// $$ , Type value_contents_in):
+            count(0), rule_id(id), tail(tail_in)//$$, value_contents(value_contents_in)
             {}
         std::unique_ptr<RuleSymbol> makeRuleSymbol()
             {
@@ -182,8 +183,15 @@ namespace jw
             auto & o = static_cast<const RuleHead&>(other);
             return rule_id == o.rule_id;
             }
+        /* $$ template<typename Type>
+        Type getValueContents() const
+            {
+            return value_contents;
+            }*/
 
         private:
+        /* $$ template<typename Type>
+        Type value_contents;*/
         unsigned int count;
         unsigned int rule_id;
         RuleTail * tail;

@@ -255,7 +255,7 @@ namespace jw
         Symbol * match_location = findAndAddDigram(first);
 
         //if there was a match, and is no overlap:
-        if(match_location != nullptr)
+        if(match_location != nullptr) //(Digram uniqueness violated)
             {
             //get ruleHead it's pointing too, or nullptr if not rule:
             RuleHead * rule_head = getCompleteRule(match_location);
@@ -355,13 +355,36 @@ namespace jw
         assert(makeDigramPair(match1) == makeDigramPair(match2) && "digrams should be equal");
 
         Symbol * match1_second = match1->next();
+        // $$ Type* first_portion;
+        // $$ Type* second_portion;
+        //So, when we make a new rule, that's the time to record to the rule structure what the contents are. This is gonna work by recursion. If the contents include a rule, then we add that rule's contents. If it's just a single symbol, easy.
+        //If the rule goes away, the rule which used its contents are still fine. increment will cause bla increases.
+        /* $$ if(typeid(*match1) == RuleSymbolType)
+        {
+            first_portion = &(match1->getValueContents());
+        }
+        else if (typeid(*match1) == ValueType)
+        {
+            second_portion = &(match1->getValue());
+        }
+        if(typeid(*match1_second) == RuleSymbolType)
+        {
+            first_portion = &(match1_second->getValueContents());
+        }
+        else if (typeid(*match1_second) == ValueType)
+        {
+            second_portion = &(match1_second->getValue());
+        }*/
+
 
         //make a new rule representing digram:
         RuleTail * rule_tail = new RuleTail();
-        RuleHead * rule_head = new RuleHead(id_generator.get(), rule_tail);//sjj - I'm going to add an additional requirement to what constitutes a rule. I'm assuming that digrams' constituent symbols are additive structures.
+        RuleHead * rule_head = new RuleHead(id_generator.get(), rule_tail);// $$ , *first_portion+*second_portion);//sjj - I'm going to add an additional requirement to what constitutes a rule. I'm assuming that digrams' constituent symbols are additive structures.
                                                                            //This means that a new rule is also a symbol, which is created by adding the symbols which create the rule. This differs from Sequitur in that each Rule could effectively split the grammar stream.
                                                                            //Two rules could have the same symbol that they represent, but where they compose different orderings/symbols to create that top-level symbol.
                                                                            //sjj - Actually, for now, not as concerned about this - will instead focus on transferring rules to SMem(then->WMem).
+        //This is where I now inspect the rulehead for the valuecontents and report them to SMem for storage, activation, etc.
+
         Symbol * rule_item1 = rule_head->insertAfter(match1->clone().release());
         Symbol * rule_item2 = rule_item1->insertAfter(match1_second->clone().release());
         rule_item2->insertAfter(rule_tail);

@@ -81,6 +81,7 @@ typedef struct predefined_sym_struct {
         Symbol*             epmem_sym_graph_match;
         Symbol*             epmem_sym_graph_match_mapping;
         Symbol*             epmem_sym_graph_match_mapping_node;
+        Symbol*             epmem_sym_mapping_surprise_node;
         Symbol*             epmem_sym_graph_match_mapping_cue;
         Symbol*             epmem_sym_success;
         Symbol*             epmem_sym_failure;
@@ -96,6 +97,7 @@ typedef struct predefined_sym_struct {
         Symbol*             epmem_sym_before;
         Symbol*             epmem_sym_after;
         Symbol*             epmem_sym_prohibit;
+        Symbol*             epmem_sym_consume_surprise;
         Symbol*             yes;
         Symbol*             no;
 

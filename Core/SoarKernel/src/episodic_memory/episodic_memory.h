@@ -653,6 +653,14 @@ typedef std::priority_queue<epmem_interval*, std::vector<epmem_interval*>, epmem
 typedef std::set<int64_t> epmem_id_delta_set;//These should probably be int64_t's given sqlite's inherent int64_t limitation.
 typedef std::set<std::pair<std::pair<int64_t,int64_t>, bool>> epmem_id_num_delta_set;//Keeping same-address number changes as sign-of-the-delta-only.
 //Purely for consistency, I may make two sets, one for greater-than, one for less-than. (Equality would be intentionally omitted.)
+struct epmem_node_id_bla_comparison
+{
+    bool operator() (const std::tuple<epmem_node_id,double,uint64_t>& lhs, const std::tuple<epmem_node_id,double,uint64_t>& rhs) const
+    {
+        return std::get<1>(lhs) > std::get<1>(rhs);//want lowest on top.
+    }//could in the event of ties prefer more recent surprises (or older ones, whatever) by including in comparison the time of surprise part of the tuple. - matters for totally novel instances (which all tie)
+};
+
 
 //One of these is created every epmem timestep.
 class EpMem_Id_Delta
@@ -729,12 +737,24 @@ class EpMem_Manager
         epmem_id_ref_counter* epmem_id_ref_counts;
         epmem_symbol_stack* epmem_id_removes;
 
+        std::map<epmem_node_id,uint64_t>* change_counter;//just keeping track of how often something has changed and the most recent change time.
+        std::map<epmem_node_id,uint64_t>* change_time_recent;
+        std::map<epmem_node_id,uint64_t>* change_time_first;
+        //The above three give a petrov approx bla, but we will use it in epmem for a queue by how low something was before it was activated.
+        std::priority_queue<std::tuple<epmem_node_id,double,uint64_t>, std::vector<std::tuple<epmem_node_id,double,uint64_t>>, epmem_node_id_bla_comparison>* epmem_node_id_reverse_bla;
+        epmem_node_id previously_most_surprising;
+        double previously_most_surprising_activation;
+
+        uint64_t total_wme_changes;
+
         epmem_symbol_set* epmem_wme_adds;
 
         epmem_rit_state epmem_rit_state_graph[2];
 
         uint64_t epmem_validation;
         EpMem_Id_Delta* prev_delta;
+
+        int64_t lowest_state_id;
 
         std::map<std::pair<int64_t,int64_t>, double> val_at_last_change;
         std::map<std::pair<int64_t,int64_t>, bool> change_at_last_change;

@@ -669,6 +669,7 @@ void Symbol_Manager::create_predefined_symbols()
     soarSymbols.epmem_sym_graph_match = make_str_constant("graph-match");
     soarSymbols.epmem_sym_graph_match_mapping = make_str_constant("mapping");
     soarSymbols.epmem_sym_graph_match_mapping_node = make_str_constant("node");
+    soarSymbols.epmem_sym_mapping_surprise_node = make_str_constant("surprise-node");
     soarSymbols.epmem_sym_graph_match_mapping_cue = make_str_constant("cue");
     soarSymbols.epmem_sym_success = make_str_constant("success");
     soarSymbols.epmem_sym_failure = make_str_constant("failure");
@@ -684,6 +685,7 @@ void Symbol_Manager::create_predefined_symbols()
     soarSymbols.epmem_sym_before = make_str_constant("before");
     soarSymbols.epmem_sym_after = make_str_constant("after");
     soarSymbols.epmem_sym_prohibit = make_str_constant("prohibit");
+    soarSymbols.epmem_sym_consume_surprise = make_str_constant("consume-surprise");
     soarSymbols.yes = make_str_constant("yes");
     soarSymbols.no = make_str_constant("no");
 
@@ -851,6 +853,7 @@ void Symbol_Manager::release_predefined_symbols()
     symbol_remove_ref(&(soarSymbols.epmem_sym_graph_match));
     symbol_remove_ref(&(soarSymbols.epmem_sym_graph_match_mapping));
     symbol_remove_ref(&(soarSymbols.epmem_sym_graph_match_mapping_node));
+    symbol_remove_ref(&(soarSymbols.epmem_sym_mapping_surprise_node));
     symbol_remove_ref(&(soarSymbols.epmem_sym_graph_match_mapping_cue));
     symbol_remove_ref(&(soarSymbols.epmem_sym_success));
     symbol_remove_ref(&(soarSymbols.epmem_sym_failure));

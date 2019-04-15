@@ -2399,6 +2399,11 @@ void remove_existing_context_and_descendents(agent* thisAgent, Symbol* goal)
     }
     else
     {
+        //This is for making epmem contain substates. I have to treat substates roots in a special manner.
+        {
+            //(*thisAgent->EpMem->epmem_edge_removals)[ std::make_pair(goal->id->epmem_id,0) ] = true;
+            //thisAgent->EpMem->epmem_id_removes->push_front(goal);
+        }
         thisAgent->bottom_goal = goal->id->higher_goal;
         thisAgent->bottom_goal->id->lower_goal = NIL;
     }
@@ -2554,6 +2559,40 @@ void create_new_context(agent* thisAgent, Symbol* attr_of_impasse, byte impasse_
         id = create_new_impasse(thisAgent, true, thisAgent->bottom_goal,
                                 attr_of_impasse, impasse_type,
                                 static_cast<goal_stack_level>(thisAgent->bottom_goal->id->level + 1));
+        //The below is a copy of the topstate epmem initialization code ripped for use in initializing epmem for substates.
+        {
+            /*if (epmem_enabled(thisAgent))
+            {
+                // at init, top-state is considered the only known identifier
+                id->id->epmem_id = -thisAgent->bottom_goal->id->level - 1;
+                if (thisAgent->EpMem->lowest_state_id > id->id->epmem_id)
+                    thisAgent->EpMem->lowest_state_id = id->id->epmem_id;
+                id->id->epmem_valid = (thisAgent->d_cycle_count <= 1 ? thisAgent->EpMem->epmem_validation + 1 : thisAgent->EpMem->epmem_validation);
+
+                // capture augmentations of top-state as the sole set of adds,
+                // which catches up to what would have been incremental encoding
+                // to this point
+                {
+                    thisAgent->EpMem->epmem_wme_adds->insert(id);
+                }
+                if (thisAgent->EpMem->epmem_id_repository->find( id->id->epmem_id ) == thisAgent->EpMem->epmem_id_repository->end())
+                {
+                    (*thisAgent->EpMem->epmem_id_repository)[ id->id->epmem_id ] = new epmem_hashed_id_pool;
+
+    #ifdef USE_MEM_POOL_ALLOCATORS
+                    epmem_wme_set* wms_temp = new epmem_wme_set(std::less< wme* >(), soar_module::soar_memory_pool_allocator< wme* >());
+    #else
+                    epmem_wme_set* wms_temp = new epmem_wme_set();
+    #endif
+
+                    // voigtjr: Cast to wme* is necessary for compilation in VS10
+                    // Without it, it picks insert(int) instead of insert(wme*) and does not compile.
+                    wms_temp->insert(static_cast<wme*>(NULL));
+
+                    (*thisAgent->EpMem->epmem_id_ref_counts)[ id->id->epmem_id ] = wms_temp;
+                }
+            }*/
+        }
         id->id->higher_goal = thisAgent->bottom_goal;
         thisAgent->bottom_goal->id->lower_goal = id;
         thisAgent->bottom_goal = id;
