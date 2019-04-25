@@ -1169,7 +1169,7 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
             "SELECT p.wi_id, p.lti_id FROM epmem_wmes_identifier_point p WHERE p.episode_id = ? UNION ALL "
             "SELECT e1.wi_id, e1.lti_id FROM epmem_wmes_identifier_range e1, epmem_rit_left_nodes lt WHERE e1.rit_id=lt.rit_min AND e1.end_episode_id >= ? UNION ALL "
             "SELECT e2.wi_id, e2.lti_id FROM epmem_wmes_identifier_range e2, epmem_rit_right_nodes rt WHERE e2.rit_id = rt.rit_id AND e2.start_episode_id <= ?) "
-            "SELECT f.parent_n_id, f.attribute_s_id, f.child_n_id, n.lti_id FROM epmem_wmes_identifier f, timetables n WHERE f.wi_id=n.wi_id "
+            "SELECT f.parent_n_id, f.attribute_s_id, f.child_n_id, n.lti_id, f.wi_id FROM epmem_wmes_identifier f, timetables n WHERE f.wi_id=n.wi_id "
             "ORDER BY f.parent_n_id ASC, f.child_n_id ASC", new_agent->EpMem->epmem_timers->ncb_edge);
             /*"SELECT f.parent_n_id, f.attribute_s_id, f.child_n_id, n.lti_id "
             "FROM epmem_wmes_identifier f, epmem_nodes n "
@@ -2444,6 +2444,41 @@ void epmem_init_db(agent* thisAgent, bool readonly)
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
+
+void epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, epmem_node_id parent_id, epmem_hash_id attribute_id, epmem_node_id triple_id)
+{
+    //First, check for if an element has ever been added before. if not initialize. could make parameter for whether or not first appearance allows "surprise".
+    //If it already exists, just update blas and add to surprise list.
+    double bla_before = -999999.0;
+    //std::tuple<epmem_node_id,epmem_hash_id,epmem_node_id> wme_tuple = std::make_tuple(parent_id, attribute_id, value_id);
+    std::pair<epmem_node_id,epmem_hash_id> search_pair = std::make_pair(parent_id,attribute_id);
+    if (thisAgent->EpMem->change_counter->find(search_pair) == thisAgent->EpMem->change_counter->end())
+    { // wholly novel case
+        thisAgent->EpMem->change_counter->emplace(std::make_pair(std::make_pair(parent_id,attribute_id),1));//)[std::make_pair(parent_id,attribute_id)] = 1;
+        thisAgent->EpMem->change_time_recent->emplace(std::make_pair(std::make_pair(parent_id,attribute_id),time_counter));//)[std::make_pair(parent_id,attribute_id)] = time_counter;
+        thisAgent->EpMem->change_time_first->emplace(std::make_pair(std::make_pair(parent_id,attribute_id),time_counter));//)[std::make_pair(parent_id,attribute_id)] = time_counter;
+        if (time_counter > 1)//May remove that condition. depends on whether or not wholly novel is to be paid attention.
+        {
+            thisAgent->EpMem->epmem_node_id_reverse_bla->emplace(std::make_tuple(triple_id,bla_before,time_counter));
+        }//The above should not be commented, but it makes for easier debugging if every element observed on the first cycle doesn't have to be dealt with first.
+    }
+    else
+    { // seen it
+        double count = static_cast<double>((*thisAgent->EpMem->change_counter)[search_pair]);
+        double recent = static_cast<double>((*thisAgent->EpMem->change_time_recent)[search_pair]);
+        double first = static_cast<double>((*thisAgent->EpMem->change_time_first)[search_pair]);
+        (*thisAgent->EpMem->change_counter)[search_pair] = 1 + (*thisAgent->EpMem->change_counter)[search_pair]; //TODO BUGBUG sjj - need to go back and fix the tuple to instead be a pair (poarent,attr).- - I think this is done now!?!!
+        (*thisAgent->EpMem->change_time_recent)[search_pair] = time_counter;
+        bla_before = log(1.0/(sqrt(time_counter-recent)) + (2.0*(count - 1))/(sqrt(time_counter-first)+sqrt(time_counter-recent)));//petrov bla with decay=.5 and k=1.
+        if (time_counter > 1)
+        {
+            thisAgent->EpMem->epmem_node_id_reverse_bla->emplace(std::make_tuple(triple_id,bla_before,time_counter));
+        }
+    }
+}
+
+
+
 /* **************************************************************************
 
                          _epmem_store_level
@@ -2848,6 +2883,7 @@ inline void _epmem_store_level(agent* thisAgent,
                 epmem_edge.emplace((*w_p)->epmem_id,static_cast<int64_t>((*w_p)->value->id->is_lti() ? (*w_p)->value->id->LTI_ID : 0));
                 thisAgent->EpMem->epmem_edge_mins->push_back(time_counter);
                 thisAgent->EpMem->epmem_edge_maxes->push_back(false);
+                epmem_surprise_bla(thisAgent, time_counter, parent_id, my_hash, (*w_p)->epmem_id);
             }
             else
             {
@@ -2862,6 +2898,7 @@ inline void _epmem_store_level(agent* thisAgent,
                 {
                     epmem_edge.emplace((*w_p)->epmem_id,static_cast<int64_t>((*w_p)->value->id->is_lti() ? (*w_p)->value->id->LTI_ID : 0));
                     (*thisAgent->EpMem->epmem_edge_maxes)[static_cast<size_t>((*w_p)->epmem_id - 1)] = false;
+                    epmem_surprise_bla(thisAgent, time_counter, parent_id, my_hash, (*w_p)->epmem_id);
                 }
             }
 
@@ -2952,6 +2989,7 @@ inline void _epmem_store_level(agent* thisAgent,
 #endif
                     // new nodes definitely start
                     epmem_node.push((*w_p)->epmem_id);
+                    epmem_surprise_bla(thisAgent, time_counter, parent_id, my_hash, (*w_p)->epmem_id);
                     {
                         switch ((*w_p)->value->symbol_type)
                         {
@@ -2983,6 +3021,7 @@ inline void _epmem_store_level(agent* thisAgent,
                     if ((*thisAgent->EpMem->epmem_node_maxes)[static_cast<size_t>((*w_p)->epmem_id - 1)])
                     {
                         epmem_node.push((*w_p)->epmem_id);
+                        epmem_surprise_bla(thisAgent, time_counter, parent_id, my_hash, (*w_p)->epmem_id);
                         {
                             switch ((*w_p)->value->symbol_type)
                             {
@@ -3120,32 +3159,7 @@ void epmem_new_episode(agent* thisAgent)
                  * This is when we should keep track of the addition for the sake of Sequitur.
                  */
                 thisAgent->EpMem->total_wme_changes++;
-                //First, check for if an element has ever been added before. if not initialize. could make parameter for whether or not first appearance allows "surprise".
-                //If it already exists, just update blas and add to surprise list.
-                double bla_before = -999999.0;
-                if (thisAgent->EpMem->change_counter->find(*temp_node) == thisAgent->EpMem->change_counter->end())
-                { // wholly novel case
-                    (*thisAgent->EpMem->change_counter)[*temp_node] = 1;
-                    (*thisAgent->EpMem->change_time_recent)[*temp_node] = time_counter;
-                    (*thisAgent->EpMem->change_time_first)[*temp_node] = time_counter;
-                    //if (time_counter > 1)//May remove that condition. depends on whether or not wholly novel is to be paid attention.
-                    {
-                        thisAgent->EpMem->epmem_node_id_reverse_bla->emplace(std::make_tuple(*temp_node,bla_before,time_counter));
-                    }
-                }
-                else
-                { // seen it
-                    double count = static_cast<double>((*thisAgent->EpMem->change_counter)[*temp_node]);
-                    double recent = static_cast<double>((*thisAgent->EpMem->change_time_recent)[*temp_node]);
-                    double first = static_cast<double>((*thisAgent->EpMem->change_time_first)[*temp_node]);
-                    (*thisAgent->EpMem->change_counter)[*temp_node] = 1 + (*thisAgent->EpMem->change_counter)[*temp_node];
-                    (*thisAgent->EpMem->change_time_recent)[*temp_node] = time_counter;
-                    bla_before = log(1.0/(sqrt(time_counter-recent)) + (2.0*(count - 1))/(sqrt(time_counter-first)+sqrt(time_counter-recent)));//petrov bla with decay=.5 and k=1.
-                    //if (time_counter > 1)
-                    {
-                        thisAgent->EpMem->epmem_node_id_reverse_bla->emplace(std::make_tuple(*temp_node,bla_before,time_counter));
-                    }
-                }
+
 
                 if (thisAgent->EpMem->epmem_params->segmentation_method->get_value() == epmem_param_container::sequitur_compression && potential_delta_ids.find(*temp_node) == potential_delta_ids.end())
                 {
@@ -3178,6 +3192,8 @@ void epmem_new_episode(agent* thisAgent)
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_identifier_now->bind_int(2, time_counter);
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_identifier_now->bind_int(3, (*lti_id));
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_identifier_now->execute(soar_module::op_reinit);
+                thisAgent->EpMem->total_wme_changes++;
+
                 /*
                  * This is where we know we've added something to working memory.
                  * This is when we should keep track of the addition for the sake of Sequitur.
@@ -3609,7 +3625,7 @@ inline void _epmem_install_id_wme(agent* thisAgent, Symbol* parent, Symbol* attr
  *                a mapping of identifiers that should be recorded
  *                during reconstruction.
  **************************************************************************/
-void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_id, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_id_mapping* id_record = NULL)
+void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_id, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_id_mapping* id_record = NULL, epmem_time_id delta_memory_id = NULL, epmem_node_id* surprising_element = NULL)
 {//My modification to support having hard-coded event segmentation queries is to keep track of an event counter similar to last_memory having a memory id. When an episode is recalled
     //I'll want to make sure that I note the event_counter value that is part of the episode.
     ////////////////////////////////////////////////////////////////////////////
@@ -3665,12 +3681,16 @@ void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_
         thisAgent->symbolManager->symbol_remove_ref(&my_meta);
     }
 
+    bool satisfied_surprise_link = (surprising_element == NULL);
     //A new addition to installed memories - keeping track of the event segmentation counter associated with the memory.
     //A reserved attribute will be assumed - "event-segmentation-counter" (should be verbose enough).
     //A query to the epmem database for the attribute id associated with this string lets us then check with an "if" below during construction.
     //The following (before "install memory" is the code to find the relevant attribute).
     uint64_t event_attribute_id = epmem_temporal_hash_str(thisAgent, thisAgent->symbolManager->soarSymbols.epmem_sym_event_segmentation_counter->to_string(), false);
 
+    std::map<epmem_node_id,std::tuple<epmem_node_id,epmem_node_id,epmem_node_id>> triple_id_to_ids_map;
+
+    std::set<epmem_node_id> first_memory_ids;
     // install memory
     {
         // Big picture: create identifier skeleton, then hang non-identifers
@@ -3697,13 +3717,14 @@ void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_
         // initialize the lookup table
         ids[ EPMEM_NODEID_ROOT ] = std::make_pair(retrieved_header, true);
 
+
         // first identifiers (i.e. reconstruct)
         my_q = thisAgent->EpMem->epmem_stmts_graph->get_wmes_with_identifier_values;
         {
             // relates to finite automata: child_n_id = d(parent_n_id, attribute_s_id)
             epmem_node_id parent_n_id; // id
-            epmem_node_id child_n_id; // attribute
-
+            epmem_node_id child_n_id; // child
+            epmem_node_id triple_id; //triple
             uint64_t val_lti_id = NIL;
 
             // used to lookup shared identifiers
@@ -3713,106 +3734,206 @@ void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_
             // orphaned children
             std::queue< epmem_edge* > orphans;
             epmem_edge* orphan;
+//            if (delta_memory_id == NULL)
+//            {
+//                epmem_rit_prep_left_right(thisAgent, memory_id, memory_id, &(thisAgent->EpMem->epmem_rit_state_graph[ EPMEM_RIT_STATE_EDGE ]));
+//            }
+//            else
+//            {
+//                epmem_rit_prep_left_right(thisAgent, memory_id, delta_memory_id, &(thisAgent->EpMem->epmem_rit_state_graph[ EPMEM_RIT_STATE_EDGE ]));
+//            }
 
-            epmem_rit_prep_left_right(thisAgent, memory_id, memory_id, &(thisAgent->EpMem->epmem_rit_state_graph[ EPMEM_RIT_STATE_EDGE ]));
-
-            my_q->bind_int(1, memory_id);
-            my_q->bind_int(2, memory_id);
-            my_q->bind_int(3, memory_id);
-            my_q->bind_int(4, memory_id);
-            my_q->bind_int(5, memory_id);
-            while (my_q->execute() == soar_module::row)
+            epmem_time_id memory_id_choice[2];
+            memory_id_choice[0] = memory_id;
+            memory_id_choice[1] = delta_memory_id;
+            for (int memory_iter = 0; memory_iter < (memory_id == delta_memory_id ? 1 : 2); ++memory_iter)
             {
-                // parent_n_id, attribute_s_id, child_n_id, epmem_node.lti_id
-                parent_n_id = my_q->column_int(0);
-                child_n_id = my_q->column_int(2);
-                val_lti_id = (my_q->column_type(3) == soar_module::null_t ? 0 : static_cast<uint64_t>(my_q->column_int(3)));
-                attr = epmem_reverse_hash(thisAgent, my_q->column_int(1));
-
-                // get a reference to the parent
-                id_p = ids.find(parent_n_id);
-                if (id_p != ids.end())
+                epmem_rit_prep_left_right(thisAgent, memory_id_choice[memory_iter], memory_id_choice[memory_iter], &(thisAgent->EpMem->epmem_rit_state_graph[ EPMEM_RIT_STATE_EDGE ]));
+                my_q->bind_int(1, memory_id_choice[memory_iter]);
+                my_q->bind_int(2, memory_id_choice[memory_iter]);
+                my_q->bind_int(3, memory_id_choice[memory_iter]);
+                my_q->bind_int(4, memory_id_choice[memory_iter]);
+                my_q->bind_int(5, memory_id_choice[memory_iter]);
+                while (my_q->execute() == soar_module::row)
                 {
-                    // if existing lti with kids don't touch
-                    if (dont_abide_by_ids_second || id_p->second.second)
+                    // parent_n_id, attribute_s_id, child_n_id, epmem_node.lti_id
+                    parent_n_id = my_q->column_int(0);
+                    child_n_id = my_q->column_int(2);
+                    val_lti_id = (my_q->column_type(3) == soar_module::null_t ? 0 : static_cast<uint64_t>(my_q->column_int(3)));
+                    triple_id = my_q->column_int(4);// can equivalently extend constants version.
+                    attr = epmem_reverse_hash(thisAgent, my_q->column_int(1));
+                    triple_id_to_ids_map.emplace(triple_id,std::make_tuple(parent_n_id,my_q->column_int(1),child_n_id));
+                    // get a reference to the parent
+                    id_p = ids.find(parent_n_id);
+                    if (id_p != ids.end())
                     {
-                        _epmem_install_id_wme(thisAgent, id_p->second.first, attr, &(ids), child_n_id, val_lti_id, id_record, retrieval_wmes);
-                        num_wmes++;
+                        // if existing lti with kids don't touch
+                        if (dont_abide_by_ids_second || id_p->second.second)
+                        {
+                            if (memory_iter == 0)
+                            {
+                                first_memory_ids.insert(triple_id);//every element which shows up first cycle could potentially be removed.
+                            }
+                            if (memory_iter == 1 && first_memory_ids.count(triple_id) == 1)
+                            {
+                                first_memory_ids.erase(triple_id);//if it already showed up, it's not a removed element if it's still being added second cycle.
+                            }
+                            if (first_memory_ids.count(triple_id) == 0)
+                            {
+                                _epmem_install_id_wme(thisAgent, id_p->second.first, attr, &(ids), child_n_id, val_lti_id, id_record, retrieval_wmes);//Don't add it second cycle if it was already there.
+                            }
+                            if (memory_iter == 1 && first_memory_ids.count(triple_id) == 0)//addition
+                            {
+                                if (surprising_element != NULL && triple_id == *surprising_element && !satisfied_surprise_link)
+                                {
+                                    //goal_stack_level level = state->id->epmem_info->result_wme->value->id->level;
+                                    //Symbol* temp_sym = thisAgent->symbolManager->make_new_identifier('N', level);
+
+                                    std::map< epmem_node_id, std::pair< Symbol*, bool > >::iterator id_p_child = ids.find(child_n_id);
+                                    epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_mapping_surprise_node, id_p_child->second.first);
+                                    //thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+                                    satisfied_surprise_link = true;
+                                }
+                                epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_addition, ids.find(child_n_id)->second.first); //where "additions" get added
+                            }
+                            num_wmes++;
+                        }
+
+                        thisAgent->symbolManager->symbol_remove_ref(&attr);
                     }
+                    else
+                    {
+                        // out of order
+                        orphan = new epmem_edge;
+                        orphan->triple_id = triple_id;
+                        orphan->parent_n_id = parent_n_id;
+                        orphan->attribute = attr;
+                        orphan->child_n_id = child_n_id;
+                        orphan->child_lti_id = val_lti_id;
 
-                    thisAgent->symbolManager->symbol_remove_ref(&attr);
+                        orphans.push(orphan);
+                    }
                 }
-                else
+                my_q->reinitialize();
+
+                epmem_rit_clear_left_right(thisAgent);
+
+                // take care of any orphans
+                if (!orphans.empty())
                 {
-                    // out of order
-                    orphan = new epmem_edge;
-                    orphan->parent_n_id = parent_n_id;
-                    orphan->attribute = attr;
-                    orphan->child_n_id = child_n_id;
-                    orphan->child_lti_id = val_lti_id;
+                    std::queue<epmem_edge*>::size_type orphans_left;
+                    std::queue<epmem_edge*> still_orphans;
 
-                    orphans.push(orphan);
-                }
-            }
-            my_q->reinitialize();
-            epmem_rit_clear_left_right(thisAgent);
+                    do
+                    {
+                        orphans_left = orphans.size();
 
-            // take care of any orphans
-            if (!orphans.empty())
-            {
-                std::queue<epmem_edge*>::size_type orphans_left;
-                std::queue<epmem_edge*> still_orphans;
+                        while (!orphans.empty())
+                        {
+                            orphan = orphans.front();
+                            orphans.pop();
+                            parent_n_id = orphan->parent_n_id;
+                            child_n_id = orphan->child_n_id;
+                            triple_id = orphan->triple_id;
+                            attr = orphan->attribute;
+                            val_lti_id = orphan->child_lti_id;
 
-                do
-                {
-                    orphans_left = orphans.size();
+                            // get a reference to the parent
+                            id_p = ids.find(orphan->parent_n_id);
+                            if (id_p != ids.end())
+                            {
+                                if (dont_abide_by_ids_second || id_p->second.second)
+                                {
+                                    if (memory_iter == 0)
+                                    {
+                                        first_memory_ids.insert(triple_id);//every element which shows up first cycle could potentially be removed.
+                                    }
+                                    if (memory_iter == 1 && first_memory_ids.count(triple_id) == 1)
+                                    {
+                                        first_memory_ids.erase(triple_id);//if it already showed up, it's not a removed element if it's still being added second cycle.
+                                    }
+                                    if (first_memory_ids.count(triple_id) == 0)
+                                    {
+                                        _epmem_install_id_wme(thisAgent, id_p->second.first, attr, &(ids), child_n_id, val_lti_id, id_record, retrieval_wmes);//Don't add it second cycle if it was already there.
+                                    }
+                                    if (memory_iter == 1 && first_memory_ids.count(triple_id) == 0)//addition
+                                    {
+                                        if (surprising_element != NULL && triple_id == *surprising_element && !satisfied_surprise_link)
+                                        {//can point to triple here.
+                                            //goal_stack_level level = state->id->epmem_info->result_wme->value->id->level;
+                                            //Symbol* temp_sym = thisAgent->symbolManager->make_new_identifier('N', level);
+                                            std::map< epmem_node_id, std::pair< Symbol*, bool > >::iterator id_p_child = ids.find(child_n_id);
+                                            epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_mapping_surprise_node, id_p_child->second.first);
+                                            //thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+                                            satisfied_surprise_link = true;
+                                        }
+                                        epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_addition, ids.find(child_n_id)->second.first); //where "additions" get added
+                                    }
+                                    num_wmes++;
+                                }
+
+                                thisAgent->symbolManager->symbol_remove_ref(&orphan->attribute);
+
+                                delete orphan;
+                            }
+                            else
+                            {
+                                still_orphans.push(orphan);
+                            }
+                        }
+
+                        orphans = still_orphans;
+                        while (!still_orphans.empty())
+                        {
+                            still_orphans.pop();
+                        }
+
+                    }
+                    while ((!orphans.empty()) && (orphans_left != orphans.size()));
 
                     while (!orphans.empty())
                     {
                         orphan = orphans.front();
                         orphans.pop();
 
-                        // get a reference to the parent
-                        id_p = ids.find(orphan->parent_n_id);
-                        if (id_p != ids.end())
-                        {
-                            if (dont_abide_by_ids_second || id_p->second.second)
-                            {
-                                _epmem_install_id_wme(thisAgent, id_p->second.first, orphan->attribute, &(ids), orphan->child_n_id, orphan->child_lti_id, id_record, retrieval_wmes);
-                                num_wmes++;
-                            }
+                        thisAgent->symbolManager->symbol_remove_ref(&orphan->attribute);
 
-                            thisAgent->symbolManager->symbol_remove_ref(&orphan->attribute);
-
-                            delete orphan;
-                        }
-                        else
-                        {
-                            still_orphans.push(orphan);
-                        }
+                        delete orphan;
                     }
-
-                    orphans = still_orphans;
-                    while (!still_orphans.empty())
-                    {
-                        still_orphans.pop();
-                    }
-
-                }
-                while ((!orphans.empty()) && (orphans_left != orphans.size()));
-
-                while (!orphans.empty())
-                {
-                    orphan = orphans.front();
-                    orphans.pop();
-
-                    thisAgent->symbolManager->symbol_remove_ref(&orphan->attribute);
-
-                    delete orphan;
                 }
             }
+            epmem_rit_clear_left_right(thisAgent);
         }
+        std::set<epmem_node_id>::iterator removed_ids_begin;
+        std::set<epmem_node_id>::iterator removed_ids_end;
+        std::set<epmem_node_id>::iterator removed_ids_it;
+        if (memory_id != delta_memory_id)
+        {
+            //After installing the memory_id identifiers, we can install the delta_memory_id identifiers. they will be both attached to the existing structure and also given an "addition" link from the epmem result header.
+            //We will also track which ids added during the memory_id add were not visited in the delta_memory_id construction. Those will be considered removals. We will also point from the epmem link to them with "removal".
+            //It will be poetic if spaghetti code gives rise to AI. That's all DNA did. #We'reAlrreadyAI
+            //Additions and persistent elements have already been added above. Here we test for whether or not we're even doing weirdness, and if so, then report the removed identifiers with additional links from epmem result.
+            //triple id to parent,attr,val map will allow keeping track of symbols added to wm already for making links to them.
+            //Triple id map gives ids for wme triples. id map turns the ids in those triples to symbols. they do exist.
+            //First, loop over first_memory_ids for those which are removed.
+            removed_ids_begin = first_memory_ids.begin();
+            removed_ids_end = first_memory_ids.end();
+            for (removed_ids_it = removed_ids_begin; removed_ids_it != removed_ids_end; ++removed_ids_it)
+            {
+                //for each removed id, we just create a link on the epmem link pointing with "removed".
+                //Use the triple to find the node ids. use the node ids to find the symbols. //I am only being this weird about it because I am entertaining framing things conceptually around the triple ids for
+                //things like surprise.
+                std::map<epmem_node_id,std::tuple<epmem_node_id,epmem_node_id,epmem_node_id>>::iterator it_to_triple = triple_id_to_ids_map.find(*removed_ids_it);
+                //epmem_node_id parent = std::get<0>(it_to_triple->second);
+                //epmem_node_id attr = std::get<1>(it_to_triple->second);
+                epmem_node_id value = std::get<2>(it_to_triple->second);
+                Symbol* value_sym = ids.find(value)->second.first;
+                epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_removal, value_sym); //where "removals" get added
+            }
+        }
+        first_memory_ids.clear();
 
+        epmem_node_id triple_id; //triple
         // then epmem_wmes_constant
         // f.wc_id, f.parent_n_id, f.attribute_s_id, f.value_s_id
         my_q = thisAgent->EpMem->epmem_stmts_graph->get_wmes_with_constant_values;
@@ -3821,41 +3942,113 @@ void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_
             std::pair< Symbol*, bool > parent;
             Symbol* value = NULL;
 
-            epmem_rit_prep_left_right(thisAgent, memory_id, memory_id, &(thisAgent->EpMem->epmem_rit_state_graph[ EPMEM_RIT_STATE_NODE ]));
 
-            my_q->bind_int(1, memory_id);
-            my_q->bind_int(2, memory_id);
-            my_q->bind_int(3, memory_id);
-            my_q->bind_int(4, memory_id);
-            while (my_q->execute() == soar_module::row)
+            //epmem_rit_prep_left_right(thisAgent, memory_id, memory_id, &(thisAgent->EpMem->epmem_rit_state_graph[ EPMEM_RIT_STATE_NODE ]));
+            epmem_time_id memory_id_choice[2];
+            memory_id_choice[0] = memory_id;
+            memory_id_choice[1] = delta_memory_id;
+            for (int memory_iter = 0; memory_iter < (memory_id == delta_memory_id ? 1 : 2); ++memory_iter)
             {
-                parent_n_id = my_q->column_int(1);
-
-                // get a reference to the parent
-                parent = ids[ parent_n_id ];
-
-                if (dont_abide_by_ids_second || parent.second)
+                epmem_rit_prep_left_right(thisAgent, memory_id_choice[memory_iter], memory_id_choice[memory_iter], &(thisAgent->EpMem->epmem_rit_state_graph[ EPMEM_RIT_STATE_NODE ]));
+                my_q->bind_int(1, memory_id_choice[memory_iter]);
+                my_q->bind_int(2, memory_id_choice[memory_iter]);
+                my_q->bind_int(3, memory_id_choice[memory_iter]);
+                my_q->bind_int(4, memory_id_choice[memory_iter]);
+                while (my_q->execute() == soar_module::row)
                 {
-                    // make a symbol to represent the attribute
-                    attr = epmem_reverse_hash(thisAgent, my_q->column_int(2));
+                    parent_n_id = my_q->column_int(1);
+                    triple_id = my_q->column_int(0);
 
-                    // make a symbol to represent the value
-                    value = epmem_reverse_hash(thisAgent, my_q->column_int(3));
-                    if (((uint64_t)my_q->column_int(2)) == event_attribute_id)
-                    {//If the attribute matches my special event segmentation counter
-                        state->id->epmem_info->last_event = value->ic->value;
+                    // get a reference to the parent
+                    parent = ids[ parent_n_id ];
+
+                    if (dont_abide_by_ids_second || parent.second)
+                    {
+                        // make a symbol to represent the attribute
+                        attr = epmem_reverse_hash(thisAgent, my_q->column_int(2));
+
+                        // make a symbol to represent the value
+                        value = epmem_reverse_hash(thisAgent, my_q->column_int(3));
+                        if (((uint64_t)my_q->column_int(2)) == event_attribute_id)
+                        {//If the attribute matches my special event segmentation counter
+                            state->id->epmem_info->last_event = value->ic->value;
+                        }
+                        if (memory_iter == 0)
+                        {
+                            first_memory_ids.insert(triple_id);//every element which shows up first cycle could potentially be removed.
+                        }
+                        if (memory_iter == 1 && first_memory_ids.count(triple_id) == 1)
+                        {
+                            first_memory_ids.erase(triple_id);//if it already showed up, it's not a removed element if it's still being added second cycle.
+                        }
+                        if (first_memory_ids.count(triple_id) == 0)
+                        {
+                            epmem_buffer_add_wme(thisAgent, retrieval_wmes, parent.first, attr, value);
+                        }
+                        if (memory_iter == 1 && first_memory_ids.count(triple_id) == 0)//addition
+                        {
+                            if (surprising_element != NULL && triple_id == *surprising_element && !satisfied_surprise_link)
+                            {
+                                //goal_stack_level level = state->id->epmem_info->result_wme->value->id->level;
+                                //Symbol* temp_sym = thisAgent->symbolManager->make_new_identifier('N', level);
+                                epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_mapping_surprise_value, value);
+                                epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_mapping_surprise_attribute, attr);
+                                epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_mapping_surprise_parent, parent.first);
+                                //thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+                                satisfied_surprise_link = true;
+                            }
+                            Symbol* addition_root = thisAgent->symbolManager->make_new_identifier('A', result_header->id->level);
+                            epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_addition_constant, addition_root); //where "additions" get added
+                            thisAgent->symbolManager->symbol_remove_ref(&addition_root);
+                            epmem_buffer_add_wme(thisAgent, meta_wmes, addition_root, thisAgent->symbolManager->soarSymbols.epmem_sym_addition_constant_parent, parent.first);
+                            epmem_buffer_add_wme(thisAgent, meta_wmes, addition_root, thisAgent->symbolManager->soarSymbols.epmem_sym_addition_constant_attribute, attr);
+                            epmem_buffer_add_wme(thisAgent, meta_wmes, addition_root, thisAgent->symbolManager->soarSymbols.epmem_sym_addition_constant_value, value);
+                            //under a constant addition root, we can have parent, attribute, value.
+                        }
+                        num_wmes++;
+
+                        thisAgent->symbolManager->symbol_remove_ref(&attr);
+                        thisAgent->symbolManager->symbol_remove_ref(&value);
                     }
-
-                    epmem_buffer_add_wme(thisAgent, retrieval_wmes, parent.first, attr, value);
-                    num_wmes++;
-
-                    thisAgent->symbolManager->symbol_remove_ref(&attr);
-                    thisAgent->symbolManager->symbol_remove_ref(&value);
                 }
+                my_q->reinitialize();
             }
-            my_q->reinitialize();
             epmem_rit_clear_left_right(thisAgent);
         }
+        if (memory_id != delta_memory_id)
+        {
+            removed_ids_begin = first_memory_ids.begin();
+            removed_ids_end = first_memory_ids.end();
+            for (removed_ids_it = removed_ids_begin; removed_ids_it != removed_ids_end; ++removed_ids_it)
+            {
+                //for each removed id, we just create a link on the epmem link pointing with "removed".
+                //Use the triple to find the node ids. use the node ids to find the symbols. //I am only being this weird about it because I am entertaining framing things conceptually around the triple ids for
+                //things like surprise.
+                std::map<epmem_node_id,std::tuple<epmem_node_id,epmem_node_id,epmem_node_id>>::iterator it_to_triple = triple_id_to_ids_map.find(*removed_ids_it);
+                //epmem_node_id parent = std::get<0>(it_to_triple->second);
+                //epmem_node_id attr = std::get<1>(it_to_triple->second);
+                epmem_node_id value = std::get<2>(it_to_triple->second);
+                epmem_node_id attribute = std::get<1>(it_to_triple->second);
+                Symbol* value_sym = epmem_reverse_hash(thisAgent, value);
+                Symbol* attribute_sym = epmem_reverse_hash(thisAgent, attribute);
+                Symbol* parent_sym = ids.find(std::get<0>(it_to_triple->second))->second.first;
+                //epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_removal, value_sym); //where "removals" get added
+                Symbol* removal_root = thisAgent->symbolManager->make_new_identifier('R', result_header->id->level);
+                epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_removal_constant, removal_root); //where "removals" get added
+                thisAgent->symbolManager->symbol_remove_ref(&removal_root);
+                epmem_buffer_add_wme(thisAgent, meta_wmes, removal_root, thisAgent->symbolManager->soarSymbols.epmem_sym_removal_constant_parent, parent_sym);
+                epmem_buffer_add_wme(thisAgent, meta_wmes, removal_root, thisAgent->symbolManager->soarSymbols.epmem_sym_removal_constant_attribute, attribute_sym);
+                epmem_buffer_add_wme(thisAgent, meta_wmes, removal_root, thisAgent->symbolManager->soarSymbols.epmem_sym_removal_constant_value, value_sym);
+            }
+        }
+        first_memory_ids.clear();
+        //The very same logic for identifiers applies to constants here. However, because constants are created in different locations, we will instead keep track of their parents as well with something like "constant-addition <root> ^parent <something> ^attribute <attr> ^value <val>" verbose, but functionally complete.
+        //Additionally, removals will have the same specification.
+
+    }
+    if (!satisfied_surprise_link && surprising_element != NULL)
+    {//This could almost be an assert, really. It's bad to reach here if we have a surprising element.
+        epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_mapping_surprise_node, thisAgent->symbolManager->soarSymbols.epmem_sym_failure);
     }
 
     // adjust stat
@@ -3865,7 +4058,7 @@ void epmem_install_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_
     thisAgent->EpMem->epmem_timers->ncb_retrieval->stop();
     ////////////////////////////////////////////////////////////////////////////
 }
-void epmem_install_surprise_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_id, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_node_id surprising_element)
+/*void epmem_install_surprise_memory(agent* thisAgent, Symbol* state, epmem_time_id memory_id, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_node_id surprising_element)
 {//My modification to support having hard-coded event segmentation queries is to keep track of an event counter similar to last_memory having a memory id. When an episode is recalled
     //I'll want to make sure that I note the event_counter value that is part of the episode.
     epmem_id_mapping* id_record = NULL;
@@ -4131,6 +4324,16 @@ void epmem_install_surprise_memory(agent* thisAgent, Symbol* state, epmem_time_i
 
                     epmem_buffer_add_wme(thisAgent, retrieval_wmes, parent.first, attr, value);
                     num_wmes++;
+                    if (my_q->column_int(3) == surprising_element && !satisfied_surprise_link)
+                    {
+                        //goal_stack_level level = state->id->epmem_info->result_wme->value->id->level;
+                        //Symbol* temp_sym = thisAgent->symbolManager->make_new_identifier('N', level);
+                        epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_mapping_surprise_value, value);
+                        epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_mapping_surprise_attribute, attr);
+                        epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_mapping_surprise_parent, parent.first);
+                        //thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+                        satisfied_surprise_link = true;
+                    }
 
                     thisAgent->symbolManager->symbol_remove_ref(&attr);
                     thisAgent->symbolManager->symbol_remove_ref(&value);
@@ -4147,7 +4350,7 @@ void epmem_install_surprise_memory(agent* thisAgent, Symbol* state, epmem_time_i
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->EpMem->epmem_timers->ncb_retrieval->stop();
     ////////////////////////////////////////////////////////////////////////////
-}
+}*/
 
 /***************************************************************************
  * Function     : epmem_next_episode
@@ -5053,7 +5256,7 @@ bool epmem_graph_match(epmem_literal_deque::iterator& dnf_iter, epmem_literal_de
 }
 
 void epmem_process_query(agent* thisAgent, Symbol* state, Symbol* pos_query, Symbol* neg_query, epmem_time_list& prohibits, epmem_time_id before, epmem_time_id after, wme_set& cue_wmes, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, int level = 3)
-{
+{//sjj - 2019 - "level" is pretty weird. it's set by default. the only call to this function doesn't use it. later in this function, it is redefined, not just given a diferent value. gonna change that.
     // a query must contain a positive cue
     if (pos_query == NULL)
     {
@@ -5127,7 +5330,7 @@ void epmem_process_query(agent* thisAgent, Symbol* state, Symbol* pos_query, Sym
     // variables needed for graphmatch
     epmem_literal_deque gm_ordering;
 
-    if (level > 1)
+    //if (level > 1)
     {
         // build the DNF graph while checking for leaf WMEs
         {
@@ -5682,9 +5885,721 @@ void epmem_process_query(agent* thisAgent, Symbol* state, Symbol* pos_query, Sym
                 }
             }
             // reconstruct the actual episode
-            if (level > 2)
+            //if (level > 2)
             {
                 epmem_install_memory(thisAgent, state, best_episode, meta_wmes, retrieval_wmes, &node_mem_map);
+            }
+            if (best_graph_matched)
+            {
+                for (epmem_id_mapping::iterator iter = node_mem_map.begin(); iter != node_mem_map.end(); iter++)
+                {
+                    epmem_id_mapping::iterator map_iter = node_map_map.find((*iter).first);
+                    if (map_iter != node_map_map.end() && (*iter).second)
+                    {
+                        epmem_buffer_add_wme(thisAgent, meta_wmes, (*map_iter).second, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved, (*iter).second);
+                    }
+                }
+            }
+            thisAgent->EpMem->epmem_timers->query_result->stop();
+        }
+    }
+
+    // cleanup
+    thisAgent->EpMem->epmem_timers->query_cleanup->start();
+    for (epmem_interval_set::iterator iter = interval_cleanup.begin(); iter != interval_cleanup.end(); iter++)
+    {
+        epmem_interval* interval = *iter;
+        if (interval->sql)
+        {
+            interval->sql->get_pool()->release(interval->sql);
+        }
+        thisAgent->memoryManager->free_with_pool(MP_epmem_interval, interval);
+    }
+    for (int type = EPMEM_RIT_STATE_NODE; type <= EPMEM_RIT_STATE_EDGE; type++)
+    {
+        for (epmem_triple_pedge_map::iterator iter = pedge_caches[type].begin(); iter != pedge_caches[type].end(); iter++)
+        {
+            epmem_pedge* pedge = (*iter).second;
+            if (pedge->sql)
+            {
+                pedge->sql->get_pool()->release(pedge->sql);
+            }
+            pedge->literals.~epmem_literal_set();
+            thisAgent->memoryManager->free_with_pool(MP_epmem_pedge, pedge);
+        }
+        for (epmem_triple_uedge_map::iterator iter = uedge_caches[type].begin(); iter != uedge_caches[type].end(); iter++)
+        {
+            epmem_uedge* uedge = (*iter).second;
+            uedge->pedges.~epmem_pedge_set();
+            thisAgent->memoryManager->free_with_pool(MP_epmem_uedge, uedge);
+        }
+    }
+    for (epmem_wme_literal_map::iterator iter = literal_cache.begin(); iter != literal_cache.end(); iter++)
+    {
+        epmem_literal* literal = (*iter).second;
+        literal->parents.~epmem_literal_set();
+        literal->children.~epmem_literal_set();
+        literal->matches.~epmem_node_pair_set();
+        literal->values.~epmem_node_int_map();
+        thisAgent->memoryManager->free_with_pool(MP_epmem_literal, literal);
+    }
+    thisAgent->EpMem->epmem_timers->query_cleanup->stop();
+
+    thisAgent->EpMem->epmem_timers->query->stop();
+}
+
+void epmem_process_begin_query(agent* thisAgent, Symbol* state, Symbol* pos_query, Symbol* neg_query, epmem_time_list& prohibits, epmem_time_id before, epmem_time_id after, wme_set& cue_wmes, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, int level = 3)
+{//sjj - Alright, I'm not enough of a code fetishist. What needs to be done is epmem_process_query needs to be split into smaller semantically meaningful encapsulated bits. Then, it will actually maybe fit on one screen.
+    //If this was done, then this function here, which is a copy/paste of epmem_process_query, could instead meaningfully reuse the code referenced by epmem_process_query.
+    //However, I want to get stuff working by a deadline, and so sins are committed.
+    // a query must contain a positive cue
+    if (pos_query == NULL)
+    {
+        epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_status, thisAgent->symbolManager->soarSymbols.epmem_sym_bad_cmd);
+        return;
+    }
+
+    // before and after, if specified, must be valid relative to each other
+    if (before != EPMEM_MEMID_NONE && after != EPMEM_MEMID_NONE && before <= after)
+    {
+        epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_status, thisAgent->symbolManager->soarSymbols.epmem_sym_bad_cmd);
+        return;
+    }
+
+    if (QUERY_DEBUG >= 1)
+    {
+        std::cout << std::endl << "==========================" << std::endl << std::endl;
+    }
+
+    thisAgent->EpMem->epmem_timers->query->start();
+
+    // sort probibit's
+    if (!prohibits.empty())
+    {
+        std::sort(prohibits.begin(), prohibits.end());
+    }
+
+    // epmem options
+    bool do_graph_match = (thisAgent->EpMem->epmem_params->graph_match->get_value() == on);
+    epmem_param_container::gm_ordering_choices gm_order = thisAgent->EpMem->epmem_params->gm_ordering->get_value();
+
+    // variables needed for cleanup
+    epmem_wme_literal_map literal_cache;
+    epmem_triple_pedge_map pedge_caches[2];
+#ifdef USE_MEM_POOL_ALLOCATORS
+    epmem_triple_uedge_map uedge_caches[2] =
+    {
+        epmem_triple_uedge_map(std::less<epmem_triple>(), soar_module::soar_memory_pool_allocator<std::pair<const epmem_triple, epmem_uedge*> >()),
+        epmem_triple_uedge_map(std::less<epmem_triple>(), soar_module::soar_memory_pool_allocator<std::pair<const epmem_triple, epmem_uedge*> >())
+    };
+    epmem_interval_set interval_cleanup = epmem_interval_set(std::less<epmem_interval*>(), soar_module::soar_memory_pool_allocator<epmem_interval*>());
+#else
+    epmem_triple_uedge_map uedge_caches[2] = {epmem_triple_uedge_map(), epmem_triple_uedge_map()};
+    epmem_interval_set interval_cleanup = epmem_interval_set();
+#endif
+
+    // TODO JUSTIN additional indices
+
+    // variables needed for building the DNF
+    epmem_literal* root_literal;
+    thisAgent->memoryManager->allocate_with_pool(MP_epmem_literal, &root_literal);
+    epmem_literal_set leaf_literals;
+
+    // priority queues for interval walk
+    epmem_pedge_pq pedge_pq;
+    epmem_interval_pq interval_pq;
+
+    // variables needed to track satisfiability
+    epmem_symbol_int_map symbol_num_incoming;                 // number of literals with a certain symbol as its value
+    epmem_symbol_node_pair_int_map symbol_node_count;         // number of times a symbol is matched by a node
+
+    // various things about the current and the best episodes
+    epmem_time_id best_episode = EPMEM_MEMID_NONE;
+    double best_score = 0;
+    bool best_graph_matched = false;
+    long int best_cardinality = 0;
+    epmem_literal_node_pair_map best_bindings;
+    double current_score = 0;
+    long int current_cardinality = 0;
+
+    // variables needed for graphmatch
+    epmem_literal_deque gm_ordering;
+
+    //if (level > 1)
+    {
+        // build the DNF graph while checking for leaf WMEs
+        {
+            thisAgent->EpMem->epmem_stats->qry_pos->set_value(0);
+            thisAgent->EpMem->epmem_stats->qry_neg->set_value(0);
+            thisAgent->EpMem->epmem_timers->query_dnf->start();
+            root_literal->id_sym = NULL;
+            root_literal->value_sym = pos_query;
+            root_literal->is_neg_q = EPMEM_NODE_POS;
+            root_literal->value_is_id = EPMEM_RIT_STATE_EDGE;
+            root_literal->is_leaf = false;
+            root_literal->attribute_s_id = EPMEM_NODEID_BAD;
+            root_literal->child_n_id = EPMEM_NODEID_ROOT;
+            root_literal->weight = 0.0;
+            new(&(root_literal->parents)) epmem_literal_set();
+            new(&(root_literal->children)) epmem_literal_set();
+#ifdef USE_MEM_POOL_ALLOCATORS
+            new(&(root_literal->matches)) epmem_node_pair_set(std::less<epmem_node_pair>(), soar_module::soar_memory_pool_allocator<epmem_node_pair>(thisAgent));
+#else
+            new(&(root_literal->matches)) epmem_node_pair_set();
+#endif
+            new(&(root_literal->values)) epmem_node_int_map();
+            symbol_num_incoming[pos_query] = 1;
+            literal_cache[NULL] = root_literal;
+
+            std::set<Symbol*> visiting;
+            visiting.insert(pos_query);
+            visiting.insert(neg_query);
+            for (int query_type = EPMEM_NODE_POS; query_type <= EPMEM_NODE_NEG; query_type++)
+            {
+                Symbol* query_root = NULL;
+                switch (query_type)
+                {
+                    case EPMEM_NODE_POS:
+                        query_root = pos_query;
+                        break;
+                    case EPMEM_NODE_NEG:
+                        query_root = neg_query;
+                        break;
+                }
+                if (!query_root)
+                {
+                    continue;
+                }
+                epmem_wme_list* children = epmem_get_augs_of_id(query_root, get_new_tc_number(thisAgent));
+                // for each first level WME, build up a DNF
+                for (epmem_wme_list::iterator wme_iter = children->begin(); wme_iter != children->end(); wme_iter++)
+                {
+                    epmem_literal* child = epmem_build_dnf(*wme_iter, literal_cache, leaf_literals, symbol_num_incoming, gm_ordering, query_type, visiting, cue_wmes, thisAgent);
+                    if (child)
+                    {
+                        // force all first level literals to have the same id symbol
+                        child->id_sym = pos_query;
+                        child->parents.insert(root_literal);
+                        root_literal->children.insert(child);
+                    }
+                }
+                delete children;
+            }
+            thisAgent->EpMem->epmem_timers->query_dnf->stop();
+            thisAgent->EpMem->epmem_stats->qry_lits->set_value(thisAgent->EpMem->epmem_stats->qry_pos->get_value() + thisAgent->EpMem->epmem_stats->qry_neg->get_value());
+        }
+
+        // calculate the highest possible score and cardinality score
+        double perfect_score = 0;
+        int perfect_cardinality = 0;
+        for (epmem_literal_set::iterator iter = leaf_literals.begin(); iter != leaf_literals.end(); iter++)
+        {
+            if (!(*iter)->is_neg_q)
+            {
+                perfect_score += (*iter)->weight;
+                perfect_cardinality++;
+            }
+        }
+
+        // set default values for before and after
+        if (before == EPMEM_MEMID_NONE)
+        {
+            before = thisAgent->EpMem->epmem_stats->time->get_value() - 1;
+        }
+        else
+        {
+            before = before - 1; // since before's are strict
+        }
+        if (after == EPMEM_MEMID_NONE)
+        {
+            after = EPMEM_MEMID_NONE;
+        }
+        epmem_time_id current_episode = before;
+        epmem_time_id next_episode;
+
+        // create dummy edges and intervals
+        {
+            // insert dummy unique edge and interval end point queries for DNF root
+            // we make an SQL statement just so we don't have to do anything special at cleanup
+            epmem_triple triple = {EPMEM_NODEID_BAD, EPMEM_NODEID_BAD, EPMEM_NODEID_ROOT};// Naive way to make all of this work with fat epmem is to loop over everything where epmem_nodeid_root changes each cycle, search for each substate depth.
+            epmem_pedge* root_pedge;                                                      // The only other thing that would have to change is to check within the rete code that adds wmes to the rete for whether or not the link being added is
+            thisAgent->memoryManager->allocate_with_pool(MP_epmem_pedge, &root_pedge);    // the substate root which has the superstate link. (could recurse from there). (Substate creation may have weird ordering, but should start w/state root.
+            root_pedge->triple = triple;
+            root_pedge->value_is_id = EPMEM_RIT_STATE_EDGE;
+            new(&(root_pedge->literals)) epmem_literal_set();
+            root_pedge->literals.insert(root_literal);
+            root_pedge->sql = thisAgent->EpMem->epmem_stmts_graph->pool_dummy->request();
+            root_pedge->sql->prepare();
+            root_pedge->sql->bind_int(1, LLONG_MAX);
+            root_pedge->sql->execute(soar_module::op_reinit);
+            root_pedge->time = LLONG_MAX;
+            pedge_pq.push(root_pedge);
+            pedge_caches[EPMEM_RIT_STATE_EDGE][triple] = root_pedge;
+
+            epmem_uedge* root_uedge;
+            thisAgent->memoryManager->allocate_with_pool(MP_epmem_uedge, &root_uedge);
+            root_uedge->triple = triple;
+            root_uedge->value_is_id = EPMEM_RIT_STATE_EDGE;
+            root_uedge->activation_count = 0;
+            new(&(root_uedge->pedges)) epmem_pedge_set();
+            root_uedge->intervals = 1;
+            root_uedge->activated = false;
+            uedge_caches[EPMEM_RIT_STATE_EDGE][triple] = root_uedge;
+
+            epmem_interval* root_interval;
+            thisAgent->memoryManager->allocate_with_pool(MP_epmem_interval, &root_interval);
+            root_interval->uedge = root_uedge;
+            root_interval->is_end_point = true;
+            root_interval->sql = thisAgent->EpMem->epmem_stmts_graph->pool_dummy->request();
+            root_interval->sql->prepare();
+            root_interval->sql->bind_int(1, before);
+            root_interval->sql->execute(soar_module::op_reinit);
+            root_interval->time = before;
+            interval_pq.push(root_interval);
+            interval_cleanup.insert(root_interval);
+        }
+
+        if (QUERY_DEBUG >= 1)
+        {
+            epmem_print_retrieval_state(literal_cache, pedge_caches, uedge_caches);
+        }
+
+        // main loop of interval walk
+        thisAgent->EpMem->epmem_timers->query_walk->start();
+        while (pedge_pq.size() && current_episode > after)
+        {
+            epmem_time_id next_edge;
+            epmem_time_id next_interval;
+
+            bool changed_score = false;
+
+            thisAgent->EpMem->epmem_timers->query_walk_edge->start();
+            next_edge = pedge_pq.top()->time;
+
+            // process all edges which were last used at this time point
+            while (pedge_pq.size() && (pedge_pq.top()->time == next_edge || pedge_pq.top()->time >= current_episode))
+            {
+                epmem_pedge* pedge = pedge_pq.top();
+                pedge_pq.pop();
+                epmem_triple triple = pedge->triple;
+                triple.child_n_id = pedge->sql->column_int(1);
+
+                if (QUERY_DEBUG >= 1)
+                {
+                    std::cout << "  EDGE " << triple.parent_n_id << "-" << triple.attribute_s_id << "-" << triple.child_n_id << std::endl;
+                }
+
+                // create queries for the unique edge children of this partial edge
+                if (pedge->value_is_id)
+                {
+                    bool created = false;
+                    for (epmem_literal_set::iterator literal_iter = pedge->literals.begin(); literal_iter != pedge->literals.end(); literal_iter++)
+                    {
+                        epmem_literal* literal = *literal_iter;
+                        for (epmem_literal_set::iterator child_iter = literal->children.begin(); child_iter != literal->children.end(); child_iter++)
+                        {
+                            created |= epmem_register_pedges(triple.child_n_id, *child_iter, pedge_pq, after, pedge_caches, uedge_caches, thisAgent);
+                        }
+                    }
+                }
+                // TODO JUSTIN what I want to do here is, if there is no children which leads to a leaf, retract everything
+                // I'm not sure how to properly test for this though
+
+                // look for uedge with triple; if none exist, create one
+                // otherwise, link up the uedge with the pedge and consider score changes
+                epmem_triple_uedge_map* uedge_cache = &uedge_caches[pedge->value_is_id];
+                epmem_triple_uedge_map::iterator uedge_iter = uedge_cache->find(triple);
+                if (uedge_iter == uedge_cache->end())
+                {
+                    // create a uedge for this
+                    epmem_uedge* uedge;
+                    thisAgent->memoryManager->allocate_with_pool(MP_epmem_uedge, &uedge);
+                    uedge->triple = triple;
+                    uedge->value_is_id = pedge->value_is_id;
+                    uedge->activation_count = 0;
+                    new(&(uedge->pedges)) epmem_pedge_set();
+                    uedge->intervals = 0;
+                    uedge->activated = false;
+                    // create interval queries for this partial edge
+                    bool created = false;
+                    int64_t edge_id = pedge->sql->column_int(0);
+                    for (int interval_type = EPMEM_RANGE_EP; interval_type <= EPMEM_RANGE_POINT; interval_type++)
+                    {
+                        for (int point_type = EPMEM_RANGE_START; point_type <= EPMEM_RANGE_END; point_type++)
+                        {
+                            // pick a timer (any timer)
+                            soar_module::timer* sql_timer = NULL;
+                            switch (interval_type)
+                            {
+                                case EPMEM_RANGE_EP:
+                                    if (point_type == EPMEM_RANGE_START)
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_start_ep;
+                                    }
+                                    else
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_end_ep;
+                                    }
+                                    break;
+                                case EPMEM_RANGE_NOW:
+                                    if (point_type == EPMEM_RANGE_START)
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_start_now;
+                                    }
+                                    else
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_end_now;
+                                    }
+                                    break;
+                                case EPMEM_RANGE_POINT:
+                                    if (point_type == EPMEM_RANGE_START)
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_start_point;
+                                    }
+                                    else
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_end_point;
+                                    }
+                                    break;
+                            }
+                            // create the SQL query and bind it
+                            // try to find an existing query first; if none exist, allocate a new one from the memory pools
+                            soar_module::pooled_sqlite_statement* interval_sql = NULL;
+                            interval_sql = thisAgent->EpMem->epmem_stmts_graph->pool_find_interval_queries[pedge->value_is_id][point_type][interval_type]->request(sql_timer);
+                            int bind_pos = 1;
+                            if (point_type == EPMEM_RANGE_END && interval_type == EPMEM_RANGE_NOW)
+                            {
+                                interval_sql->bind_int(bind_pos++, current_episode);
+                            }
+                            interval_sql->bind_int(bind_pos++, edge_id);
+                            interval_sql->bind_int(bind_pos++, current_episode);
+                            if (interval_sql->execute() == soar_module::row)
+                            {
+                                epmem_interval* interval;
+                                thisAgent->memoryManager->allocate_with_pool(MP_epmem_interval, &interval);
+                                interval->is_end_point = point_type;
+                                interval->uedge = uedge;
+                                // If it's an start point of a range (ie. not a point) and it's before the promo time
+                                // (this is possible if a the promotion is in the middle of a range)
+                                // trim it to the promo time.
+                                // This will only happen if the LTI is promoted in the last interval it appeared in
+                                // (since otherwise the start point would not be before its promotion).
+                                // We don't care about the remaining results of the query
+                                interval->time = interval_sql->column_int(0);
+                                interval->sql = interval_sql;
+                                interval_pq.push(interval);
+                                interval_cleanup.insert(interval);
+                                uedge->intervals++;
+                                created = true;
+                            }
+                            else
+                            {
+                                interval_sql->get_pool()->release(interval_sql);
+                            }
+                        }
+                    }
+                    if (created)
+                    {
+                        uedge->pedges.insert(pedge);
+                        uedge_cache->insert(std::make_pair(triple, uedge));
+                    }
+                    else
+                    {
+                        uedge->pedges.~epmem_pedge_set();
+                        thisAgent->memoryManager->free_with_pool(MP_epmem_uedge, uedge);
+                    }
+                }
+                else
+                {
+                    epmem_uedge* uedge = (*uedge_iter).second;
+                    uedge->pedges.insert(pedge);
+                    if (uedge->activated && uedge->activation_count == 1)
+                    {
+                        for (epmem_literal_set::iterator lit_iter = pedge->literals.begin(); lit_iter != pedge->literals.end(); lit_iter++)
+                        {
+                            epmem_literal* literal = (*lit_iter);
+                            changed_score |= epmem_satisfy_literal(literal, triple.parent_n_id, triple.child_n_id, current_score, current_cardinality, symbol_node_count, uedge_caches, symbol_num_incoming);
+                        }
+                    }
+                }
+
+                // put the partial edge query back into the queue if there's more
+                // otherwise, reinitialize the query and put it in a pool
+                if (pedge->sql && pedge->sql->execute() == soar_module::row)
+                {
+                    pedge->time = pedge->sql->column_int(2);
+                    pedge_pq.push(pedge);
+                }
+                else if (pedge->sql)
+                {
+                    pedge->sql->get_pool()->release(pedge->sql);
+                    pedge->sql = NULL;
+                }
+            }
+            next_edge = (pedge_pq.empty() ? after : pedge_pq.top()->time);
+            thisAgent->EpMem->epmem_timers->query_walk_edge->stop();
+
+            // process all intervals before the next edge arrives
+            thisAgent->EpMem->epmem_timers->query_walk_interval->start();
+            while (interval_pq.size() && interval_pq.top()->time > next_edge && current_episode > after)
+            {
+                if (QUERY_DEBUG >= 1)
+                {
+                    std::cout << "EPISODE " << current_episode << std::endl;
+                }
+                // process all interval endpoints at this time step
+                while (interval_pq.size() && interval_pq.top()->time >= current_episode)
+                {
+                    epmem_interval* interval = interval_pq.top();
+                    interval_pq.pop();
+                    epmem_uedge* uedge = interval->uedge;
+                    epmem_triple triple = uedge->triple;
+                    if (QUERY_DEBUG >= 1)
+                    {
+                        std::cout << "  INTERVAL (" << (interval->is_end_point ? "end" : "start") << " at time " << interval->time << "): " << triple.parent_n_id << "-" << triple.attribute_s_id << "-" << triple.child_n_id << std::endl;
+                    }
+                    if (interval->is_end_point)
+                    {
+                        uedge->activated = true;
+                        uedge->activation_count++;
+                        if (uedge->activation_count == 1)
+                        {
+                            for (epmem_pedge_set::iterator pedge_iter = uedge->pedges.begin(); pedge_iter != uedge->pedges.end(); pedge_iter++)
+                            {
+                                epmem_pedge* pedge = *pedge_iter;
+                                for (epmem_literal_set::iterator lit_iter = pedge->literals.begin(); lit_iter != pedge->literals.end(); lit_iter++)
+                                {
+                                    epmem_literal* literal = *lit_iter;
+                                    changed_score |= epmem_satisfy_literal(literal, triple.parent_n_id, triple.child_n_id, current_score, current_cardinality, symbol_node_count, uedge_caches, symbol_num_incoming);
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        uedge->activated = false;
+                        uedge->activation_count--;
+                        for (epmem_pedge_set::iterator pedge_iter = uedge->pedges.begin(); pedge_iter != uedge->pedges.end(); pedge_iter++)
+                        {
+                            epmem_pedge* pedge = *pedge_iter;
+                            for (epmem_literal_set::iterator lit_iter = pedge->literals.begin(); lit_iter != pedge->literals.end(); lit_iter++)
+                            {
+                                changed_score |= epmem_unsatisfy_literal(*lit_iter, triple.parent_n_id, triple.child_n_id, current_score, current_cardinality, symbol_node_count);
+                            }
+                        }
+                    }
+                    // put the interval query back into the queue if there's more and some literal cares
+                    // otherwise, reinitialize the query and put it in a pool
+                    if (interval->sql && interval->sql->execute() == soar_module::row)
+                    {
+                        interval->time = interval->sql->column_int(0);
+                        interval_pq.push(interval);
+                    }
+                    else if (interval->sql)
+                    {
+                        interval->sql->get_pool()->release(interval->sql);
+                        interval->sql = NULL;
+                        uedge->intervals--;
+                        if (uedge->intervals)
+                        {
+                            interval_cleanup.erase(interval);
+                            thisAgent->memoryManager->free_with_pool(MP_epmem_interval, interval);
+                        }
+                        else
+                        {
+                            // TODO JUSTIN retract intervals
+                        }
+                    }
+                }
+                next_interval = (interval_pq.empty() ? after : interval_pq.top()->time);
+                next_episode = (next_edge > next_interval ? next_edge : next_interval);
+
+                // update the prohibits list to catch up
+                while (prohibits.size() && prohibits.back() > current_episode)
+                {
+                    prohibits.pop_back();
+                }
+                // ignore the episode if it is prohibited
+                while (prohibits.size() && current_episode > next_episode && current_episode == prohibits.back())
+                {
+                    current_episode--;
+                    prohibits.pop_back();
+                }
+
+                if (QUERY_DEBUG >= 2)
+                {
+                    epmem_print_retrieval_state(literal_cache, pedge_caches, uedge_caches);
+                }
+
+                print_sysparam_trace(thisAgent, TRACE_EPMEM_SYSPARAM, "Considering episode (time, cardinality, score) (%u, %u, %f)\n", static_cast<long long int>(current_episode), current_cardinality, current_score);
+
+                // if
+                // * the current time is still before any new intervals
+                // * and the score was changed in this period
+                // * and the new score is higher than the best score
+                // then save the current time as the best one
+                bool graph_matched = false;
+                if (current_episode > next_episode && (changed_score || best_graph_matched) && (best_episode == EPMEM_MEMID_NONE || current_score > best_score || (do_graph_match && current_score == best_score && true))) //!best_graph_matched ///This used to be where the true is.
+                {
+                    bool new_king = false;
+                    if (best_episode == EPMEM_MEMID_NONE || current_score > best_score)
+                    {
+                        best_episode = current_episode;
+                        best_score = current_score;
+                        best_cardinality = current_cardinality;
+                        new_king = true;
+                    }
+                    // we should graph match if the option is set and all leaf literals are satisfied
+                    if (current_cardinality == perfect_cardinality)
+                    {
+                        graph_matched = false;
+                        if (do_graph_match)
+                        {
+                            if (gm_order == epmem_param_container::gm_order_undefined)
+                            {
+                                std::sort(gm_ordering.begin(), gm_ordering.end());
+                            }
+                            else if (gm_order == epmem_param_container::gm_order_mcv)
+                            {
+                                std::sort(gm_ordering.begin(), gm_ordering.end(), epmem_gm_mcv_comparator);
+                            }
+                            epmem_literal_deque::iterator begin = gm_ordering.begin();
+                            epmem_literal_deque::iterator end = gm_ordering.end();
+                            best_bindings.clear();
+                            epmem_node_symbol_map bound_nodes[2];
+                            if (QUERY_DEBUG >= 1)
+                            {
+                                std::cout << "  GRAPH MATCH" << std::endl;
+                                epmem_print_retrieval_state(literal_cache, pedge_caches, uedge_caches);
+                            }
+                            thisAgent->EpMem->epmem_timers->query_graph_match->start();
+                            graph_matched = epmem_graph_match(begin, end, best_bindings, bound_nodes, thisAgent, 2);
+                            thisAgent->EpMem->epmem_timers->query_graph_match->stop();
+                        }
+                        if (!do_graph_match || graph_matched)
+                        {//If we are doing graph match, this lets us stop when we have a perfect graph match.
+                            best_episode = current_episode;
+                            best_graph_matched = true;
+                            //current_episode = EPMEM_MEMID_NONE;
+                            new_king = true;
+                        }
+                    }
+                    if (new_king && thisAgent->trace_settings[TRACE_EPMEM_SYSPARAM])
+                    {
+                        char buf[256];
+                        SNPRINTF(buf, 254, "NEW KING (perfect, graph-match): (%s, %s)\n", (current_cardinality == perfect_cardinality ? "true" : "false"), (best_graph_matched ? "true" : "false"));
+                        thisAgent->outputManager->printa_sf(thisAgent, buf);
+                        xml_generate_warning(thisAgent, buf);
+                    }
+                }
+                //If we have gotten a best graph match and the score changed, we no longer have a best graph match.
+                //if we have already gotten a best graph match and we no longer are graph matched, we also should stop.
+                if ((best_graph_matched && changed_score && current_episode!=best_episode) || (best_graph_matched && !graph_matched))
+                {
+                    break;
+                }
+
+                if (current_episode == EPMEM_MEMID_NONE)
+                {//In the event of a perfect graph match, we get here by artificially assigning the current_episode to satisfy this. - no longer true in this new command.
+                    break;
+                }
+                else
+                {
+                    current_episode = next_episode;
+                }
+            }
+            thisAgent->EpMem->epmem_timers->query_walk_interval->stop();
+        }
+        thisAgent->EpMem->epmem_timers->query_walk->stop();
+        //The query walk has allowed us to satisfy a perfect graph match. For the query_begin command (will pick better name), will want to instead walk until score goes back down again. This can be done by modifying the above code to keep track of
+        //the score having been perfect with a perfect graph match, then just continuing backwards further anyways until the score changes. when the score changes, we just go forwards by one. We can then return the
+        //episode in which the match first applied with barely any modification to existing code.
+        //the hard part will be then to also return what changed between the previous (no-longer-matching) episode and the one which is returned. (could alternatively return episode before and the change, either way).
+        //will make a new install_memory, which will install one memory, but also the delta to another?
+        //Currently, current_episode should be the one where stuff no longer matches nicely.
+        //This should mostly already do what is desired, but does not have that extra delta. where the episode is actually constructed, I will add another function call to a new custom epmem_install_memory which
+        //will handle the delta construction.
+
+        // if the best episode is the default, fail
+        // otherwise, put the episode in working memory
+        if (best_episode == EPMEM_MEMID_NONE || !best_graph_matched)//failure if we don't match perfectly when using this command.
+        {
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_failure, pos_query);
+            if (neg_query)
+            {
+                epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_failure, neg_query);
+            }
+        }
+        else
+        {
+            thisAgent->EpMem->epmem_stats->qry_ret->set_value(best_episode);
+            thisAgent->EpMem->epmem_stats->qry_card->set_value(best_cardinality);
+            thisAgent->EpMem->epmem_timers->query_result->start();
+            Symbol* temp_sym;
+            epmem_id_mapping node_map_map;
+            epmem_id_mapping node_mem_map;
+            // cue size
+            temp_sym = thisAgent->symbolManager->make_int_constant(leaf_literals.size());
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_cue_size, temp_sym);
+            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+            // match cardinality
+            temp_sym = thisAgent->symbolManager->make_int_constant(best_cardinality);
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_match_cardinality, temp_sym);
+            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+            // match score
+            temp_sym = thisAgent->symbolManager->make_float_constant(best_score);
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_match_score, temp_sym);
+            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+            // normalized match score
+            temp_sym = thisAgent->symbolManager->make_float_constant(best_score / perfect_score);
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_normalized_match_score, temp_sym);
+            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+            // status
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_success, pos_query);
+            if (neg_query)
+            {
+                epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_success, neg_query);
+            }
+            // give more metadata if graph match is turned on
+            if (do_graph_match)
+            {
+                // graph match
+                temp_sym = thisAgent->symbolManager->make_int_constant((best_graph_matched ? 1 : 0));
+                epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match, temp_sym);
+                thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+
+                // mapping
+                if (best_graph_matched)
+                {
+                    goal_stack_level level = state->id->epmem_info->result_wme->value->id->level;
+                    // mapping identifier
+                    Symbol* mapping = thisAgent->symbolManager->make_new_identifier('M', level);
+                    epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match_mapping, mapping);
+                    thisAgent->symbolManager->symbol_remove_ref(&mapping);
+
+                    for (epmem_literal_node_pair_map::iterator iter = best_bindings.begin(); iter != best_bindings.end(); iter++)
+                    {
+                        if ((*iter).first->value_is_id)
+                        {
+                            // create the node
+                            temp_sym = thisAgent->symbolManager->make_new_identifier('N', level);
+                            epmem_buffer_add_wme(thisAgent, meta_wmes, mapping, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match_mapping_node, temp_sym);
+                            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+                            // point to the cue identifier
+                            epmem_buffer_add_wme(thisAgent, meta_wmes, temp_sym, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match_mapping_cue, (*iter).first->value_sym);
+                            // save the mapping point for the episode
+                            node_map_map[(*iter).second.second] = temp_sym;
+                            node_mem_map[(*iter).second.second] = NULL;
+                        }
+                    }
+                }
+            }
+            // reconstruct the actual episode
+            //if (level > 2)
+            {
+                epmem_install_memory(thisAgent, state, current_episode, meta_wmes, retrieval_wmes, &node_mem_map, best_episode);
+                //The memory after this one is the one with the beginning of the match to the query cue. (actually, best_episode is the match. "current_episode" is the mismatch.
+                //The changes which make the difference between the mismatch episode and the match episode are reflected in the now, interval, and point tables.
             }
             if (best_graph_matched)
             {
@@ -7078,6 +7993,21 @@ void inline _epmem_respond_to_cmd_parse(agent* thisAgent, epmem_wme_list* cmds, 
                     good_cue = false;
                 }
             }
+            else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.epmem_sym_begin_query)//This is for when we want the same thing as a graph-match query, but at the start of the match.
+            {
+                if (((*w_p)->value->is_sti()) &&
+                        ((path == 0) || (path == 8)) &&
+                        (query == NULL))
+
+                {
+                    query = (*w_p)->value;
+                    path = 8;
+                }
+                else
+                {
+                    good_cue = false;
+                }
+            }
             else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.epmem_sym_consume_surprise)
             {
                 if (path == 0)
@@ -7319,19 +8249,37 @@ void epmem_respond_to_cmd(agent* thisAgent)
                     thisAgent->top_state->id->epmem_info->epmem_event_segmentation_counter_wme = soar_module::add_module_wme(thisAgent, thisAgent->top_state->id->epmem_info->epmem_link_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_event_segmentation_counter, lepmem_event_segmentation_counter);
                     thisAgent->symbolManager->symbol_remove_ref(&lepmem_event_segmentation_counter);
                 }
+                // begin-query
+                else if (path == 3)
+                {
+                    epmem_process_begin_query(thisAgent, state, query, neg_query, prohibit, before, after, cue_wmes, meta_wmes, retrieval_wmes);
+
+                    // add one to the cbr stat
+                    thisAgent->EpMem->epmem_stats->cbr->set_value(thisAgent->EpMem->epmem_stats->cbr->get_value() + 1);
+                }
                 else if (path == 9)
                 {//This means that the agent wants a different surprise.
                     //still have to check that there is something left.
                     if (thisAgent->EpMem->epmem_node_id_reverse_bla->size() > 0)
-                    {
+                    {//going to redo this a bit. First, I think surprise should be tied to a given triple id, which actually specifies wm-graph surprise, and then the point would
+                        //be to construct a unique path to that triple from the root.
                         thisAgent->EpMem->previously_most_surprising = std::get<0>(thisAgent->EpMem->epmem_node_id_reverse_bla->top());
                         thisAgent->EpMem->previously_most_surprising_activation = std::get<1>(thisAgent->EpMem->epmem_node_id_reverse_bla->top());
                         uint64_t time = std::get<2>(thisAgent->EpMem->epmem_node_id_reverse_bla->top());
-                        thisAgent->EpMem->epmem_node_id_reverse_bla->pop();
+
                         //Now is the code to put a retrieval on the state like it had been a retrieval command.
                         //also nice to have isolated reference to particular WME responsible
-                        epmem_install_surprise_memory(thisAgent, state, time, meta_wmes, retrieval_wmes, thisAgent->EpMem->previously_most_surprising);
+                        //epmem_install_surprise_memory(thisAgent, state, time, meta_wmes, retrieval_wmes, thisAgent->EpMem->previously_most_surprising);
+                        epmem_install_memory(thisAgent,state,time-1,meta_wmes,retrieval_wmes,NULL,time,&(thisAgent->EpMem->previously_most_surprising));
+                        thisAgent->EpMem->epmem_node_id_reverse_bla->pop();
                         //just a copy but with additional code to print the maping to the surprise wme
+                        //I think I'll leave the path-finding to the agent if it is to exist. also, instead of checking for the path to match in the detection of"beginning" for a given surprise element,
+                        //I'll instead just look to the triple changing.//CORRECTION - it's just misguided to consider the triple special. either go full path or realize the triple is just as interchangeably addressed to as a single value.
+
+                    }
+                    else
+                    {
+                        epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_failure, thisAgent->symbolManager->soarSymbols.epmem_sym_failure);
                     }
                 }
             }
@@ -8245,9 +9193,9 @@ EpMem_Manager::EpMem_Manager(agent* myAgent)
     epmem_validation = 0;
     lowest_state_id = 0;
 
-    change_counter = new std::map<epmem_node_id,uint64_t>();//just keeping track of how often something has changed and the most recent change time.
-    change_time_recent = new std::map<epmem_node_id,uint64_t>();
-    change_time_first = new std::map<epmem_node_id,uint64_t>();
+    change_counter = new std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>();//just keeping track of how often something has changed and the most recent change time.
+    change_time_recent = new std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>();
+    change_time_first = new std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>();
         //The above three give a petrov approx bla, but we will use it in epmem for a queue by how low something was before it was activated.
     epmem_node_id_reverse_bla = new std::priority_queue<std::tuple<epmem_node_id,double,uint64_t>, std::vector<std::tuple<epmem_node_id,double,uint64_t>>, epmem_node_id_bla_comparison>();
     total_wme_changes = 0;

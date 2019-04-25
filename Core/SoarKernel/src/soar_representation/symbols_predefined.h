@@ -82,7 +82,20 @@ typedef struct predefined_sym_struct {
         Symbol*             epmem_sym_graph_match_mapping;
         Symbol*             epmem_sym_graph_match_mapping_node;
         Symbol*             epmem_sym_mapping_surprise_node;
+        Symbol*             epmem_sym_mapping_surprise_parent;
+        Symbol*             epmem_sym_mapping_surprise_attribute;
+        Symbol*             epmem_sym_mapping_surprise_value;
         Symbol*             epmem_sym_graph_match_mapping_cue;
+        Symbol*             epmem_sym_removal;
+        Symbol*             epmem_sym_removal_constant;
+        Symbol*             epmem_sym_removal_constant_parent;
+        Symbol*             epmem_sym_removal_constant_attribute;
+        Symbol*             epmem_sym_removal_constant_value;
+        Symbol*             epmem_sym_addition;
+        Symbol*             epmem_sym_addition_constant;
+        Symbol*             epmem_sym_addition_constant_parent;
+        Symbol*             epmem_sym_addition_constant_attribute;
+        Symbol*             epmem_sym_addition_constant_value;
         Symbol*             epmem_sym_success;
         Symbol*             epmem_sym_failure;
         Symbol*             epmem_sym_bad_cmd;
@@ -92,6 +105,7 @@ typedef struct predefined_sym_struct {
         Symbol*             epmem_sym_prev;
         Symbol*             epmem_sym_query;
         Symbol*             epmem_sym_next_query;//This is a new type of next which retrieves the next episode that matches to a given query-style constraint. (partially implemented)
+        Symbol*             epmem_sym_begin_query;//This is actually a graph-matching query just like query, but where you retrieve where the match began in the timeline. (go backwards till match (normal query), go back further till unmatch, then forwards in timeline by 1 step to beginning of match in timeline).
         Symbol*             epmem_sym_segment;
         Symbol*             epmem_sym_negquery;
         Symbol*             epmem_sym_before;

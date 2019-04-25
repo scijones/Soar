@@ -465,7 +465,7 @@ typedef struct epmem_edge_struct
     epmem_node_id   parent_n_id;
     Symbol*         attribute;
     epmem_node_id   child_n_id;
-
+    epmem_node_id   triple_id;
     uint64_t        child_lti_id;
 
 } epmem_edge;
@@ -654,7 +654,7 @@ typedef std::set<int64_t> epmem_id_delta_set;//These should probably be int64_t'
 typedef std::set<std::pair<std::pair<int64_t,int64_t>, bool>> epmem_id_num_delta_set;//Keeping same-address number changes as sign-of-the-delta-only.
 //Purely for consistency, I may make two sets, one for greater-than, one for less-than. (Equality would be intentionally omitted.)
 struct epmem_node_id_bla_comparison
-{
+{//std::priority_queue<std::tuple<std::tuple<epmem_node_id,epmem_node_id,epmem_node_id>,double,uint64_t>, std::vector<std::tuple<std::tuple<epmem_node_id,epmem_node_id,epmem_node_id>,double,uint64_t>>, epmem_node_id_bla_comparison>
     bool operator() (const std::tuple<epmem_node_id,double,uint64_t>& lhs, const std::tuple<epmem_node_id,double,uint64_t>& rhs) const
     {
         return std::get<1>(lhs) > std::get<1>(rhs);//want lowest on top.
@@ -737,9 +737,9 @@ class EpMem_Manager
         epmem_id_ref_counter* epmem_id_ref_counts;
         epmem_symbol_stack* epmem_id_removes;
 
-        std::map<epmem_node_id,uint64_t>* change_counter;//just keeping track of how often something has changed and the most recent change time.
-        std::map<epmem_node_id,uint64_t>* change_time_recent;
-        std::map<epmem_node_id,uint64_t>* change_time_first;
+        std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>* change_counter;//just keeping track of how often something has changed and the most recent change time.
+        std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>* change_time_recent;
+        std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>* change_time_first;
         //The above three give a petrov approx bla, but we will use it in epmem for a queue by how low something was before it was activated.
         std::priority_queue<std::tuple<epmem_node_id,double,uint64_t>, std::vector<std::tuple<epmem_node_id,double,uint64_t>>, epmem_node_id_bla_comparison>* epmem_node_id_reverse_bla;
         epmem_node_id previously_most_surprising;
