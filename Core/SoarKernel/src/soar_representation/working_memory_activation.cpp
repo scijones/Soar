@@ -592,31 +592,49 @@ void wma_activate_wme(agent* thisAgent, wme* w, wma_reference num_references, wm
         }
 #ifdef SPREADING_ACTIVATION_ENABLED
         thisAgent->SMem->timers->spreading_wma_1->start();
-        if (thisAgent->SMem->edge_updating_on() && w->id->symbol_type == IDENTIFIER_SYMBOL_TYPE && w->id->id->LTI_ID)
+        if (thisAgent->SMem->edge_updating_on() && w->value->symbol_type == IDENTIFIER_SYMBOL_TYPE && w->value->id->LTI_ID)
         {
-            if (w->value->id && w->value->id->LTI_ID)
-            {
-                //thisAgent->SMem->invalidate_from_lti(w->id->id->LTI_ID);//This is a HUGE time sink.
-                thisAgent->SMem->add_to_invalidate_from_lti_table(w->id->id->LTI_ID);
-                /*for (int i = 1; i < 11; i++)
-                {//A changing edge weight is treated as an invalidation of cases that could have used that edge.
-                    thisAgent->SMem->SQL->trajectory_invalidate_from_lti->bind_int(i,w->id->id->LTI_ID);
-                }
-                thisAgent->SMem->SQL->trajectory_invalidate_from_lti->execute(soar_module::op_reinit);*/
-                //Now, we keep track of the wma update that invalidated this spread so that we can change edge weights later.
+            //New version of updating will instead just track which elements received a boost each cycle. Those will be compared across successive cycles to give a boost for hebbian edge weights.
+            //I'll have to be sure to us the invalidate function again.
 
-                smem_edge_update* new_update = new smem_edge_update();
-                new_update->lti_edge_id = w->value->id->LTI_ID;
-                new_update->num_touches = num_references;
-                new_update->update_time = thisAgent->WM->wma_d_cycle_count;
-                //We may not already have updates for that edge.
-                if (thisAgent->SMem->smem_edges_to_update->find(w->id->id->LTI_ID) == thisAgent->SMem->smem_edges_to_update->end())
-                {//We create an entry for that parent.
-                    thisAgent->SMem->smem_edges_to_update->emplace(std::pair<uint64_t,std::list<smem_edge_update*>>(w->id->id->LTI_ID,std::initializer_list<smem_edge_update*>{}));
-                }
-                std::list<smem_edge_update*>* list_ptr_for_parent = &(thisAgent->SMem->smem_edges_to_update->find(w->id->id->LTI_ID)->second);
-                list_ptr_for_parent->push_back(new_update);
-            }
+            //Just need to keep track of the LTI that was boosted this cycle.
+            //Upon some retrieval having been issued, SMem will do the copy of this list
+            //so that on the next cycle, it can look at the current version and compare it
+            //to the old version. All this code has to do is be visible to SMem and make a new
+            //list every cycle of the touched LTIs.
+            //Difference between two versions will be whether or not there is use of edges (like original below)
+            //or just check for LTI, period (with associations not being bound to relations).
+                //(The hebbian that uses relations will check for context->retrieved before and context->retrieved after, boosting first and penalizing second.)
+                //(The hebbian that uses associations will check for context before and context after, boosting first and penalizing second.)
+                //(Something boosted on both cycles just doesn't change.)
+                //The theory is that rules provide a measurement for ordering.
+                //Are there any associations that cannot reduce to a temporal ordering, given some procedure - strong 0 or strong 1 as prev/next, but w.r.t. a given procedure = some other relation?
+
+            thisAgent->SMem->smem_current_wma_boosts->insert(w->value->id->LTI_ID);
+
+//            if (w->value->id && w->value->id->LTI_ID)
+//            {
+//                //thisAgent->SMem->invalidate_from_lti(w->id->id->LTI_ID);//This is a HUGE time sink.
+//                thisAgent->SMem->add_to_invalidate_from_lti_table(w->id->id->LTI_ID);
+//                /*for (int i = 1; i < 11; i++)
+//                {//A changing edge weight is treated as an invalidation of cases that could have used that edge.
+//                    thisAgent->SMem->SQL->trajectory_invalidate_from_lti->bind_int(i,w->id->id->LTI_ID);
+//                }
+//                thisAgent->SMem->SQL->trajectory_invalidate_from_lti->execute(soar_module::op_reinit);*/
+//                //Now, we keep track of the wma update that invalidated this spread so that we can change edge weights later.
+//
+//                smem_edge_update* new_update = new smem_edge_update();
+//                new_update->lti_edge_id = w->value->id->LTI_ID;
+//                new_update->num_touches = num_references;
+//                new_update->update_time = thisAgent->WM->wma_d_cycle_count;
+//                //We may not already have updates for that edge.
+//                if (thisAgent->SMem->smem_edges_to_update->find(w->id->id->LTI_ID) == thisAgent->SMem->smem_edges_to_update->end())
+//                {//We create an entry for that parent.
+//                    thisAgent->SMem->smem_edges_to_update->emplace(std::pair<uint64_t,std::list<smem_edge_update*>>(w->id->id->LTI_ID,std::initializer_list<smem_edge_update*>{}));
+//                }
+//                std::list<smem_edge_update*>* list_ptr_for_parent = &(thisAgent->SMem->smem_edges_to_update->find(w->id->id->LTI_ID)->second);
+//                list_ptr_for_parent->push_back(new_update);
+//            }
         }
         thisAgent->SMem->timers->spreading_wma_1->stop();
 #endif

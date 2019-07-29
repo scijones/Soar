@@ -835,10 +835,6 @@ void do_one_top_level_phase(agent* thisAgent)
 
             do_output_cycle(thisAgent);
 
-            if (thisAgent->SMem->enabled())
-            {
-                thisAgent->SMem->go(false);
-            }
 
             // update histories only first, allows:
             // - epmem retrieval cues to be biased by activation
@@ -847,6 +843,15 @@ void do_one_top_level_phase(agent* thisAgent)
             {
                 wma_go(thisAgent, wma_histories);
             }
+
+            // with hebbian smem updating, will want the updated wmas (for those at the time of retrieval) and then those values after.
+            // An alternative is to do that calculation in one DC by considering the WMA before this update here and then this update as the one for comparison.
+            // That's probably opposite of what you'd want in something like list iteration learning.
+            if (thisAgent->SMem->enabled())
+            {// will want a check in wma code to record to some SMem structure the WMAs of LTIs (however I measure that).
+                thisAgent->SMem->go(false);
+            }
+
 
             if (epmem_enabled(thisAgent) && (thisAgent->EpMem->epmem_params->phase->get_value() == epmem_param_container::phase_output))
             {

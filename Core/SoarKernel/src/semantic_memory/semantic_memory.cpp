@@ -153,6 +153,15 @@ void SMem_Manager::respond_to_cmd(bool store_only)
         thisAgent->lastCue = NULL;
     }
 
+    if (thisAgent->SMem->did_retrieval_last_cycle)
+    {
+        if (thisAgent->SMem->successful_retrieval_last_cycle)
+        {
+            //Currently, no edge weight updating code, so call to that goes here.
+        }
+        thisAgent->SMem->did_retrieval_last_cycle = false;
+    }
+
     while (state != NULL)
     {
         ////////////////////////////////////////////////////////////////////////////
@@ -441,7 +450,11 @@ void SMem_Manager::respond_to_cmd(bool store_only)
                 // performing any command requires an initialized database
                 attach();
                 clear_instance_mappings();
-
+                if (path == cmd_retrieve || path = cmd_query)
+                {
+                    *(thisAgent->SMem->smem_previous_wma_boosts) = *(thisAgent->SMem->smem_current_wma_boosts);
+                    thisAgent->SMem->did_retrieval_last_cycle = true;
+                }
                 // retrieve
                 if (path == cmd_retrieve)
                 {
@@ -456,6 +469,7 @@ void SMem_Manager::respond_to_cmd(bool store_only)
                         add_triple_to_recall_buffer(meta_wmes, state->id->smem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.smem_sym_success, retrieve);
 
                         // install memory directly onto the retrieve identifier
+                        thisAgent->SMem->successful_retrieval_last_cycle = retrieve->id->LTI_ID;
                         install_memory(state, retrieve->id->LTI_ID, NULL, true, meta_wmes, retrieval_wmes, wm_install, depth);
 
                         // add one to the expansions stat
@@ -629,7 +643,7 @@ void SMem_Manager::respond_to_cmd(bool store_only)
 
         state = state->id->higher_goal;
     }
-
+    thisAgent->SMem->smem_current_wma_boosts->empty();
     if (do_wm_phase)
     {
         do_working_memory_phase(thisAgent);
@@ -729,6 +743,8 @@ SMem_Manager::SMem_Manager(agent* myAgent)
     smem_recipients_of_source = new std::unordered_map<uint64_t,std::set<uint64_t>*>();
     smem_context_additions = new std::set<uint64_t>();
     smem_context_removals = new std::set<uint64_t>();
+    smem_current_wma_boosts = new std::set <uint64_t>();
+    smem_previous_wma_boosts = new std::set<uint64_t>();
     smem_edges_to_update = new smem_update_map();
 
 };
@@ -751,5 +767,7 @@ void SMem_Manager::clean_up_for_agent_deletion()
     delete smem_recipients_of_source;
     delete smem_context_additions;
     delete smem_context_removals;
+    delete smem_current_wma_boosts;
+    delete smem_previous_wma_boosts;
     delete smem_edges_to_update;
 }

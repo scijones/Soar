@@ -736,6 +736,7 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
 
                         if (good_cand)
                         {
+                            thisAgent->SMem->successful_retrieval_last_cycle = cand;
                             king_id = cand;
                             first_element = true;
                             match_ids->push_back(cand);

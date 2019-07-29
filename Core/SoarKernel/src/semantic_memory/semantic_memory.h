@@ -108,6 +108,9 @@ class SMem_Manager
         std::set<uint64_t>* smem_context_additions;
         std::set<uint64_t>* smem_context_removals;
         smem_update_map* smem_edges_to_update;
+        std::set<uint64_t>* smem_previous_wma_boosts;
+        std::set<uint64_t>* smem_current_wma_boosts;
+
 
     private:
 
@@ -121,6 +124,9 @@ class SMem_Manager
         smem_param_container*           settings;
         smem_stat_container*            statistics;
         soar_module::sqlite_database*   DB;
+
+        bool  did_retrieval_last_cycle;
+        uint64_t successful_retrieval_last_cycle;
 
         /* Temporary maps used when creating an instance of an LTM */
         id_to_sym_map                   lti_to_sti_map;
@@ -193,6 +199,7 @@ class SMem_Manager
         soar_module::sqlite_statement*  setup_web_crawl_spread(smem_weighted_cue_element* el);
 
         /* Methods for supporting spreading activation */
+        void update_edges();
         void child_spread(uint64_t lti_id, std::map<uint64_t, std::list<std::pair<uint64_t,double>>*>& lti_trajectories, int depth);
         void trajectory_construction(uint64_t lti_id, std::map<uint64_t, std::list<std::pair<uint64_t, double>>*>& lti_trajectories, int depth, bool initial);
         //void calc_likelihoods_for_trajectories(uint64_t lti_id);
