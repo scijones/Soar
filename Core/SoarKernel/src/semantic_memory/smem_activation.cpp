@@ -584,6 +584,7 @@ void SMem_Manager::trajectory_construction(uint64_t lti_id, std::map<uint64_t, s
         //We get the children of the node we left off at if we don't already have its children.
         lti_begin = lti_trajectories[current_lti]->begin();//first child;
         lti_end = lti_trajectories[current_lti]->end(); //last child;
+        double fan = static_cast<double>(lti_trajectories[current_lti]->size());
         old_list_iterator_begin = current_lti_list->begin();//The beginning of the path we were on.
         old_list_iterator_end = current_lti_list->end();//Where we left off in that path.
         //Why the above two? we're going to make a deep copy later.
@@ -626,11 +627,11 @@ void SMem_Manager::trajectory_construction(uint64_t lti_id, std::map<uint64_t, s
             new_list->emplace_back(lti_iterator->first,lti_iterator->second);
             if (spread_map.find(lti_iterator->first) == spread_map.end())
             {//If we haven't already given some spread to this recipient from this source, we have to start with an initial contribution
-                spread_map[lti_iterator->first] = initial_activation*lti_iterator->second;
+                spread_map[lti_iterator->first] = initial_activation*lti_iterator->second/fan;
             }
             else
             {//Otherwise, we just continue to accumulate.
-                spread_map[lti_iterator->first] = spread_map[lti_iterator->first] + initial_activation*lti_iterator->second;
+                spread_map[lti_iterator->first] = spread_map[lti_iterator->first] + initial_activation*lti_iterator->second/fan;
             }
             //In both above cases, we multiplied the activation by the edge weight. (lti iterator has children and their edge weights)
             //Now that we've done the activation for this additional step, we add the path.
@@ -1191,12 +1192,17 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                 double wma_multiplicative_factor = pre_logd_wma/(1.0+pre_logd_wma);//1;//pre_logd_wma/(1.0+pre_logd_wma);
                 if (!used_wma || pre_logd_wma == 0)
                 {
-                    //wma_multiplicative_factor = 1; This is actually bad. Since probabilities max at one, I rewarded not having wma.
+                    //wma_multiplicative_factor = 1.0; //This is actually bad. Since probabilities max at one, I rewarded not having wma.
+                    //need to change whether or not this is 1 or age-of-the-agent-low-wma based on whether or not WMA-based spread is on at all in the first place.
                     pre_logd_wma = pow(static_cast<double>(smem_max_cycle+settings->base_unused_age_offset->get_value()),static_cast<double>(-(settings->base_decay->get_value())));
                     wma_multiplicative_factor = pre_logd_wma/(1.0+pre_logd_wma);
                 }
+                SQL->act_lti_child_lti_ct_get->bind_int(1,calc_current_spread->column_int(4));
+                SQL->act_lti_child_lti_ct_get->execute();
+                double fan = static_cast<double>(SQL->act_lti_child_lti_ct_get->column_int(0));
+                SQL->act_lti_child_lti_ct_get->reinitialize();
                 {
-                    raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
+                    raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2))));//(calc_current_spread->column_double(1)));
                 }
                 //offset = (settings->spreading_baseline->get_value())/(calc_spread->column_double(1));
                 offset = (settings->spreading_baseline->get_value())/baseline_denom;//(settings->spreading_limit->get_value());
