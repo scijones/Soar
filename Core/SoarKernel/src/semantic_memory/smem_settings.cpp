@@ -122,6 +122,7 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
     spreading_use_only->add_mapping(both, "both");
     spreading_use_only->add_mapping(association, "association");
     spreading_use_only->add_mapping(fan, "fan");
+    spreading_use_only->add_mapping(fan, "neither");
     add(spreading_use_only);
 
     // spreading baseline - This sets the value at which we consider spread too small.

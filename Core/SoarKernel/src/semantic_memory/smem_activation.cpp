@@ -1217,8 +1217,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                         SQL->act_lti_child_lti_ct_get->reinitialize();
                         raw_prob = wma_multiplicative_factor*(1.0/(static_cast<double>(num_lti_edges)));
                     }
-
-                    if (settings->spreading_use_only->get_value() == smem_param_container::association)
+                    else if (settings->spreading_use_only->get_value() == smem_param_container::association)
                     {
                         soar_module::sqlite_statement* super_explicit_edge_weight = new soar_module::sqlite_statement(DB, "SELECT edge_weight FROM smem_augmentations WHERE lti_id=? AND value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR "");
                         super_explicit_edge_weight->prepare();
@@ -1228,10 +1227,17 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                         raw_prob = wma_multiplicative_factor*(super_explicit_edge_weight->column_double(0))/(maximum_edge_weight);//(1.0/((double)num_lti_edges));//(calc_current_spread->column_double(2))/(database_denom_max);//(1.0/((double)num_lti_edges));//((double)(calc_current_spread->column_double(2)))/(database_denom_max);//(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
                         delete super_explicit_edge_weight;
                     }
-                    if (settings->spreading_use_only->get_value() == smem_param_container::both)
+                    else if (settings->spreading_use_only->get_value() == smem_param_container::neither)
+                    {
+                        raw_prob = wma_multiplicative_factor*((double)(settings->spreading_continue_probability->get_value()));
+                        //This only works with depth = 1. I need to do a better version if we're actually going to make this an option for spread later on where I instead replace the usage of weights earlier in child_spread and also remove the normalization there.
+                        //Alternatively, this is just plain an even weight representing the boolean "found the relationship in the network".
+                    }
+                    else
                     {
                         raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
                     }
+
                 }
                 //offset = (settings->spreading_baseline->get_value())/(calc_spread->column_double(1));
                 if (settings->spreading_use_only->get_value() == smem_param_container::association)
