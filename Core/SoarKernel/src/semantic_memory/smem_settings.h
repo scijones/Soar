@@ -23,6 +23,7 @@ class smem_param_container: public soar_module::param_container
         enum opt_choices { opt_safety, opt_speed };
         enum act_choices { act_recency, act_frequency, act_base };
         enum use_only_choices { both, association, fan, neither };
+        enum calculation_choices { ppr, hebbian };
 
         soar_module::boolean_param* learning;
         soar_module::constant_param<db_choices>* database;
@@ -59,6 +60,7 @@ class smem_param_container: public soar_module::param_container
         soar_module::boolean_param* spreading_wma_source;
         soar_module::decimal_param* spreading_edge_update_factor;
         soar_module::constant_param<use_only_choices>* spreading_use_only;
+        soar_module::constant_param<calculation_choices>* spreading_calculation_method;
         soar_module::boolean_param* base_inhibition;
         soar_module::decimal_param* inhibition_scale;
         soar_module::decimal_param* inhibition_decay;

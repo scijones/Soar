@@ -1219,13 +1219,25 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                     }
                     else if (settings->spreading_use_only->get_value() == smem_param_container::association)
                     {
-                        soar_module::sqlite_statement* super_explicit_edge_weight = new soar_module::sqlite_statement(DB, "SELECT edge_weight FROM smem_augmentations WHERE lti_id=? AND value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR "");
-                        super_explicit_edge_weight->prepare();
-                        super_explicit_edge_weight->bind_int(1,calc_current_spread->column_int(4));
-                        super_explicit_edge_weight->bind_int(2,*candidate);
-                        super_explicit_edge_weight->execute();
-                        raw_prob = wma_multiplicative_factor*(super_explicit_edge_weight->column_double(0))/(maximum_edge_weight);//(1.0/((double)num_lti_edges));//(calc_current_spread->column_double(2))/(database_denom_max);//(1.0/((double)num_lti_edges));//((double)(calc_current_spread->column_double(2)))/(database_denom_max);//(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
-                        delete super_explicit_edge_weight;
+                        if (settings->spreading_calculation_method->get_value() == smem_param_container::ppr)
+                        {
+                            soar_module::sqlite_statement* super_explicit_edge_weight = new soar_module::sqlite_statement(DB, "SELECT edge_weight FROM smem_augmentations WHERE lti_id=? AND value_lti_id=? AND value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR "");
+                            super_explicit_edge_weight->prepare();
+                            super_explicit_edge_weight->bind_int(1,calc_current_spread->column_int(4));
+                            super_explicit_edge_weight->bind_int(2,*candidate);
+                            super_explicit_edge_weight->execute();
+                            raw_prob = wma_multiplicative_factor*((double)(settings->spreading_continue_probability->get_value()))*(super_explicit_edge_weight->column_double(0))/(maximum_edge_weight);//(1.0/((double)num_lti_edges));//(calc_current_spread->column_double(2))/(database_denom_max);//(1.0/((double)num_lti_edges));//((double)(calc_current_spread->column_double(2)))/(database_denom_max);//(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
+                            delete super_explicit_edge_weight;
+                        }
+                        else
+                        {
+                            SQL->act_lti_child_lti_ct_get->bind_int(1, calc_current_spread->column_int(4));
+                            SQL->act_lti_child_lti_ct_get->execute();
+                            uint64_t num_lti_edges = SQL->act_lti_child_lti_ct_get->column_int(0);
+                            assert(num_lti_edges > 0);
+                            SQL->act_lti_child_lti_ct_get->reinitialize();
+                            raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2))));
+                        }
                     }
                     else if (settings->spreading_use_only->get_value() == smem_param_container::neither)
                     {
@@ -1235,12 +1247,28 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                     }
                     else
                     {
-                        raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
+                        if (settings->spreading_calculation_method->get_value() == smem_param_container::ppr)
+                        {
+                            raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
+                        }
+                        else
+                        {
+                            SQL->act_lti_child_lti_ct_get->bind_int(1, calc_current_spread->column_int(4));
+                            SQL->act_lti_child_lti_ct_get->execute();
+                            uint64_t num_lti_edges = SQL->act_lti_child_lti_ct_get->column_int(0);
+                            assert(num_lti_edges > 0);
+                            SQL->act_lti_child_lti_ct_get->reinitialize(); // Note that this is INCORRECT for spread with depths greater than 1. Instead, it should be calculated DURING TRAVERSAL. This is ONLY FOR depth = 1.
+                            //TODO BUGBUG: This code should be updated if it is to be used for depth > 1!
+                            raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(static_cast<double>(num_lti_edges)));
+
+                            //The only reason these options work is because this code was written to accomodate the HBC dataset! That dataset requires normalization of the weights beforehand. Thus, the existing spreading code that normalizes during traversal is effectively fine.
+                            //All of this fails when using a dataset that has not been given normalized weights.
+                        }
                     }
 
                 }
                 //offset = (settings->spreading_baseline->get_value())/(calc_spread->column_double(1));
-                if (settings->spreading_use_only->get_value() == smem_param_container::association)
+                if (settings->spreading_use_only->get_value() == smem_param_container::association && settings->spreading_calculation_method->get_value() == smem_param_container::ppr)
                 {
                     offset = (settings->spreading_baseline->get_value()/maximum_edge_weight)/baseline_denom;//(settings->spreading_limit->get_value());///database_denom_max
                 }

@@ -122,8 +122,14 @@ smem_param_container::smem_param_container(agent* new_agent): soar_module::param
     spreading_use_only->add_mapping(both, "both");
     spreading_use_only->add_mapping(association, "association");
     spreading_use_only->add_mapping(fan, "fan");
-    spreading_use_only->add_mapping(fan, "neither");
+    spreading_use_only->add_mapping(neither, "neither");
     add(spreading_use_only);
+
+    //An alternative spreading method treats association weights and fan separately, where weights are just things that need to be between 0 and 1, and then fan is what determines how much gets distributed to different associations that then throttle by their weights
+    spreading_calculation_method = new soar_module::constant_param<calculation_choices>("spreading-calculation-method", ppr, new soar_module::f_predicate<calculation_choices>());
+    spreading_calculation_method->add_mapping(ppr, "ppr");
+    spreading_calculation_method->add_mapping(hebbian, "hebbian");//Note that edge-weight-updating that is hebbian-like is NOT implemented yet.
+    add(spreading_calculation_method);
 
     // spreading baseline - This sets the value at which we consider spread too small.
     spreading_baseline = new soar_module::decimal_param("spreading-baseline", 0.0001, new  soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
@@ -378,7 +384,8 @@ void smem_param_container::print_settings(agent* thisAgent)
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-edge-updating", spreading_edge_updating->get_string(), 55).c_str(), "on, off");
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-wma-source", spreading_wma_source->get_string(), 55).c_str(), "on, off");
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-edge-update-factor", spreading_edge_update_factor->get_string(), 55).c_str(), "1 > decimal > 0");
-    outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-use-only", spreading_use_only->get_string(), 55).c_str(), "both, association, fan");
+    outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-use-only", spreading_use_only->get_string(), 55).c_str(), "both, association, fan, neither");
+    outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("spreading-calculation-method", spreading_calculation_method->get_string(), 55).c_str(), "ppr, hebbian");
     outputManager->printa(thisAgent, "------------- Database Optimization Settings ----------\n");
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("lazy-commit", lazy_commit->get_string(), 55).c_str(), "Delay writing semantic store until exit");
     outputManager->printa_sf(thisAgent, "%s   %-%s\n", concatJustified("optimization", opt->get_string(), 55).c_str(), "safety, performance");
