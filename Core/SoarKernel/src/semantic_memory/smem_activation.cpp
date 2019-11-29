@@ -1208,7 +1208,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                     delete maximum_edge_weight_query;
                 }
                 {
-                    if (settings->spreading_use_only->get_value() == smem_param_container::fan)
+                    if (settings->spreading_use_only->get_value() == smem_param_container::fan)                                         //fan-only
                     {
                         SQL->act_lti_child_lti_ct_get->bind_int(1, calc_current_spread->column_int(4));
                         SQL->act_lti_child_lti_ct_get->execute();
@@ -1217,7 +1217,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                         SQL->act_lti_child_lti_ct_get->reinitialize();
                         raw_prob = wma_multiplicative_factor*(1.0/(static_cast<double>(num_lti_edges)));
                     }
-                    else if (settings->spreading_use_only->get_value() == smem_param_container::association)
+                    else if (settings->spreading_use_only->get_value() == smem_param_container::association)                            //association-only
                     {
                         if (settings->spreading_calculation_method->get_value() == smem_param_container::ppr)
                         {
@@ -1239,13 +1239,13 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                             raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2))));
                         }
                     }
-                    else if (settings->spreading_use_only->get_value() == smem_param_container::neither)
+                    else if (settings->spreading_use_only->get_value() == smem_param_container::neither)                                //no fan or association, uniform weights, a "boolean" w.r.t. spread existing.
                     {
                         raw_prob = wma_multiplicative_factor*((double)(settings->spreading_continue_probability->get_value()));
                         //This only works with depth = 1. I need to do a better version if we're actually going to make this an option for spread later on where I instead replace the usage of weights earlier in child_spread and also remove the normalization there.
                         //Alternatively, this is just plain an even weight representing the boolean "found the relationship in the network".
                     }
-                    else
+                    else                                                                                                                //normal spreading
                     {
                         if (settings->spreading_calculation_method->get_value() == smem_param_container::ppr)
                         {
