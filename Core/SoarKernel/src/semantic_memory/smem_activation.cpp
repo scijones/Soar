@@ -1236,7 +1236,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                             uint64_t num_lti_edges = SQL->act_lti_child_lti_ct_get->column_int(0);
                             assert(num_lti_edges > 0);
                             SQL->act_lti_child_lti_ct_get->reinitialize();
-                            raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2))));
+                            raw_prob = wma_multiplicative_factor*(((double)(pow((calc_current_spread->column_double(2)),3))));
                         }
                     }
                     else if (settings->spreading_use_only->get_value() == smem_param_container::neither)                                //no fan or association, uniform weights, a "boolean" w.r.t. spread existing.
@@ -1249,7 +1249,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                     {
                         if (settings->spreading_calculation_method->get_value() == smem_param_container::ppr)
                         {
-                            raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(calc_current_spread->column_double(1)));
+                            raw_prob = wma_multiplicative_factor*(((double)(pow((calc_current_spread->column_double(2)),3)))/(calc_current_spread->column_double(1)));
                         }
                         else
                         {
@@ -1259,7 +1259,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                             assert(num_lti_edges > 0);
                             SQL->act_lti_child_lti_ct_get->reinitialize(); // Note that this is INCORRECT for spread with depths greater than 1. Instead, it should be calculated DURING TRAVERSAL. This is ONLY FOR depth = 1.
                             //TODO BUGBUG: This code should be updated if it is to be used for depth > 1!
-                            raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(static_cast<double>(num_lti_edges)));
+                            raw_prob = wma_multiplicative_factor*(((double)(pow((calc_current_spread->column_double(2)),3)))/(static_cast<double>(num_lti_edges)));
 
                             //The only reason these options work is because this code was written to accomodate the HBC dataset! That dataset requires normalization of the weights beforehand. Thus, the existing spreading code that normalizes during traversal is effectively fine.
                             //All of this fails when using a dataset that has not been given normalized weights.
