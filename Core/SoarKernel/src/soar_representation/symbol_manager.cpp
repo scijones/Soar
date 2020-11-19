@@ -684,11 +684,10 @@ void Symbol_Manager::create_predefined_symbols()
     soarSymbols.epmem_sym_next_query = make_str_constant("next-query");//This is to support a new type of "next" query which retrieves the next episode subject to a constraint.//partially implemented
     soarSymbols.epmem_sym_query = make_str_constant("query");
     soarSymbols.epmem_sym_negquery = make_str_constant("neg-query");
-    soarSymbols.epmem_sym_next_query = make_str_constant("next-query");//This is to support a new type of "next" query which retrieves the next episode subject to a constraint.//partially implemented
     soarSymbols.epmem_sym_before = make_str_constant("before");
     soarSymbols.epmem_sym_after = make_str_constant("after");
     soarSymbols.epmem_sym_prohibit = make_str_constant("prohibit");
-    soarSymbols.epmem_sym_next_query = make_str_constant("next-query");//This is to support a new type of "next" query which retrieves the next episode subject to a constraint.//partially implemented
+    soarSymbols.epmem_sym_begin_query = make_str_constant("begin-query");
     soarSymbols.yes = make_str_constant("yes");
     soarSymbols.no = make_str_constant("no");
 
