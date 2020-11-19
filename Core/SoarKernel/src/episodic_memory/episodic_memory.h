@@ -27,6 +27,7 @@
 //////////////////////////////////////////////////////////
 // EpMem Parameters
 //////////////////////////////////////////////////////////
+class EpMem_Id_Delta;//I'll wrap a timer around the code to maintain this thing -- it seems like it may be a nice kind of data structure to create each cycle, but maybe it's just not worth it.
 
 class epmem_path_param;
 
@@ -49,6 +50,9 @@ class epmem_param_container: public soar_module::param_container
         // experimental
         enum gm_ordering_choices { gm_order_undefined, gm_order_dfs, gm_order_mcv };
         enum merge_choices { merge_none, merge_add };
+
+        // surprise
+        enum surprise_method_choices { bla, hebbian };
 
         ////////////////////////////////////////////////////////////
         ////////////////////////////////////////////////////////////
@@ -80,6 +84,13 @@ class epmem_param_container: public soar_module::param_container
         // experimental
         soar_module::constant_param<gm_ordering_choices>* gm_ordering;
         soar_module::constant_param<merge_choices>* merge;
+
+        // surprise
+        soar_module::constant_param<surprise_method_choices>* surprise_method;
+        soar_module::decimal_param* default_surprise_threshold;
+        soar_module::sym_set_param* surprise_exclusions;//Not clear we really should want this to be distinct from exclusions in general, but I don't want to begin making theoretical claims about the sorts of things agents should be able to have as graph structures, such as "no floats"
+
+
 
         void print_settings(agent* thisAgent);
         void print_summary(agent* thisAgent);
@@ -318,10 +329,14 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
 
         soar_module::sqlite_statement* valid_episode;
         soar_module::sqlite_statement* next_episode;
+        soar_module::sqlite_statement* next_query_episode;
         soar_module::sqlite_statement* prev_episode;
 
         soar_module::sqlite_statement* get_wmes_with_identifier_values;
         soar_module::sqlite_statement* get_wmes_with_constant_values;
+        soar_module::sqlite_statement* get_single_wcid_info;
+		soar_module::sqlite_statement* get_single_wiid_info;
+		soar_module::sqlite_statement* get_constant;
 
 //        //
 //
@@ -447,7 +462,7 @@ typedef struct epmem_edge_struct
     epmem_node_id   parent_n_id;
     Symbol*         attribute;
     epmem_node_id   child_n_id;
-
+    epmem_node_id   triple_id;
     uint64_t        child_lti_id;
 
 } epmem_edge;
@@ -629,6 +644,53 @@ struct epmem_interval_comparator
 
 typedef std::priority_queue<epmem_interval*, std::vector<epmem_interval*>, epmem_interval_comparator> epmem_interval_pq;
 
+typedef std::set<int64_t> epmem_id_delta_set;//These should probably be int64_t's given sqlite's inherent int64_t limitation.
+typedef std::set<std::pair<std::pair<int64_t,int64_t>, bool>> epmem_id_num_delta_set;//Keeping same-address number changes as sign-of-the-delta-only.
+//Purely for consistency, I may make two sets, one for greater-than, one for less-than. (Equality would be intentionally omitted.)
+
+//One of these is created every epmem timestep.
+class EpMem_Id_Delta
+{
+    public:
+        EpMem_Id_Delta(agent* myAgent);
+        EpMem_Id_Delta(EpMem_Id_Delta&& other);
+        EpMem_Id_Delta(const EpMem_Id_Delta& other);
+        ~EpMem_Id_Delta();
+        void add_addition(int64_t);
+        void add_removal(int64_t);
+        void add_addition_constant(int64_t);
+        void add_removal_constant(int64_t);
+        void add_number_change(int64_t,int64_t, bool);
+        bool operator==(const EpMem_Id_Delta &other) const;
+        bool operator!=(const EpMem_Id_Delta &other) const;
+        EpMem_Id_Delta operator+(const EpMem_Id_Delta &other) const;
+        std::size_t hash() const;
+        epmem_id_delta_set::const_iterator additions_begin() const;
+        epmem_id_delta_set::const_iterator removals_begin() const;
+        epmem_id_delta_set::const_iterator additions_end() const;
+        epmem_id_delta_set::const_iterator removals_end() const;
+        epmem_id_num_delta_set::const_iterator number_changes_begin() const;
+        epmem_id_num_delta_set::const_iterator number_changes_end() const;
+        epmem_id_delta_set::const_iterator additions_constant_begin() const;
+        epmem_id_delta_set::const_iterator removals_constant_begin() const;
+        epmem_id_delta_set::const_iterator additions_constant_end() const;
+        epmem_id_delta_set::const_iterator removals_constant_end() const;
+        uint64_t additions_size() const;
+        uint64_t removals_size() const;
+        uint64_t additions_constant_size() const;
+        uint64_t removals_constant_size() const;
+        uint64_t number_changes_size() const;
+        epmem_id_num_delta_set::const_iterator number_changes_find(int64_t parent, int64_t attr, bool value_change) const;
+        friend std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta);
+    private:
+        epmem_id_delta_set* additions;
+        epmem_id_delta_set* removals;
+        epmem_id_delta_set* additions_constant;
+        epmem_id_delta_set* removals_constant;
+        epmem_id_num_delta_set* number_changes;
+        agent* myAgent;
+};
+
 class EpMem_Manager
 {
     public:
@@ -659,11 +721,28 @@ class EpMem_Manager
         epmem_id_ref_counter* epmem_id_ref_counts;
         epmem_symbol_stack* epmem_id_removes;
 
+        std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>* float_change_counter;//just keeping track of how often something has changed and the most recent change time.
+		std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>* float_change_time_recent;
+		std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>* float_change_time_first;
+		//The above three give a petrov approx bla for float intervals. the below three do the same for everything else.
+		std::map<std::pair<bool,epmem_node_id>,uint64_t>* change_counter;//just keeping track of how often something has changed and the most recent change time.
+		std::map<std::pair<bool,epmem_node_id>,uint64_t>* change_time_recent;
+		std::map<std::pair<bool,epmem_node_id>,uint64_t>* change_time_first;
+
+        uint64_t total_wme_changes;
+
         epmem_symbol_set* epmem_wme_adds;
 
         epmem_rit_state epmem_rit_state_graph[2];
 
         uint64_t epmem_validation;
+
+        EpMem_Id_Delta* prev_delta;
+
+        std::map<std::pair<int64_t,int64_t>, double> val_at_last_change;
+		std::map<std::pair<int64_t,int64_t>, bool> change_at_last_change;
+		bool no_immediately_previous_change;
+
 
     private:
 

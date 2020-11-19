@@ -52,6 +52,10 @@ bool CommandLineInterface::DoEpMem(const char pOp, const std::string* pAttr, con
         PrintCLIMessage_Item("timers:", thisAgent->EpMem->epmem_params->timers, 40);
         PrintCLIMessage_Section("Experimental", 40);
         PrintCLIMessage_Item("merge:", thisAgent->EpMem->epmem_params->merge, 40);
+        PrintCLIMessage_Section("Experimental Surprise Encoding", 40);
+        PrintCLIMessage_Item("surprise-method:", thisAgent->EpMem->epmem_params->surprise_method, 40);
+        PrintCLIMessage_Item("default-surprise-threshold:", thisAgent->EpMem->epmem_params->default_surprise_threshold, 40);
+        PrintCLIMessage_Item("surprise-exclusions:", thisAgent->EpMem->epmem_params->surprise_exclusions, 40);
         PrintCLIMessage("");
 //        thisAgent->EpMem->epmem_params->print_summary(thisAgent);
         return true;

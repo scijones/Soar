@@ -673,14 +673,22 @@ void Symbol_Manager::create_predefined_symbols()
     soarSymbols.epmem_sym_failure = make_str_constant("failure");
     soarSymbols.epmem_sym_bad_cmd = make_str_constant("bad-cmd");
 
+    soarSymbols.epmem_sym_mapping_surprise_node = make_str_constant("surprise-node");
+	soarSymbols.epmem_sym_mapping_surprise_parent = make_str_constant("surprise-parent");
+	soarSymbols.epmem_sym_mapping_surprise_attribute = make_str_constant("surprise-attribute");
+	soarSymbols.epmem_sym_mapping_surprise_value = make_str_constant("surprise-value");
+
     soarSymbols.epmem_sym_retrieve = make_str_constant("retrieve");
     soarSymbols.epmem_sym_next = make_str_constant("next");
     soarSymbols.epmem_sym_prev = make_str_constant("previous");
+    soarSymbols.epmem_sym_next_query = make_str_constant("next-query");//This is to support a new type of "next" query which retrieves the next episode subject to a constraint.//partially implemented
     soarSymbols.epmem_sym_query = make_str_constant("query");
     soarSymbols.epmem_sym_negquery = make_str_constant("neg-query");
+    soarSymbols.epmem_sym_next_query = make_str_constant("next-query");//This is to support a new type of "next" query which retrieves the next episode subject to a constraint.//partially implemented
     soarSymbols.epmem_sym_before = make_str_constant("before");
     soarSymbols.epmem_sym_after = make_str_constant("after");
     soarSymbols.epmem_sym_prohibit = make_str_constant("prohibit");
+    soarSymbols.epmem_sym_next_query = make_str_constant("next-query");//This is to support a new type of "next" query which retrieves the next episode subject to a constraint.//partially implemented
     soarSymbols.yes = make_str_constant("yes");
     soarSymbols.no = make_str_constant("no");
 
@@ -853,11 +861,18 @@ void Symbol_Manager::release_predefined_symbols()
     symbol_remove_ref(&(soarSymbols.epmem_sym_failure));
     symbol_remove_ref(&(soarSymbols.epmem_sym_bad_cmd));
 
+    symbol_remove_ref(&(soarSymbols.epmem_sym_mapping_surprise_node));
+	symbol_remove_ref(&(soarSymbols.epmem_sym_mapping_surprise_parent));
+	symbol_remove_ref(&(soarSymbols.epmem_sym_mapping_surprise_attribute));
+	symbol_remove_ref(&(soarSymbols.epmem_sym_mapping_surprise_value));
+
     symbol_remove_ref(&(soarSymbols.epmem_sym_retrieve));
     symbol_remove_ref(&(soarSymbols.epmem_sym_next));
     symbol_remove_ref(&(soarSymbols.epmem_sym_prev));
+    symbol_remove_ref(&(soarSymbols.epmem_sym_next_query));
     symbol_remove_ref(&(soarSymbols.epmem_sym_query));
     symbol_remove_ref(&(soarSymbols.epmem_sym_negquery));
+    symbol_remove_ref(&(soarSymbols.epmem_sym_begin_query));
     symbol_remove_ref(&(soarSymbols.epmem_sym_before));
     symbol_remove_ref(&(soarSymbols.epmem_sym_after));
     symbol_remove_ref(&(soarSymbols.epmem_sym_prohibit));

@@ -180,6 +180,19 @@ epmem_param_container::epmem_param_container(agent* new_agent): soar_module::par
     merge->add_mapping(merge_none, "none");
     merge->add_mapping(merge_add, "add");
     add(merge);
+
+    // surprise
+    surprise_method = new soar_module::constant_param<surprise_method_choices>("surprise-method", bla, new soar_module::f_predicate<surprise_method_choices>());
+    surprise_method->add_mapping(bla,"bla");
+    surprise_method->add_mapping(hebbian,"hebbian");
+    add(surprise_method);
+
+    default_surprise_threshold = new soar_module::decimal_param("default-surprise-threshold", 0.5, new soar_module::gt_predicate<double>(0, false), new soar_module::f_predicate<double>());
+    add(default_surprise_threshold);// No idea what a good parameter value is here. probably differs by method. -- for simplicity, going to make surprise a value between 0 and 1 always. may change later, but going with this now.
+
+    surprise_exclusions = new soar_module::sym_set_param("surprise-exclusions", new soar_module::f_predicate<const char*>, thisAgent);
+    add(surprise_exclusions); //For practicality, things like an always incrementing timer should be ignored unless they have timing significance. even then, still maybe. the point is that you want to be able to cross parts of the same river twice.
+//Compression rate would make a good surprise method -- can come back to that with element-wise sequitur later, maybe, (not encessarily that method for compression in general, anything that makes longer timescale blocks with symbolic interpretation.
 }
 
 //
@@ -1141,7 +1154,7 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
             "SELECT p.wi_id, p.lti_id FROM epmem_wmes_identifier_point p WHERE p.episode_id = ? UNION ALL "
             "SELECT e1.wi_id, e1.lti_id FROM epmem_wmes_identifier_range e1, epmem_rit_left_nodes lt WHERE e1.rit_id=lt.rit_min AND e1.end_episode_id >= ? UNION ALL "
             "SELECT e2.wi_id, e2.lti_id FROM epmem_wmes_identifier_range e2, epmem_rit_right_nodes rt WHERE e2.rit_id = rt.rit_id AND e2.start_episode_id <= ?) "
-            "SELECT f.parent_n_id, f.attribute_s_id, f.child_n_id, n.lti_id FROM epmem_wmes_identifier f, timetables n WHERE f.wi_id=n.wi_id "
+            "SELECT f.parent_n_id, f.attribute_s_id, f.child_n_id, n.lti_id, f.wi_id FROM epmem_wmes_identifier f, timetables n WHERE f.wi_id=n.wi_id "
             "ORDER BY f.parent_n_id ASC, f.child_n_id ASC", new_agent->EpMem->epmem_timers->ncb_edge);
             /*"SELECT f.parent_n_id, f.attribute_s_id, f.child_n_id, n.lti_id "
             "FROM epmem_wmes_identifier f, epmem_nodes n "
@@ -1155,6 +1168,21 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
 
     update_epmem_wmes_identifier_last_episode_id = new soar_module::sqlite_statement(new_db, "UPDATE epmem_wmes_identifier SET last_episode_id=? WHERE wi_id=?");
     add(update_epmem_wmes_identifier_last_episode_id);
+
+    //
+
+    get_single_wcid_info = new soar_module::sqlite_statement(new_db, "SELECT parent_n_id,attribute_s_id,value_s_id FROM epmem_wmes_constant WHERE wc_id=?");
+	add(get_single_wcid_info);
+	//actually, want to join with the different tables that store the values for these int labels/pointers and return the real values.
+	//Actually, screw that guy (still me), let's just do it the lazy way because it's late and I can't think and this is a user-initiated print function, so
+	//who cares about performance. (I will regret that.)
+
+	get_single_wiid_info = new soar_module::sqlite_statement(new_db, "SELECT parent_n_id,attribute_s_id,child_n_id FROM epmem_wmes_identifier WHERE wi_id=?");
+	add(get_single_wiid_info);
+
+	get_constant = new soar_module::sqlite_statement(new_db, "SELECT cast(symbol_value as text) FROM epmem_symbols_float f WHERE f.s_id=? UNION SELECT cast(symbol_value as text) FROM epmem_symbols_string s WHERE s.s_id=? UNION SELECT cast(symbol_value as text) FROM epmem_symbols_integer i WHERE i.s_id=?");
+	add(get_constant);
+
 
     // init statement pools
     {
@@ -2394,6 +2422,109 @@ void epmem_init_db(agent* thisAgent, bool readonly)
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
+/*
+ * As part of ongoing implementation associated with event cognition, Soar
+ * will feature different methods for estimating "surprise" as a form of metadata
+ * associated with encoded episodic memory elements.
+ *
+ * The first and simplest of these is based on inverted base-level activation.
+ */
+
+
+void epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id parent_id, epmem_hash_id attribute_id, epmem_node_id triple_id, bool is_a_float)//Needs to be the case that where I call this, I can tell if it's for a float or not.
+{
+    //First, check for if an element has ever been added before. if not initialize. could make parameter for whether or not first appearance allows "surprise".
+    //If it already exists, just update blas and add to surprise list.
+    double bla_before = -999999.0;
+
+    //This needs to be changed so that search_pair is only for floats. Meanwhile, the remainder use triple_ids for the actual location.
+    assert(!(is_a_float && !is_a_constant));//Yeah, I know I could distribute it, but this is easier to read.
+
+    if (is_a_float)
+    {
+        std::pair<epmem_node_id,epmem_hash_id> search_pair = std::make_pair(parent_id,attribute_id);
+        if (thisAgent->EpMem->float_change_counter->find(search_pair) == thisAgent->EpMem->float_change_counter->end())
+        { // wholly novel case
+            thisAgent->EpMem->float_change_counter->emplace(std::make_pair(std::make_pair(parent_id,attribute_id),1));//)[std::make_pair(parent_id,attribute_id)] = 1;
+            thisAgent->EpMem->float_change_time_recent->emplace(std::make_pair(std::make_pair(parent_id,attribute_id),time_counter));//)[std::make_pair(parent_id,attribute_id)] = time_counter;
+            thisAgent->EpMem->float_change_time_first->emplace(std::make_pair(std::make_pair(parent_id,attribute_id),time_counter));//)[std::make_pair(parent_id,attribute_id)] = time_counter;
+            if (time_counter > 1)//May remove that condition. depends on whether or not wholly novel is to be paid attention.
+            {
+                //Not sure how we're gonna use surprise yet, so for now, I'm associating surprise with each interval. This means using the triple_id and time_counter as the keys and the surprise as the value.
+                //This will let me look for the surprise associated with something, but does not allow for easy indexing by surprise.
+                //database table index by interval time and then surprise might be the most useful for later integration with queries.
+                    //otherwise, end up with perhaps a very large priority queue in ram
+
+                //thisAgent->EpMem->epmem_node_id_reverse_bla->emplace(std::make_tuple(triple_id,bla_before,time_counter));
+            }
+        }
+        else
+        { // seen it
+            double count = static_cast<double>((*thisAgent->EpMem->float_change_counter)[search_pair]);
+            double recent = static_cast<double>((*thisAgent->EpMem->float_change_time_recent)[search_pair]);
+            double first = static_cast<double>((*thisAgent->EpMem->float_change_time_first)[search_pair]);
+            (*thisAgent->EpMem->float_change_counter)[search_pair] = 1 + (*thisAgent->EpMem->float_change_counter)[search_pair];
+            (*thisAgent->EpMem->float_change_time_recent)[search_pair] = time_counter;
+            double bla_odds = (1.0/(sqrt(time_counter-recent)) + (2.0*(count - 1))/(sqrt(time_counter-first)+sqrt(time_counter-recent)));// If I took this value right now and just slapped a log around it, I'd have a bla for just before the element was accessed/changed.
+            bla_odds = 1.0/bla_odds;
+            //Alright, so look, bla was always considered as "log-odds". Now, all it really means to me is that there is a nice decaying curve where before you take the log, the range of the function is from 0 to infinity, which you'd
+            //want out of "odds". Now, it does well as a heuristic for recency and frequency based probability. However, what "surprise" should basically measure is the "odds" of *not* happening, given some recency and frequency.
+            //Thus, I just plain do the normal odds calculation, don't do the superfluous log, and invert the odds, and then use o/(1+o)=p to get a surprise value between 0 and 1, because that's an easier range to deal with, and can be more easily
+            //interpretted as a probability. No, I didn't do any of the algebra to simplify the expression -- I'll bother with that sort of thing after I see whether this is a decent heuristic or not.
+            //As far as I can tell, it's basically out of weird tradition and dubious algebraic simplifications that we ever ended up wanting log-odds in the first place. It's not like it was originally motivated by SLAM-style grid filtering where
+            //we actually use the convenience of a log-odds formulation for efficient computation reasons.
+            double surprise = bla_odds/(1+bla_odds);//A number between 0 and 1 and that should be big when it's been a long time since something infrequently change has changed.
+            if (time_counter > 1)
+            {
+                //thisAgent->EpMem->epmem_node_id_reverse_bla->emplace(std::make_tuple(triple_id,bla_before,time_counter));
+            }
+        }
+    }
+    else
+    {
+        std::pair<bool,epmem_hash_id> search_pair = std::make_pair(is_a_constant,triple_id);
+        if (thisAgent->EpMem->change_counter->find(search_pair) == thisAgent->EpMem->change_counter->end())
+        { // wholly novel case
+            thisAgent->EpMem->change_counter->emplace(std::make_pair(std::make_pair(is_a_constant,triple_id),1));//)[std::make_pair(parent_id,attribute_id)] = 1;
+            thisAgent->EpMem->change_time_recent->emplace(std::make_pair(std::make_pair(is_a_constant,triple_id),time_counter));//)[std::make_pair(parent_id,attribute_id)] = time_counter;
+            thisAgent->EpMem->change_time_first->emplace(std::make_pair(std::make_pair(is_a_constant,triple_id),time_counter));//)[std::make_pair(parent_id,attribute_id)] = time_counter;
+            if (time_counter > 1)//May remove that condition. depends on whether or not wholly novel is to be paid attention.
+            {
+                //Not sure how we're gonna use surprise yet, so for now, I'm associating surprise with each interval. This means using the triple_id and time_counter as the keys and the surprise as the value.
+                //This will let me look for the surprise associated with something, but does not allow for easy indexing by surprise.
+                //database table index by interval time and then surprise might be the most useful for later integration with queries.
+                    //otherwise, end up with perhaps a very large priority queue in ram
+
+                //thisAgent->EpMem->epmem_node_id_reverse_bla->emplace(std::make_tuple(triple_id,bla_before,time_counter));
+            }
+        }
+        else
+        { // seen it
+            double count = static_cast<double>((*thisAgent->EpMem->change_counter)[search_pair]);
+            double recent = static_cast<double>((*thisAgent->EpMem->change_time_recent)[search_pair]);
+            double first = static_cast<double>((*thisAgent->EpMem->change_time_first)[search_pair]);
+            (*thisAgent->EpMem->change_counter)[search_pair] = 1 + (*thisAgent->EpMem->change_counter)[search_pair];
+            (*thisAgent->EpMem->change_time_recent)[search_pair] = time_counter;
+            double bla_odds = (1.0/(sqrt(time_counter-recent)) + (2.0*(count - 1))/(sqrt(time_counter-first)+sqrt(time_counter-recent)));// If I took this value right now and just slapped a log around it, I'd have a bla for just before the element was accessed/changed.
+            bla_odds = 1.0/bla_odds;
+            //Alright, so look, bla was always considered as "log-odds". Now, all it really means to me is that there is a nice decaying curve where before you take the log, the range of the function is from 0 to infinity, which you'd
+            //want out of "odds". Now, it does well as a heuristic for recency and frequency based probability. However, what "surprise" should basically measure is the "odds" of *not* happening, given some recency and frequency.
+            //Thus, I just plain do the normal odds calculation, don't do the superfluous log, and invert the odds, and then use o/(1+o)=p to get a surprise value between 0 and 1, because that's an easier range to deal with, and can be more easily
+            //interpretted as a probability. No, I didn't do any of the algebra to simplify the expression -- I'll bother with that sort of thing after I see whether this is a decent heuristic or not.
+            //As far as I can tell, it's basically out of weird tradition and dubious algebraic simplifications that we ever ended up wanting log-odds in the first place. It's not like it was originally motivated by SLAM-style grid filtering where
+            //we actually use the convenience of a log-odds formulation for efficient computation reasons.
+            double surprise = bla_odds/(1+bla_odds);//A number between 0 and 1 and that should be big when it's been a long time since something infrequently change has changed.
+            if (time_counter > 1)
+            {
+                //thisAgent->EpMem->epmem_node_id_reverse_bla->emplace(std::make_tuple(triple_id,bla_before,time_counter));
+            }
+        }
+    }
+}
+
+
+
+
 /* **************************************************************************
 
                          _epmem_store_level
@@ -2430,7 +2561,9 @@ inline void _epmem_store_level(agent* thisAgent,
                                std::map< wme*, epmem_id_reservation* >& id_reservations,
                                std::set< Symbol* >& new_identifiers,
                                std::queue< epmem_node_id >& epmem_node,
-                               std::queue<std::pair<epmem_node_id,int64_t>>& epmem_edge)
+							   std::queue<std::pair<epmem_node_id,int64_t>>& epmem_edge,
+							   std::map<std::pair<int64_t,int64_t>,std::pair<int64_t,double>>& float_deltas,
+							   std::set<epmem_node_id>& delta_ids)
 {
     epmem_wme_list::iterator w_p;
     bool value_known_apriori = false;
@@ -2795,6 +2928,8 @@ inline void _epmem_store_level(agent* thisAgent,
                 epmem_edge.emplace((*w_p)->epmem_id,static_cast<int64_t>((*w_p)->value->id->is_lti() ? (*w_p)->value->id->LTI_ID : 0));
                 thisAgent->EpMem->epmem_edge_mins->push_back(time_counter);
                 thisAgent->EpMem->epmem_edge_maxes->push_back(false);
+                //epmem_surprise_bla(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);// gotta think here -- need to look at how the float sign change stuff is kept track of and when.
+                //void epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id triple_id, bool is_a_float)
             }
             else
             {
@@ -2809,6 +2944,8 @@ inline void _epmem_store_level(agent* thisAgent,
                 {
                     epmem_edge.emplace((*w_p)->epmem_id,static_cast<int64_t>((*w_p)->value->id->is_lti() ? (*w_p)->value->id->LTI_ID : 0));
                     (*thisAgent->EpMem->epmem_edge_maxes)[static_cast<size_t>((*w_p)->epmem_id - 1)] = false;
+                    //epmem_surprise_bla(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);
+                    //void epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id triple_id, bool is_a_float)
                 }
             }
 
@@ -2899,6 +3036,18 @@ inline void _epmem_store_level(agent* thisAgent,
 #endif
                     // new nodes definitely start
                     epmem_node.push((*w_p)->epmem_id);
+
+
+                    //void epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id triple_id, bool is_a_float)
+
+					if ((*w_p)->value->symbol_type == FLOAT_CONSTANT_SYMBOL_TYPE)
+					{
+						//epmem_surprise_bla(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, true);
+						float_deltas.emplace(std::pair<int64_t,int64_t>(parent_id,my_hash),std::pair<int64_t,double>((*w_p)->epmem_id,(*w_p)->value->fc->value));
+						delta_ids.insert((*w_p)->epmem_id);
+						thisAgent->EpMem->val_at_last_change.insert(std::pair<std::pair<int64_t,int64_t>,double>(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value));
+					}
+
                     thisAgent->EpMem->epmem_node_mins->push_back(time_counter);
                     thisAgent->EpMem->epmem_node_maxes->push_back(false);
                 }
@@ -2915,6 +3064,14 @@ inline void _epmem_store_level(agent* thisAgent,
                     if ((*thisAgent->EpMem->epmem_node_maxes)[static_cast<size_t>((*w_p)->epmem_id - 1)])
                     {
                         epmem_node.push((*w_p)->epmem_id);
+
+                        if ((*w_p)->value->symbol_type == FLOAT_CONSTANT_SYMBOL_TYPE)
+						{
+                        	float_deltas.emplace(std::pair<int64_t,int64_t>(parent_id,my_hash),std::pair<int64_t,double>((*w_p)->epmem_id,(*w_p)->value->fc->value));
+							delta_ids.insert((*w_p)->epmem_id);
+							thisAgent->EpMem->val_at_last_change.insert(std::pair<std::pair<int64_t,int64_t>,double>(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value));
+						}
+
                         (*thisAgent->EpMem->epmem_node_maxes)[static_cast<size_t>((*w_p)->epmem_id - 1)] = false;
                     }
                 }
@@ -2948,6 +3105,8 @@ void epmem_new_episode(agent* thisAgent)
         // seen nodes (non-identifiers) and edges (identifiers)
         std::queue<epmem_node_id> epmem_node;
         std::queue<std::pair<epmem_node_id,int64_t>> epmem_edge;//epmem_edge now needs to keep track of the lti status/identity of the wmenode/epmemedge
+        std::map<std::pair<int64_t,int64_t>,std::pair<int64_t,double>> potential_float_deltas;//should likely be unordered, but just for now, I want this written. -- sjj - TODO
+		std::set<epmem_node_id> potential_delta_ids;
 
         // walk appropriate levels
         {
@@ -2985,13 +3144,23 @@ void epmem_new_episode(agent* thisAgent)
                         wmes = epmem_get_augs_of_id(parent_sym, tc);
                         if (! wmes->empty())
                         {
-                            _epmem_store_level(thisAgent, parent_syms, parent_ids, tc, wmes->begin(), wmes->end(), parent_id, time_counter, id_reservations, new_identifiers, epmem_node, epmem_edge);
+                            //_epmem_store_level(thisAgent, parent_syms, parent_ids, tc, wmes->begin(), wmes->end(), parent_id, time_counter, id_reservations, new_identifiers, epmem_node, epmem_edge);
+                        	_epmem_store_level(thisAgent, parent_syms, parent_ids, tc, wmes->begin(), wmes->end(), parent_id, time_counter, id_reservations, new_identifiers, epmem_node, epmem_edge, potential_float_deltas, potential_delta_ids);
                         }
                         delete wmes;
                     }
                 }
             }
         }
+
+        // Before we process inserts, we need to initialize the data structure which keeps track of them
+        EpMem_Id_Delta* some_delta = NIL;
+        some_delta = new EpMem_Id_Delta(thisAgent);//may end up wrapping this in an "if" and using the nil as a check later.
+
+        uint64_t working_memory_delta_size = 0;
+
+	    bool was_nothing = true;
+	    bool c_change_only = true;
 
         // all inserts
         {
@@ -3008,6 +3177,15 @@ void epmem_new_episode(agent* thisAgent)
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_constant_now->bind_int(1, (*temp_node));
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_constant_now->bind_int(2, time_counter);
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_constant_now->execute(soar_module::op_reinit);
+                /*
+                 * This is where we know we've added something to working memory.
+                 */
+                thisAgent->EpMem->total_wme_changes++;
+                some_delta->add_addition(*temp_node);
+                c_change_only = false;
+                was_nothing = false;
+                ++working_memory_delta_size;
+
 
                 // update min
                 (*thisAgent->EpMem->epmem_node_mins)[static_cast<size_t>((*temp_node) - 1)] = time_counter;
@@ -3030,6 +3208,15 @@ void epmem_new_episode(agent* thisAgent)
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_identifier_now->bind_int(2, time_counter);
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_identifier_now->bind_int(3, (*lti_id));
                 thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_identifier_now->execute(soar_module::op_reinit);
+                /*
+                 * This is where we know we've added something to working memory.
+                 */
+                thisAgent->EpMem->total_wme_changes++;
+
+                some_delta->add_addition(*temp_node);
+                c_change_only = false;
+                was_nothing = false;
+                ++working_memory_delta_size;
 
                 // update min
                 (*thisAgent->EpMem->epmem_edge_mins)[static_cast<size_t>((*temp_node) - 1)] = time_counter;
@@ -3054,13 +3241,83 @@ void epmem_new_episode(agent* thisAgent)
                 r = thisAgent->EpMem->epmem_node_removals->begin();
                 while (r != thisAgent->EpMem->epmem_node_removals->end())
                 {
+                    bool did_number_change = false;
                     if (r->second)
                     {
+
+                        //To check for removal where there is also addition with the same parent and attribute
+                        thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->bind_int(1,r->first);//gets parent, attr, value from wc_id.
+                        //Note that this just gives the hashes, which is fine for the parent and attr, but not the value.
+                        thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->execute();
+                        int64_t parent_hash = thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->column_int(0);
+                        int64_t attr_hash = thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->column_int(1);
+                        int64_t value_hash = thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->column_int(2);
+                        thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->reinitialize();
+
+                        bool did_already = false;
+                        //First, we can check if there exists a parent,attr in either potential delta map before doing further processing.
+                        if (potential_float_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash)) != potential_float_deltas.end())
+                        {
+                            /* potential_int_deltas maps parent and attr to value for int additions.
+                             * potential_float_deltas maps parent and attr to value for float additions.*/
+                            Symbol* value = epmem_reverse_hash(thisAgent, value_hash);
+                            if (value->symbol_type == FLOAT_CONSTANT_SYMBOL_TYPE)
+                            {
+                                std::map<std::pair<int64_t,int64_t>,std::pair<int64_t,double>>::iterator delta_it = potential_float_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash));
+                                if (delta_it == potential_float_deltas.end())
+                                {//This means that we did not find a change and should process as an addition or subtraction.
+                                    //If we remove each potential delta that turns out to really be a delta, those which remain can be iterated over as adds.
+                                    //This means that if we don't have a match, we simply have a removal.
+                                    some_delta->add_removal_constant(r->first);
+                                    was_nothing = false;
+                                    c_change_only = false;
+                                    thisAgent->EpMem->change_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
+                                    thisAgent->EpMem->val_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
+                                    //could be double to int transition.
+                                }
+                                else
+                                {//If we have a change, then we can make sure not to treat as an addition or a subtraction and here add to the change table, but also prevent from being added to the remove table.
+                                //Things which were added, but not also removed, those will be later treated as final additions for sequitur.
+                                    //double change = delta_it->second.second - value->fc->value;
+                                    double change = thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] - value->fc->value;
+                                    if (change > 0.1 || change < -0.1)//need a characterization of sensor noise.
+                                    {
+                                        thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
+                                        if (thisAgent->EpMem->prev_delta->number_changes_find(parent_hash, attr_hash, change > 0.0) == thisAgent->EpMem->prev_delta->number_changes_end() && (thisAgent->EpMem->change_at_last_change.find(std::pair<int64_t,int64_t>(parent_hash, attr_hash)) == thisAgent->EpMem->change_at_last_change.end() || true))//change > 0.0 != thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)]))
+                                        {
+                                            some_delta->add_number_change(parent_hash, attr_hash, change > 0.0);//std::pair<std::pair<int64_t,int64_t>, bool>
+                                            was_nothing = false;
+                                            thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
+                                            thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = change > 0.0;
+                                        }
+                                    }
+                                    //potential_float_deltas.erase(delta_it);
+                                    potential_delta_ids.erase(delta_it->second.first);
+                                }
+                                did_already = true;
+                            }
+
+                        }
+                        //If we did not trigger the if, then we did not find a change and should process as an addition or subtraction.
+
+
 
                         // remove NOW entry
                         // id = ?
                         thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_constant_now->bind_int(1, r->first);
                         thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_constant_now->execute(soar_module::op_reinit);
+                        /*
+                         * This is where we know we've taken something out of working memory.
+                         */
+                        if (!did_already)
+                        {
+                            some_delta->add_removal_constant(r->first);
+                            c_change_only = false;
+                            was_nothing = false;
+                            thisAgent->EpMem->change_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
+                            thisAgent->EpMem->val_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
+                        }
+                        ++working_memory_delta_size;
 
                         range_start = (*thisAgent->EpMem->epmem_node_mins)[static_cast<size_t>(r->first - 1)];
                         range_end = (time_counter - 1);
@@ -3085,6 +3342,18 @@ void epmem_new_episode(agent* thisAgent)
                     r++;
                 }
                 thisAgent->EpMem->epmem_node_removals->clear();
+                // At this point, we can iterate through the remaining potential deltas and treat them as additions.
+                //loop over remaining potential delta ids.
+                //wc_ids *are* epmem_ids.
+                std::set<epmem_node_id>::iterator potential_delta_ids_it;
+                std::set<epmem_node_id>::iterator potential_delta_ids_begin = potential_delta_ids.begin();
+                std::set<epmem_node_id>::iterator potential_delta_ids_end = potential_delta_ids.end();
+                for (potential_delta_ids_it = potential_delta_ids_begin; potential_delta_ids_it != potential_delta_ids_end; ++potential_delta_ids_it)
+                {
+                    some_delta->add_addition_constant(*potential_delta_ids_it);
+                    c_change_only = false;
+                    was_nothing = false;
+                }
             }
 
             // wme's with identifier values
@@ -3097,6 +3366,14 @@ void epmem_new_episode(agent* thisAgent)
                     // id = ?
                     thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_identifier_now->bind_int(1, r->first.first);
                     thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_identifier_now->execute(soar_module::op_reinit);
+
+                    /*
+                     * This is where we know we've taken something out of working memory.
+                     */
+                    some_delta->add_removal(r->first.first);
+                    was_nothing = false;
+                    c_change_only = false;
+                    ++working_memory_delta_size;
 
                     range_start = (*thisAgent->EpMem->epmem_edge_mins)[static_cast<size_t>(r->first.first - 1)];
                     range_end = (time_counter - 1);
@@ -3157,6 +3434,18 @@ void epmem_new_episode(agent* thisAgent)
         {
             thisAgent->EpMem->epmem_wme_adds->clear();
         }
+
+
+        if (!(was_nothing && thisAgent->EpMem->no_immediately_previous_change) && !(c_change_only  && (*some_delta) == (*(thisAgent->EpMem->prev_delta))))//TODO: sjj -- It may be that cycle-specific timings are important to encode and this should be turned into an optional parameter for epmem compression.
+        {
+            if (!was_nothing)
+            {
+                delete thisAgent->EpMem->prev_delta;
+                thisAgent->EpMem->prev_delta = new EpMem_Id_Delta(*some_delta);
+            }
+        }
+
+        thisAgent->EpMem->no_immediately_previous_change = was_nothing;
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -5052,6 +5341,10 @@ void epmem_process_query(agent* thisAgent, Symbol* state, Symbol* pos_query, Sym
     thisAgent->EpMem->epmem_timers->query->stop();
 }
 
+
+
+
+
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 // Visualization (epmem::viz)
@@ -5958,6 +6251,642 @@ bool epmem_backup_db(agent* thisAgent, const char* file_name, std::string* err)
     return return_val;
 }
 
+void EpMem_Id_Delta::add_addition(int64_t newly_added_epmem_id)
+{
+    this->additions->insert(newly_added_epmem_id);
+}
+void EpMem_Id_Delta::add_removal(int64_t newly_removed_epmem_id)
+{
+    this->removals->insert(newly_removed_epmem_id);
+}
+void EpMem_Id_Delta::add_addition_constant(int64_t newly_added_epmem_id)
+{
+    this->additions_constant->insert(newly_added_epmem_id);
+}
+void EpMem_Id_Delta::add_removal_constant(int64_t newly_removed_epmem_id)
+{
+    this->removals_constant->insert(newly_removed_epmem_id);
+}
+void EpMem_Id_Delta::add_number_change(int64_t parent, int64_t attr, bool value_change)
+{
+    this->number_changes->emplace(std::make_pair(std::make_pair(parent,attr),value_change));
+}
+epmem_id_num_delta_set::const_iterator EpMem_Id_Delta::number_changes_find(int64_t parent, int64_t attr, bool value_change) const
+{
+    return this->number_changes->find(std::make_pair(std::make_pair(parent,attr),value_change));
+}
+uint64_t EpMem_Id_Delta::additions_size() const
+{
+    return additions->size();
+}
+uint64_t EpMem_Id_Delta::removals_size() const
+{
+    return removals->size();
+}
+uint64_t EpMem_Id_Delta::additions_constant_size() const
+{
+    return additions_constant->size();
+}
+uint64_t EpMem_Id_Delta::removals_constant_size() const
+{
+    return removals_constant->size();
+}
+uint64_t EpMem_Id_Delta::number_changes_size() const
+{
+    return number_changes->size();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::additions_begin() const
+{
+    return additions->cbegin();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::additions_end() const
+{
+    return additions->cend();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_begin() const
+{
+    return removals->cbegin();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_end() const
+{
+    return removals->cend();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::additions_constant_begin() const
+{
+    return additions_constant->cbegin();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::additions_constant_end() const
+{
+    return additions_constant->cend();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_constant_begin() const
+{
+    return removals_constant->cbegin();
+}
+epmem_id_delta_set::const_iterator EpMem_Id_Delta::removals_constant_end() const
+{
+    return removals_constant->cend();
+}
+epmem_id_num_delta_set::const_iterator EpMem_Id_Delta::number_changes_begin() const
+{
+    return number_changes->cbegin();
+}
+epmem_id_num_delta_set::const_iterator EpMem_Id_Delta::number_changes_end() const
+{
+    return number_changes->cend();
+}
+bool EpMem_Id_Delta::operator ==(const EpMem_Id_Delta &other) const
+{
+    epmem_id_delta_set::const_iterator self_additions_begin = additions_begin();
+    epmem_id_delta_set::const_iterator self_removals_begin = removals_begin();
+    epmem_id_delta_set::const_iterator self_additions_end = additions_end();
+    epmem_id_delta_set::const_iterator self_removals_end = removals_end();
+    epmem_id_delta_set::const_iterator other_additions_begin = other.additions_begin();
+    epmem_id_delta_set::const_iterator other_removals_begin = other.removals_begin();
+    epmem_id_delta_set::const_iterator other_additions_end = other.additions_end();
+    epmem_id_delta_set::const_iterator other_removals_end = other.removals_end();
+    epmem_id_delta_set::const_iterator self_additions_it;
+    epmem_id_delta_set::const_iterator self_removals_it;
+    epmem_id_delta_set::const_iterator other_additions_it;
+    epmem_id_delta_set::const_iterator other_removals_it;
+    epmem_id_delta_set::const_iterator self_additions_constant_begin = additions_constant_begin();
+    epmem_id_delta_set::const_iterator self_removals_constant_begin = removals_constant_begin();
+    epmem_id_delta_set::const_iterator self_additions_constant_end = additions_constant_end();
+    epmem_id_delta_set::const_iterator self_removals_constant_end = removals_constant_end();
+    epmem_id_delta_set::const_iterator other_additions_constant_begin = other.additions_constant_begin();
+    epmem_id_delta_set::const_iterator other_removals_constant_begin = other.removals_constant_begin();
+    epmem_id_delta_set::const_iterator other_additions_constant_end = other.additions_constant_end();
+    epmem_id_delta_set::const_iterator other_removals_constant_end = other.removals_constant_end();
+    epmem_id_delta_set::const_iterator self_additions_constant_it;
+    epmem_id_delta_set::const_iterator self_removals_constant_it;
+    epmem_id_delta_set::const_iterator other_additions_constant_it;
+    epmem_id_delta_set::const_iterator other_removals_constant_it;
+    epmem_id_num_delta_set::const_iterator self_number_changes_begin = number_changes_begin();
+    epmem_id_num_delta_set::const_iterator self_number_changes_end = number_changes_end();
+    epmem_id_num_delta_set::const_iterator self_number_changes_it;
+    epmem_id_num_delta_set::const_iterator other_number_changes_begin = other.number_changes_begin();
+    epmem_id_num_delta_set::const_iterator other_number_changes_end = other.number_changes_end();
+    epmem_id_num_delta_set::const_iterator other_number_changes_it;
+    if (additions_size() != other.additions_size())
+    {
+        return false;
+    }
+    if (removals_size() != other.removals_size())
+    {
+        return false;
+    }
+    if (additions_constant_size() != other.additions_constant_size())
+    {
+        return false;
+    }
+    if (removals_constant_size() != other.removals_constant_size())
+    {
+        return false;
+    }
+    if (number_changes_size() != other.number_changes_size())
+    {
+        return false;
+    }
+    //Supposing i switch the underlying set to unordered set, this will have to be changed to iteration
+    //over one and manual checking in the other instead of iteration over both.
+    other_additions_it = other_additions_begin;
+    for (self_additions_it = self_additions_begin; self_additions_it != self_additions_end; ++self_additions_it)
+    {
+        if (*self_additions_it != *other_additions_it)
+        {
+            return false;
+        }
+        ++other_additions_it;
+    }
+
+    other_additions_constant_it = other_additions_constant_begin;
+    for (self_additions_constant_it = self_additions_constant_begin; self_additions_constant_it != self_additions_constant_end; ++self_additions_constant_it)
+    {
+        if (*self_additions_constant_it != *other_additions_constant_it)
+        {
+            return false;
+        }
+        ++other_additions_constant_it;
+    }
+
+    other_removals_it = other_removals_begin;
+    for (self_removals_it = self_removals_begin; self_removals_it != self_removals_end; ++self_removals_it)
+    {
+        if (*self_removals_it != *other_removals_it)
+        {
+            return false;
+        }
+        ++other_removals_it;
+    }
+
+    other_removals_constant_it = other_removals_constant_begin;
+    for (self_removals_constant_it = self_removals_constant_begin; self_removals_constant_it != self_removals_constant_end; ++self_removals_constant_it)
+    {
+        if (*self_removals_constant_it != *other_removals_constant_it)
+        {
+            return false;
+        }
+        ++other_removals_constant_it;
+    }
+
+    other_number_changes_it = other_number_changes_begin;
+    for (self_number_changes_it = self_number_changes_begin; self_number_changes_it != self_number_changes_end; ++self_number_changes_it)
+    {//std::set<std::pair<std::pair<int64_t,int64_t>, bool>> is the type of the set which is being iterated over.
+        if (self_number_changes_it->first.first != other_number_changes_it->first.first || self_number_changes_it->first.second != other_number_changes_it->first.second || self_number_changes_it->second != other_number_changes_it->second)
+        {
+            return false;
+        }
+        ++other_number_changes_it;
+    }
+
+    return true;
+}
+
+bool EpMem_Id_Delta::operator !=(const EpMem_Id_Delta &other) const
+{
+    return !(*this == other);
+}
+
+EpMem_Id_Delta EpMem_Id_Delta::operator +(const EpMem_Id_Delta &other) const
+{
+    EpMem_Id_Delta sum(other);
+    //The logic for the sum is to add all of the first delta to the sum. then, the second delta will either also add or change the sum. Additions that are removed must be cancelled out. Similarly, removals that are added must be cancelled out.
+    //Additionally, number_changes that do not agree must be given recalculated. Finally, number_changes that do not exist in either the first or the second must be turned into either additions or removals.
+    //This all allows a rule to be represented as a single delta.
+    return sum; //TODO
+    //Combined with a concrete-style heuristic for old rules in Sequitur and old sequence memory in EpMem, could allow s-rules to be stored in SMem, and turn top-level EpMem interval representation into shorter version that only stores rule summary.
+    //Allows rules to compress EpMem, loses individual values for items in compressed subsequences.
+    //*Could* maintain in SMem additional instances-level data.
+}
+
+inline void insert_i_info(agent* myAgent, std::set<uint64_t>* value_bool, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>* i_information,
+        epmem_id_delta_set::iterator it, std::map<uint64_t,std::string>* translation, std::map<std::tuple<uint64_t,uint64_t,uint64_t,bool>,std::pair<uint64_t,bool>>* raw_triple_to_wid, bool add)
+{
+    soar_module::sqlite_statement* get_constant = myAgent->EpMem->epmem_stmts_graph->get_constant;
+    soar_module::sqlite_statement* get_single_wiid_info = myAgent->EpMem->epmem_stmts_graph->get_single_wiid_info;
+    get_single_wiid_info->bind_int(1,*it);
+    get_single_wiid_info->execute();
+    uint64_t parent_id = get_single_wiid_info->column_int(0);
+    uint64_t attribute_id = get_single_wiid_info->column_int(1);
+    uint64_t value_id = get_single_wiid_info->column_int(2);
+    get_single_wiid_info->reinitialize();
+    raw_triple_to_wid->emplace(std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent_id,attribute_id,value_id,false),std::pair<uint64_t,bool>(*it,add));
+    //We now have the triple. We need to harvest printable representations from the table, though.
+    get_constant->bind_int(1,attribute_id);
+    get_constant->bind_int(2,attribute_id);
+    get_constant->bind_int(3,attribute_id);
+    get_constant->execute();
+    std::string attribute(get_constant->column_text(0));
+    get_constant->reinitialize();
+    translation->emplace(attribute_id,attribute);
+    value_bool->insert(value_id);
+    i_information->emplace(parent_id,std::pair<uint64_t,uint64_t>(attribute_id,value_id));
+}
+inline void insert_c_info(agent* myAgent, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>* c_information,
+        epmem_id_delta_set::iterator it, std::map<uint64_t,std::string>* translation, std::map<std::tuple<uint64_t,uint64_t,uint64_t,bool>,std::pair<uint64_t,bool>>* raw_triple_to_wid, bool add, std::map<uint64_t,uint64_t>* wc_id_to_value_id)
+{
+    soar_module::sqlite_statement* get_constant = myAgent->EpMem->epmem_stmts_graph->get_constant;
+    soar_module::sqlite_statement* get_single_wcid_info = myAgent->EpMem->epmem_stmts_graph->get_single_wcid_info;
+    get_single_wcid_info->bind_int(1,*it);
+    get_single_wcid_info->execute();
+    uint64_t parent_id = get_single_wcid_info->column_int(0);
+    uint64_t attribute_id = get_single_wcid_info->column_int(1);
+    uint64_t value_id = get_single_wcid_info->column_int(2);
+    wc_id_to_value_id->emplace(*it, value_id);
+    get_single_wcid_info->reinitialize();
+    raw_triple_to_wid->emplace(std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent_id,attribute_id,value_id,true),std::pair<uint64_t,bool>(*it,add));
+    //We now have the triple. We need to harvest printable representations from the table, though.
+    get_constant->bind_int(1,attribute_id);
+    get_constant->bind_int(2,attribute_id);
+    get_constant->bind_int(3,attribute_id);
+    get_constant->execute();
+    std::string attribute(get_constant->column_text(0));
+    get_constant->reinitialize();
+    translation->emplace(attribute_id,attribute);
+    get_constant->bind_int(1,value_id);
+    get_constant->bind_int(2,value_id);
+    get_constant->bind_int(3,value_id);
+    get_constant->execute();
+    std::string value(get_constant->column_text(0));
+    translation->emplace(value_id,value);
+    c_information->emplace(parent_id,std::pair<uint64_t,uint64_t>(attribute_id,value_id));
+    get_constant->reinitialize();
+}
+
+std::ostream& operator<< (std::ostream &out, const EpMem_Id_Delta &delta)
+{//"wid" means triple, referring to either wiid or wcid.
+    out << "[";
+    auto it = delta.additions->begin();
+    agent* thisAgent = delta.myAgent;
+    //get_single_wiid_info will be used to get the local structural information, which will be fed into a map.
+        //This map will then be used for printing in a more hierarchical manner. A separate map will record how often
+        //a given identifier is a value. Those with a value of zero will be printed recursively. (which really means use a set...)
+    std::set<uint64_t> value_bool;
+    std::map<uint64_t,std::string> translation;
+    std::map<std::tuple<uint64_t,uint64_t,uint64_t,bool>,std::pair<uint64_t,bool>> raw_triple_to_wid;//The pair key bool == true indicates identifier (instead of constant) valued wme.
+    //lol, nope. that becomes obvious when printing, so now the bool instead represents being addition. False represents removal. This lets the printing be way more clear on what is happenning with the delta.
+    //Also, I'm actually including the constant bit in the front end. My logic was all wrong the first time. The tuple bool represents being a constant. The value bool represents addition.
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>> i_information;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>> c_information;
+    std::map<uint64_t,uint64_t> wc_id_to_value_id;
+    if (it != delta.additions->end())
+    {
+        out << "na: " << *it;
+
+        insert_i_info(thisAgent, &value_bool, &i_information, it, &translation, &raw_triple_to_wid, true);
+
+        ++it;
+    }
+    while (it != delta.additions->end())
+    {
+        out << ", " << *it;
+
+        insert_i_info(thisAgent, &value_bool, &i_information, it, &translation, &raw_triple_to_wid, true);
+
+        ++it;
+    }
+    out << ";";
+
+    it = delta.removals->begin();
+    if (it != delta.removals->end())
+    {
+        out << " nr: " << *it;
+
+        insert_i_info(thisAgent, &value_bool, &i_information, it, &translation, &raw_triple_to_wid, false);
+
+        ++it;
+    }
+    while (it != delta.removals->end())
+    {
+        out << ", " << *it;
+
+        insert_i_info(thisAgent, &value_bool, &i_information, it, &translation, &raw_triple_to_wid, false);
+
+        ++it;
+    }
+    out << ";";
+
+    it = delta.additions_constant->begin();
+    if (it != delta.additions_constant->end())
+    {
+        out << " ca: " << *it;
+
+        insert_c_info(thisAgent, &c_information, it, &translation, &raw_triple_to_wid, true,&wc_id_to_value_id);
+
+        ++it;
+    }
+    while (it != delta.additions_constant->end())
+    {
+        out << ", " << *it;
+
+        insert_c_info(thisAgent, &c_information, it, &translation, &raw_triple_to_wid, true,&wc_id_to_value_id);
+
+        ++it;
+    }
+    out << ";";
+
+    it = delta.removals_constant->begin();
+    if (it != delta.removals_constant->end())
+    {
+        out << " cr: " << *it;
+
+        insert_c_info(thisAgent, &c_information, it, &translation, &raw_triple_to_wid,false,&wc_id_to_value_id);
+
+        ++it;
+    }
+    while (it != delta.removals_constant->end())
+    {
+        out << ", " << *it;
+
+        insert_c_info(thisAgent, &c_information, it, &translation, &raw_triple_to_wid,false,&wc_id_to_value_id);
+
+        ++it;
+    }
+    out << ";";
+
+    soar_module::sqlite_statement* get_constant_1 = thisAgent->EpMem->epmem_stmts_graph->get_constant;
+    auto it2 = delta.number_changes->begin();
+    if (it2 != delta.number_changes->end())
+    {//std::set<std::pair<std::pair<int64_t,int64_t>, bool>>
+        get_constant_1->bind_int(1,it2->first.second);
+        get_constant_1->bind_int(2,it2->first.second);
+        get_constant_1->bind_int(3,it2->first.second);
+        get_constant_1->execute();
+        std::string attribute(get_constant_1->column_text(0));
+        get_constant_1->reinitialize();
+        out << " c_change: (" << it2->first.first << " | " << attribute << " | " << (it2->second ? "+" : "-") << ")";
+
+        //insert_c_change_info(thisAgent, &c_change_information, it2, &translation, &raw_triple_to_wid,false,&wc_id_to_value_id);
+
+        ++it2;
+    }
+    while (it2 != delta.number_changes->end())
+    {
+        get_constant_1->bind_int(1,it2->first.second);
+        get_constant_1->bind_int(2,it2->first.second);
+        get_constant_1->bind_int(3,it2->first.second);
+        get_constant_1->execute();
+        std::string attribute(get_constant_1->column_text(0));
+        get_constant_1->reinitialize();
+        out << ", (" << it2->first.first << " | " << attribute << " | " << (it2->second ? "+" : "-") << ")";
+
+        //insert_c_change_info(thisAgent, &c_change_information, it2, &translation, &raw_triple_to_wid,false,&wc_id_to_value_id);
+
+        ++it2;
+    }
+    out << "]";
+
+    //This is special case printing for when there were only constant changes, and no node changes.
+    /*if (delta.additions->empty() && delta.removals->empty() && !(delta.additions_constant->empty() && delta.removals_constant->empty()))
+    {//In this case, we won't trigger the more network-style printing that happens below this if block and instead we'll have
+        //to just print out manually the particular wmes involved for these additions and removals. Of note, we will have to list
+        //the node ids even though they aren't involved, just to it makes sense to look at.
+
+        for (auto c_additions_it = delta.additions_constant->begin(); c_additions_it != delta.additions_constant->end(); ++c_additions_it)
+        {
+
+        }
+    }*/
+    std::set<uint64_t> value_c_bool;
+
+    //At this point, we have a lot of graphical information we need to print that is associated with the rule.
+    //We loop through the i_information keys, checking that they do not contain membership in the value_bool set.
+    //We also check at each item (that is now established to not be member of the value_bool set) for if there is membership as a key
+    //in c_information. If so, we print all of that as well and mark the value_bool as true for that item.
+    //For every i_information value that is also an i_information key, when we print the value, we will also
+    //indent and print the child structure.
+    //For any item which is currently the i_information of interest, we first print all constants from c_information.
+    //Only after all i_information has been printed (either at the top level or nested), do we look for c_information
+    //that has yet to be printed (doesn't fall into value_bool).
+    auto i_it = i_information.begin();//Just to reiterate. This is the first loop and itself also an outer loop.
+    auto i_it_end = i_information.end();
+    std::set<uint64_t> printed_already;
+    std::queue<uint64_t> child_queue;
+    std::pair<std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator> c_child_range;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_c_it_begin;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_c_it_end;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_c_it;
+    std::pair<std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator> i_child_range;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_i_it_begin;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_i_it_end;
+    std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator child_i_it;
+    uint64_t current_depth = 0;
+    std::map<uint64_t,uint64_t> depth_map;
+    std::set<uint64_t> added_to_child_queue_already;
+    while(i_it!=i_it_end)
+    {
+        //First, we check for membership in the value_bool set. (Is this someone's child?)
+        //In order to check for membership, we need the id of the parent for this wid, first.
+        uint64_t parent = i_it->first;
+        if (value_bool.find(parent) != value_bool.end())
+        {
+            ++i_it;
+            continue;//We'll get to it as a child, not as a parent.
+        }
+        value_bool.insert(parent);
+        out << std::endl << "    {<" << parent << ">";
+        //We know this is a top level parent, now. Next, we check for constant children and print them.
+
+        c_child_range = c_information.equal_range(parent);
+        child_c_it_begin = c_child_range.first;
+        child_c_it_end = c_child_range.second;
+        child_c_it = child_c_it_begin;
+        uint64_t attribute_id;
+        uint64_t value_id;
+
+        while(child_c_it != child_c_it_end)
+        {
+            //We now loop over the constant attribute/value pairs for this parent.
+            attribute_id = (*child_c_it).second.first;
+            value_id = (*child_c_it).second.second;
+            std::pair<uint64_t,bool>* epmem_id = &(raw_triple_to_wid[std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent,attribute_id,value_id,true)]);
+            out << " ^" << translation[attribute_id] << " " << translation[value_id] << " [" << epmem_id->first << " " << (epmem_id->second ? "+" : "-") << "]";
+            value_c_bool.insert(value_id);
+            ++child_c_it;
+        }
+        //We have now looped through this parent's constant children. Next are the variable/identifier ones.
+        std::pair<std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator, std::multimap<uint64_t,std::pair<uint64_t,uint64_t>>::iterator> i_child_range;
+        i_child_range = i_information.equal_range(parent);
+        child_i_it_begin = i_child_range.first;
+        child_i_it_end = i_child_range.second;
+        child_i_it = child_i_it_begin;
+        while(child_i_it != child_i_it_end)
+        {
+            attribute_id = (*child_i_it).second.first;
+            value_id = (*child_i_it).second.second;
+            std::pair<uint64_t,bool>* epmem_id = &(raw_triple_to_wid[std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent,attribute_id,value_id,false)]);
+            out << " ^" << translation[attribute_id] << " <" << value_id << ">" << " [" << epmem_id->first << " " << (epmem_id->second ? "+" : "-") << "]";
+            //I will do a "recursive" (queued) traversal through children *after* doing the top of this parent.
+            if (added_to_child_queue_already.find(value_id) == added_to_child_queue_already.end())
+            {
+                child_queue.push(value_id);
+                added_to_child_queue_already.insert(value_id);
+                depth_map[value_id] = current_depth + 1;
+            }
+            ++child_i_it;
+        }
+        //At this point, we can close off the top level of that parent.
+        out << "}";// << std::endl;
+        printed_already.insert(parent);
+
+        ++i_it;
+    }
+    std::string current_indentation = "    ";//We will keep extending this by four spaces for every depth.
+    while(!child_queue.empty())
+    {
+        uint64_t parent = child_queue.front();
+        child_queue.pop();
+        if (i_information.find(parent) == i_information.end() && c_information.find(parent) == c_information.end())
+        {
+            continue;
+        }
+        printed_already.insert(parent);
+        if (depth_map[parent] > current_depth)
+        {
+            ++current_depth;
+            current_indentation.append("    ");
+        }
+        //We now look for any structure corresponding to this child. We indent, start a line, and go through the same process of constants, then children.
+        out << std::endl << current_indentation << "{<" << parent << ">";
+
+        c_child_range = c_information.equal_range(parent);
+        child_c_it_begin = c_child_range.first;
+        child_c_it_end = c_child_range.second;
+        child_c_it = child_c_it_begin;
+        while(child_c_it != child_c_it_end)
+        {
+            std::pair<uint64_t,bool>* epmem_id = &(raw_triple_to_wid[std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent,child_c_it->second.first,child_c_it->second.second,true)]);
+            out << " ^" << translation[child_c_it->second.first] << " " << translation[child_c_it->second.second] << " [" << epmem_id->first << " " << (epmem_id->second ? "+" : "-") << "]";
+            value_c_bool.insert(child_c_it->second.second);
+            ++child_c_it;
+        }
+        i_child_range = i_information.equal_range(parent);
+        child_i_it_begin = i_child_range.first;
+        child_i_it_end = i_child_range.second;
+        child_i_it = child_i_it_begin;
+        while(child_i_it != child_i_it_end)
+        {
+            std::pair<uint64_t,bool>* epmem_id = &(raw_triple_to_wid[std::tuple<uint64_t,uint64_t,uint64_t,bool>(parent,child_i_it->second.first,child_i_it->second.second,false)]);
+            out << " ^" << translation[child_i_it->second.first] << " <" << child_i_it->second.second << ">" << " [" << epmem_id->first << " " << (epmem_id->second ? "+" : "-") << "]";
+            if (added_to_child_queue_already.find(child_i_it->second.second) == added_to_child_queue_already.end())
+            {
+                child_queue.push(child_i_it->second.second);
+                added_to_child_queue_already.insert(child_i_it->second.second);
+                depth_map[child_i_it->second.second] = current_depth + 1;
+            }
+            ++child_i_it;
+        }
+        out << "}";
+    }
+    auto c_additions_it = delta.additions_constant->begin();
+    bool did_co = false;
+    if (c_additions_it != delta.additions_constant->end())
+    {
+        did_co = false;
+        if (value_c_bool.find(wc_id_to_value_id[*c_additions_it]) == value_c_bool.end())
+        {
+            out << std::endl << "    {constant-only-additions: ";
+            out << translation[wc_id_to_value_id[*c_additions_it]];
+            did_co = true;
+        }
+        ++c_additions_it;
+        while (c_additions_it != delta.additions_constant->end())
+        {
+            if (value_c_bool.find(wc_id_to_value_id[*c_additions_it]) == value_c_bool.end())
+            {
+                if (!did_co)
+                    out << std::endl << "    {constant-only-additions: ";
+                out << ", " << translation[wc_id_to_value_id[*c_additions_it]];
+                did_co = true;
+            }
+            ++c_additions_it;
+        }
+        if (did_co)
+            out << "}";
+    }
+    auto c_removals_it = delta.removals_constant->begin();
+    if (c_removals_it != delta.removals_constant->end())
+    {
+        did_co = false;
+        if (value_c_bool.find(wc_id_to_value_id[*c_removals_it]) == value_c_bool.end())
+        {
+            out << std::endl << "    {constant-only-removals: ";
+            out << translation[wc_id_to_value_id[*c_removals_it]];
+            did_co = true;
+        }
+        ++c_removals_it;
+        while (c_removals_it != delta.removals_constant->end())
+        {
+            if (value_c_bool.find(wc_id_to_value_id[*c_removals_it]) == value_c_bool.end())
+            {
+                if (!did_co)
+                    out << std::endl << "    {constant-only-removals: ";
+                out << ", " << translation[wc_id_to_value_id[*c_removals_it]];
+                did_co = true;
+            }
+            ++c_removals_it;
+        }
+        if (did_co)
+            out << "}";
+    }
+    return out;
+}
+
+EpMem_Id_Delta::EpMem_Id_Delta(EpMem_Id_Delta&& other)
+    : additions(NULL)
+    , removals(NULL)
+    , additions_constant(NULL)
+    , removals_constant(NULL)
+    , number_changes(NULL)
+    , myAgent(NULL)
+{
+    myAgent = other.myAgent;
+    additions = other.additions;
+    removals = other.removals;
+    additions_constant = other.additions_constant;
+    removals_constant = other.removals_constant;
+    number_changes = other.number_changes;
+    other.additions = NULL;
+    other.removals = NULL;
+    other.additions_constant = NULL;
+    other.removals_constant = NULL;
+    other.number_changes = NULL;
+}
+EpMem_Id_Delta::EpMem_Id_Delta(const EpMem_Id_Delta& other)
+{
+    additions = new epmem_id_delta_set(*(other.additions));
+    removals = new epmem_id_delta_set(*(other.removals));
+    additions_constant = new epmem_id_delta_set(*(other.additions_constant));
+    removals_constant = new epmem_id_delta_set(*(other.removals_constant));
+    number_changes = new epmem_id_num_delta_set(*(other.number_changes));
+    myAgent = other.myAgent;
+}
+EpMem_Id_Delta::EpMem_Id_Delta(agent* someAgent)
+{
+    additions = new epmem_id_delta_set;
+    removals = new epmem_id_delta_set;
+    additions_constant = new epmem_id_delta_set;
+    removals_constant = new epmem_id_delta_set;
+    number_changes = new epmem_id_num_delta_set;
+    myAgent = someAgent;
+}
+EpMem_Id_Delta::~EpMem_Id_Delta()
+{
+    bool null_present = false;
+    null_present = (additions == NULL || removals == NULL || additions_constant == NULL || removals_constant == NULL || number_changes == NULL);
+    assert( (!null_present) || (additions == NULL && removals == NULL && additions_constant == NULL && removals_constant == NULL && number_changes == NULL) );
+    //If one is null, all better be null. This is from the move constructor.
+    if (!null_present)
+    {
+        delete this->additions;
+        delete this->removals;
+        delete this->additions_constant;
+        delete this->removals_constant;
+        delete this->number_changes;
+    }
+}
+
+
 EpMem_Manager::EpMem_Manager(agent* myAgent)
 {
     thisAgent = myAgent;
@@ -5965,37 +6894,49 @@ EpMem_Manager::EpMem_Manager(agent* myAgent)
     thisAgent->EpMem = this;
 
     // epmem initialization
-     epmem_params = new epmem_param_container(thisAgent);
-     epmem_stats = new epmem_stat_container(thisAgent);
-     epmem_timers = new epmem_timer_container(thisAgent);
+    epmem_params = new epmem_param_container(thisAgent);
+    epmem_stats = new epmem_stat_container(thisAgent);
+    epmem_timers = new epmem_timer_container(thisAgent);
 
-     epmem_db = new soar_module::sqlite_database();
-     epmem_stmts_common = NULL;
-     epmem_stmts_graph = NULL;
+    epmem_db = new soar_module::sqlite_database();
+    epmem_stmts_common = NULL;
+    epmem_stmts_graph = NULL;
 
-     epmem_node_mins = new std::vector<epmem_time_id>();
-     epmem_node_maxes = new std::vector<bool>();
+    epmem_node_mins = new std::vector<epmem_time_id>();
+    epmem_node_maxes = new std::vector<bool>();
 
-     epmem_edge_mins = new std::vector<epmem_time_id>();
-     epmem_edge_maxes = new std::vector<bool>();
-     epmem_id_repository = new epmem_parent_id_pool();
-     epmem_id_replacement = new epmem_return_id_pool();
-     epmem_id_ref_counts = new epmem_id_ref_counter();
+    epmem_edge_mins = new std::vector<epmem_time_id>();
+    epmem_edge_maxes = new std::vector<bool>();
+    epmem_id_repository = new epmem_parent_id_pool();
+    epmem_id_replacement = new epmem_return_id_pool();
+    epmem_id_ref_counts = new epmem_id_ref_counter();
 
- #ifdef USE_MEM_POOL_ALLOCATORS
-     epmem_node_removals = new epmem_id_removal_map(std::less< epmem_node_id >(), soar_module::soar_memory_pool_allocator< std::pair< std::pair<epmem_node_id const,int64_t> const, bool > >(thisAgent));
-     epmem_edge_removals = new epmem_edge_removal_map(std::less< std::pair<epmem_node_id const,int64_t> >(), soar_module::soar_memory_pool_allocator< std::pair< epmem_node_id const, bool > >(thisAgent));
-     epmem_wme_adds = new epmem_symbol_set(std::less< Symbol* >(), soar_module::soar_memory_pool_allocator< Symbol* >(thisAgent));
-     epmem_id_removes = new epmem_symbol_stack(soar_module::soar_memory_pool_allocator< Symbol* >(thisAgent));
- #else
-     epmem_node_removals = new epmem_id_removal_map();
-     epmem_edge_removals = new epmem_edge_removal_map();
-     epmem_wme_adds = new epmem_symbol_set();
-     epmem_id_removes = new epmem_symbol_stack();
- #endif
+#ifdef USE_MEM_POOL_ALLOCATORS
+    epmem_node_removals = new epmem_id_removal_map(std::less< epmem_node_id >(), soar_module::soar_memory_pool_allocator< std::pair< std::pair<epmem_node_id const,int64_t> const, bool > >(thisAgent));
+    epmem_edge_removals = new epmem_edge_removal_map(std::less< std::pair<epmem_node_id const,int64_t> >(), soar_module::soar_memory_pool_allocator< std::pair< epmem_node_id const, bool > >(thisAgent));
+    epmem_wme_adds = new epmem_symbol_set(std::less< Symbol* >(), soar_module::soar_memory_pool_allocator< Symbol* >(thisAgent));
+    epmem_id_removes = new epmem_symbol_stack(soar_module::soar_memory_pool_allocator< Symbol* >(thisAgent));
+#else
+    epmem_node_removals = new epmem_id_removal_map();
+    epmem_edge_removals = new epmem_edge_removal_map();
+    epmem_wme_adds = new epmem_symbol_set();
+    epmem_id_removes = new epmem_symbol_stack();
+#endif
 
-     epmem_validation = 0;
+    epmem_validation = 0;
 
+    //The below three implement petrov approximation base-level, but that will be used for surprise.
+    change_counter = new std::map<std::pair<bool,epmem_node_id>,uint64_t>();
+    change_time_recent = new std::map<std::pair<bool,epmem_node_id>,uint64_t>();
+    change_time_first = new std::map<std::pair<bool,epmem_node_id>,uint64_t>();
+
+    float_change_counter = new std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>();
+    float_change_time_recent = new std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>();
+    float_change_time_first = new std::map<std::pair<epmem_node_id,epmem_hash_id>,uint64_t>();
+
+    total_wme_changes = 0;
+    no_immediately_previous_change = false;
+    prev_delta = NULL;
 };
 
 void EpMem_Manager::clean_up_for_agent_deletion()
@@ -6021,6 +6962,12 @@ void EpMem_Manager::clean_up_for_agent_deletion()
     delete epmem_id_removes;
 
     delete epmem_wme_adds;
+    delete change_counter;
+    delete change_time_recent;
+	delete change_time_first;
+	delete float_change_counter;
+    delete float_change_time_recent;
+    delete float_change_time_first;
 
     delete epmem_db;
 }
