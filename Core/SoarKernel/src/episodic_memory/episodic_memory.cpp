@@ -973,19 +973,37 @@ void epmem_graph_statement_container::create_graph_tables()
 
     add_structure("CREATE TABLE IF NOT EXISTS epmem_nodes (n_id INTEGER, lti_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_episodes (episode_id INTEGER PRIMARY KEY)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_times (time_id INTEGER PRIMARY KEY AUTOINCREMENT,start_episode_id INTEGER, end_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_constant_now (wc_id INTEGER,start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_identifier_now (wi_id INTEGER,start_episode_id INTEGER, lti_id INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_now (wf_id INTEGER, start_episde_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_constant_point (wc_id INTEGER,episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_identifier_point (wi_id INTEGER,episode_id INTEGER, lti_id INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_point (wf_id INTEGER,episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_constant_range (rit_id INTEGER,start_episode_id INTEGER,end_episode_id INTEGER,wc_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_identifier_range (rit_id INTEGER,start_episode_id INTEGER,end_episode_id INTEGER,wi_id INTEGER, lti_id INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_range (rit_id INTEGER, start_episode_id INTEGER,end_episode_id INTEGER,wf_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_constant (wc_id INTEGER PRIMARY KEY AUTOINCREMENT,parent_n_id INTEGER,attribute_s_id INTEGER, value_s_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_identifier (wi_id INTEGER PRIMARY KEY AUTOINCREMENT,parent_n_id INTEGER,attribute_s_id INTEGER,child_n_id INTEGER, last_episode_id INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float (wf_id INTEGER PRIMARY KEY AUTOINCREMENT, parent_n_id INTEGER, attribute_s_id INTEGER, direction INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index (w_id INTEGER PRIMARY KEY AUTOINCREMENT, type INTEGER, w_type_based_id)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_ascii (ascii_num INTEGER PRIMARY KEY, ascii_chr TEXT)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, interval_id_left INTEGER, interval_id_right INTEGER)");//Will have to encode relation as a type.
 }
 
 void epmem_graph_statement_container::create_graph_indices()
 {
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_times_time_from_bounds ON epmem_times (start_episode_id,end_episode_id,time_id)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_float_parent_value_direction ON epmem_wmes_float (parent_n_id,attribute_s_id,direction)");
+
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_index_type_id ON epmem_wmes_index (type,w_type_based_id)");
+
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_id_start_end ON epmem_intervals (start_episode_id,end_episode_id,surprise DESC)");
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_id_end_start ON epmem_intervals (end_episode_id,start_episode_id,surprise DESC)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_intervals_");
+    //A hash index would be nice here for id, start, end, without ordering. For now, can just retrieve by interval and filter at retrieval time by surprise.
+
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_node_lti ON epmem_nodes (n_id, lti_id)");
     add_structure("CREATE INDEX IF NOT EXISTS epmem_lti ON epmem_nodes (lti_id)");
 
