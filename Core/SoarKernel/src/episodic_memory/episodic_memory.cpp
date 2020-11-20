@@ -3460,6 +3460,8 @@ void epmem_new_episode(agent* thisAgent)
             {
                 delete thisAgent->EpMem->prev_delta;
                 thisAgent->EpMem->prev_delta = new EpMem_Id_Delta(*some_delta);
+                //At this point, I can do a batch insert for the changes to floats so that my weird version of looking only at their direction of change can be reported to memory. (would generalize to any form of qualitative representation for continuous values.)
+                //Can do the surprise associated with other elements at the usual insertion points, but because I don't actually calculate surprise based on the real float value, which effectively never repeats, I will do floats here, specifically.
             }
         }
 
