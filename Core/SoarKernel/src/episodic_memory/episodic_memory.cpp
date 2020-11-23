@@ -2946,8 +2946,7 @@ inline void _epmem_store_level(agent* thisAgent,
                 epmem_edge.emplace((*w_p)->epmem_id,static_cast<int64_t>((*w_p)->value->id->is_lti() ? (*w_p)->value->id->LTI_ID : 0));
                 thisAgent->EpMem->epmem_edge_mins->push_back(time_counter);
                 thisAgent->EpMem->epmem_edge_maxes->push_back(false);
-                //epmem_surprise_bla(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);// gotta think here -- need to look at how the float sign change stuff is kept track of and when.
-                //void epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id triple_id, bool is_a_float)
+                epmem_surprise_bla(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);// surprise for an identifier interval.
             }
             else
             {
@@ -2962,8 +2961,7 @@ inline void _epmem_store_level(agent* thisAgent,
                 {
                     epmem_edge.emplace((*w_p)->epmem_id,static_cast<int64_t>((*w_p)->value->id->is_lti() ? (*w_p)->value->id->LTI_ID : 0));
                     (*thisAgent->EpMem->epmem_edge_maxes)[static_cast<size_t>((*w_p)->epmem_id - 1)] = false;
-                    //epmem_surprise_bla(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);
-                    //void epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id triple_id, bool is_a_float)
+                    epmem_surprise_bla(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);// surprise for an identifier interval.
                 }
             }
 
@@ -3065,6 +3063,10 @@ inline void _epmem_store_level(agent* thisAgent,
 						delta_ids.insert((*w_p)->epmem_id);
 						thisAgent->EpMem->val_at_last_change.insert(std::pair<std::pair<int64_t,int64_t>,double>(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value));
 					}
+					else
+					{
+					    epmem_surprise_bla(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, false);
+					}
 
                     thisAgent->EpMem->epmem_node_mins->push_back(time_counter);
                     thisAgent->EpMem->epmem_node_maxes->push_back(false);
@@ -3089,6 +3091,10 @@ inline void _epmem_store_level(agent* thisAgent,
 							delta_ids.insert((*w_p)->epmem_id);
 							thisAgent->EpMem->val_at_last_change.insert(std::pair<std::pair<int64_t,int64_t>,double>(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value));
 						}
+                        else
+                        {
+                            epmem_surprise_bla(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, false);
+                        }
 
                         (*thisAgent->EpMem->epmem_node_maxes)[static_cast<size_t>((*w_p)->epmem_id - 1)] = false;
                     }
@@ -3307,6 +3313,7 @@ void epmem_new_episode(agent* thisAgent)
                                             was_nothing = false;
                                             thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
                                             thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = change > 0.0;
+                                            epmem_surprise_bla(thisAgent, time_counter, true, parent_hash, attr_hash, r->first, true);//Often, a float is really just a change in an existing value, for which I treat calculation of surprise as qualitatively distinct from noncontinuous constant types.
                                         }
                                     }
                                     //potential_float_deltas.erase(delta_it);
@@ -3366,11 +3373,30 @@ void epmem_new_episode(agent* thisAgent)
                 std::set<epmem_node_id>::iterator potential_delta_ids_it;
                 std::set<epmem_node_id>::iterator potential_delta_ids_begin = potential_delta_ids.begin();
                 std::set<epmem_node_id>::iterator potential_delta_ids_end = potential_delta_ids.end();
+
+
+
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->reinitialize()
                 for (potential_delta_ids_it = potential_delta_ids_begin; potential_delta_ids_it != potential_delta_ids_end; ++potential_delta_ids_it)
                 {
                     some_delta->add_addition_constant(*potential_delta_ids_it);
                     c_change_only = false;
                     was_nothing = false;
+                    thisAgent->EpMem->epmem_stmts_common->hash_get_type->bind_int(1,*potential_delta_ids_it);
+                    soar_module::exec_result res = thisAgent->EpMem->epmem_stmts_common->hash_get_type->execute();
+                    (void)res; // quells compiler warning
+                    assert(res == soar_module::row);
+                    byte sym_type = static_cast<byte>(thisAgent->EpMem->epmem_stmts_common->hash_get_type->column_int(0));
+                    thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
+                    if(sym_type == FLOAT_CONSTANT_SYMBOL_TYPE)
+                    {//Some floats are altogether fresh. Those get their surprise calculated here.
+                        thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->bind_int(1,r->first);//gets parent, attr, value from wc_id.
+                        //Note that this just gives the hashes, which is fine for the parent and attr, but not the value.
+                        thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->execute();
+                        int64_t parent_hash = thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->column_int(0);
+                        int64_t attr_hash = thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->column_int(1);
+                        epmem_surprise_bla(thisAgent, time_counter, true, parent_hash, attr_hash, *potential_delta_ids_it, true);
+                    }
                 }
             }
 
@@ -3460,8 +3486,7 @@ void epmem_new_episode(agent* thisAgent)
             {
                 delete thisAgent->EpMem->prev_delta;
                 thisAgent->EpMem->prev_delta = new EpMem_Id_Delta(*some_delta);
-                //At this point, I can do a batch insert for the changes to floats so that my weird version of looking only at their direction of change can be reported to memory. (would generalize to any form of qualitative representation for continuous values.)
-                //Can do the surprise associated with other elements at the usual insertion points, but because I don't actually calculate surprise based on the real float value, which effectively never repeats, I will do floats here, specifically.
+                //Don't need to do surprise stuff here. Can do at time of insert into the delta structure.
             }
         }
 
