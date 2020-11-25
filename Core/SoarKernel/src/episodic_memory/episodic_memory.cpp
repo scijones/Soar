@@ -1034,6 +1034,7 @@ void epmem_graph_statement_container::create_graph_indices()
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_identifier_range_id_end_start ON epmem_wmes_identifier_range (wi_id,end_episode_id DESC,start_episode_id)");
 
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_constant_parent_attribute_value ON epmem_wmes_constant (parent_n_id,attribute_s_id,value_s_id)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_float_parent_attribute_value ON epmem_wmes_float (parent_n_id,attribute_s_id,direction)");
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_wmes_identifier_parent_attribute_last ON epmem_wmes_identifier (parent_n_id,attribute_s_id,last_episode_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_identifier_parent_attribute_child ON epmem_wmes_identifier (parent_n_id,attribute_s_id,child_n_id)");
@@ -1121,14 +1122,26 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     delete_epmem_wmes_constant_now = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_constant_now WHERE wc_id=?");
     add(delete_epmem_wmes_constant_now);
 
-    delete_epmem_wmes_float_now = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_float_now WHERE wc_id=?");
+    delete_epmem_wmes_float_now = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_float_now WHERE wf_id=?");
     add(delete_epmem_wmes_float_now);
 
     add_epmem_wmes_constant_point = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_constant_point (wc_id,episode_id) VALUES (?,?)");
     add(add_epmem_wmes_constant_point);
 
+    add_epmem_wmes_float_point = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_float_point (wf_id,episode_id) VALUES (?,?)");
+    add(add_epmem_wmes_float_point);
+
     add_epmem_wmes_constant_range = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_constant_range (rit_id,start_episode_id,end_episode_id,wc_id) VALUES (?,?,?,?)");
     add(add_epmem_wmes_constant_range);
+
+    add_epmem_wmes_float_range = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_float_range (rit_id,start_episode_id,end_episode_id,wf_id) VALUES (?,?,?,?)");
+    add(add_epmem_wmes_float_range);
+
+    add_epmem_wmes_float = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_float (parent_n_id,attribute_s_id,direction) VALUES (?,?,?)");
+    add(add_epmem_wmes_float);
+
+    find_epmem_wmes_float = new soar_module::sqlite_statement(new_db, "SELECT wf_id FROM epmem_wmes_float WHERE parent_n_id=? AND attribute_s_id=? AND direction=?");
+    add(find_epmem_wmes_float);
 
     add_epmem_wmes_constant = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_constant (parent_n_id,attribute_s_id,value_s_id) VALUES (?,?,?)");
     add(add_epmem_wmes_constant);
@@ -3325,7 +3338,7 @@ void epmem_new_episode(agent* thisAgent)
                                     thisAgent->EpMem->change_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
                                     thisAgent->EpMem->val_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
                                     //could be double to int transition.
-                                    //this is one place to do a float removal. basically, this has tested that it was indeed a float, but that the removal doesn't have a corresponding addition.
+                                    //this is the place to do a float removal. basically, this has tested that it was indeed a float, but that the removal doesn't have a corresponding addition.
                                     //this means a passage to either now or point
                                 }
                                 else
@@ -3426,7 +3439,7 @@ void epmem_new_episode(agent* thisAgent)
                     byte sym_type = static_cast<byte>(thisAgent->EpMem->epmem_stmts_common->hash_get_type->column_int(0));
                     thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
                     if(sym_type == FLOAT_CONSTANT_SYMBOL_TYPE)//todo this is another place to do a float insert
-                    {//Some floats are altogether fresh. Those get their surprise calculated here.
+                    {//Some floats are altogether fresh, not deltas. Those get their surprise calculated here.
                         thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->bind_int(1,r->first);//gets parent, attr, value from wc_id.
                         //Note that this just gives the hashes, which is fine for the parent and attr, but not the value.
                         thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->execute();
