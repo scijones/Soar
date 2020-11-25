@@ -970,13 +970,14 @@ epmem_common_statement_container::epmem_common_statement_container(agent* new_ag
 
 void epmem_graph_statement_container::create_graph_tables()
 {
-
+//The new tables for floats are not used for existing query and memory access. Floats are redundantly represented two ways. The old way is maintained without change within the constant table.
+    //It is merely in addition that I also keep separate tables that are meant to store qualitative symbols grounded to floats.2
     add_structure("CREATE TABLE IF NOT EXISTS epmem_nodes (n_id INTEGER, lti_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_episodes (episode_id INTEGER PRIMARY KEY)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_times (time_id INTEGER PRIMARY KEY AUTOINCREMENT,start_episode_id INTEGER, end_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_constant_now (wc_id INTEGER,start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_identifier_now (wi_id INTEGER,start_episode_id INTEGER, lti_id INTEGER)");
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_now (wf_id INTEGER, start_episde_id INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_now (wf_id INTEGER, start_episde_id INTEGER)");// The new float tables such as this one do *not* replace functionality provided by the constant tables.
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_constant_point (wc_id INTEGER,episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_identifier_point (wi_id INTEGER,episode_id INTEGER, lti_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_point (wf_id INTEGER,episode_id INTEGER)");
@@ -988,7 +989,7 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float (wf_id INTEGER PRIMARY KEY AUTOINCREMENT, parent_n_id INTEGER, attribute_s_id INTEGER, direction INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index (w_id INTEGER PRIMARY KEY AUTOINCREMENT, type INTEGER, w_type_based_id)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_ascii (ascii_num INTEGER PRIMARY KEY, ascii_chr TEXT)");
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL)");//An interval is something at a time, and it may be surprising.
     add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, interval_id_left INTEGER, interval_id_right INTEGER)");//Will have to encode relation as a type.
 }
 
@@ -1009,6 +1010,9 @@ void epmem_graph_statement_container::create_graph_indices()
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_wmes_constant_now_start ON epmem_wmes_constant_now (start_episode_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_constant_now_id_start ON epmem_wmes_constant_now (wc_id,start_episode_id DESC)");
+
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_wmes_float_now_start ON epmem_wmes_float_now (start_episode_id)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_float_now_id_start ON epmem_wmes_float_now (wc_id,start_episode_id DESC)");
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_wmes_identifier_now_start ON epmem_wmes_identifier_now (start_episode_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_identifier_now_id_start ON epmem_wmes_identifier_now (wi_id,start_episode_id DESC)");
@@ -1041,6 +1045,7 @@ void epmem_graph_statement_container::drop_graph_tables()
     add_structure("DROP TABLE IF EXISTS epmem_nodes");
     add_structure("DROP TABLE IF EXISTS epmem_episodes");
     add_structure("DROP TABLE IF EXISTS epmem_wmes_constant_now");
+    add_structure("DROP TABLE IF EXISTS epmem_wmes_float_now");
     add_structure("DROP TABLE IF EXISTS epmem_wmes_identifier_now");
     add_structure("DROP TABLE IF EXISTS epmem_wmes_constant_point");
     add_structure("DROP TABLE IF EXISTS epmem_wmes_identifier_point");
@@ -1110,8 +1115,14 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add_epmem_wmes_constant_now = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_constant_now (wc_id,start_episode_id) VALUES (?,?)");
     add(add_epmem_wmes_constant_now);
 
+    add_epmem_wmes_float_now = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_float_now (wf_id,start_episode_id) VALUES (?,?)");
+    add(add_epmem_wmes_float_now);
+
     delete_epmem_wmes_constant_now = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_constant_now WHERE wc_id=?");
     add(delete_epmem_wmes_constant_now);
+
+    delete_epmem_wmes_float_now = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_float_now WHERE wc_id=?");
+    add(delete_epmem_wmes_float_now);
 
     add_epmem_wmes_constant_point = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_constant_point (wc_id,episode_id) VALUES (?,?)");
     add(add_epmem_wmes_constant_point);
@@ -1165,6 +1176,19 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
             "SELECT e2.wc_id FROM epmem_wmes_constant_range e2, epmem_rit_right_nodes rt WHERE e2.rit_id = rt.rit_id AND e2.start_episode_id <= ?) "
             "ORDER BY f.wc_id ASC", new_agent->EpMem->epmem_timers->ncb_node);
     add(get_wmes_with_constant_values);
+
+
+    //constant to float in this. I haven't done the conversion. //TODO I may not ever replicate because the changes to floats are about a different kind of query, so leaving the old get_wmes query as-is may be fine.
+    /*get_wmes_with_constant_values = new soar_module::sqlite_statement(new_db,
+                "SELECT f.wc_id, f.parent_n_id, f.attribute_s_id, f.value_s_id "
+                "FROM epmem_wmes_constant f "
+                "WHERE f.wc_id IN "
+                "(SELECT n.wc_id FROM epmem_wmes_constant_now n WHERE n.start_episode_id<= ? UNION ALL "
+                "SELECT p.wc_id FROM epmem_wmes_constant_point p WHERE p.episode_id=? UNION ALL "
+                "SELECT e1.wc_id FROM epmem_wmes_constant_range e1, epmem_rit_left_nodes lt WHERE e1.rit_id=lt.rit_min AND e1.end_episode_id >= ? UNION ALL "
+                "SELECT e2.wc_id FROM epmem_wmes_constant_range e2, epmem_rit_right_nodes rt WHERE e2.rit_id = rt.rit_id AND e2.start_episode_id <= ?) "
+                "ORDER BY f.wc_id ASC", new_agent->EpMem->epmem_timers->ncb_node);
+    add(get_wmes_with_constant_values);*/
 
     get_wmes_with_identifier_values = new soar_module::sqlite_statement(new_db,
             "WITH timetables AS ( "
@@ -3061,7 +3085,7 @@ inline void _epmem_store_level(agent* thisAgent,
 						//epmem_surprise_bla(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, true);
 						float_deltas.emplace(std::pair<int64_t,int64_t>(parent_id,my_hash),std::pair<int64_t,double>((*w_p)->epmem_id,(*w_p)->value->fc->value));
 						delta_ids.insert((*w_p)->epmem_id);
-						thisAgent->EpMem->val_at_last_change.insert(std::pair<std::pair<int64_t,int64_t>,double>(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value));
+						//thisAgent->EpMem->val_at_last_change.insert(std::pair<std::pair<int64_t,int64_t>,double>(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value));
 					}
 					else
 					{
@@ -3089,7 +3113,7 @@ inline void _epmem_store_level(agent* thisAgent,
 						{
                         	float_deltas.emplace(std::pair<int64_t,int64_t>(parent_id,my_hash),std::pair<int64_t,double>((*w_p)->epmem_id,(*w_p)->value->fc->value));
 							delta_ids.insert((*w_p)->epmem_id);
-							thisAgent->EpMem->val_at_last_change.insert(std::pair<std::pair<int64_t,int64_t>,double>(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value));
+							//thisAgent->EpMem->val_at_last_change.insert(std::pair<std::pair<int64_t,int64_t>,double>(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value));
 						}
                         else
                         {
@@ -3264,7 +3288,10 @@ void epmem_new_episode(agent* thisAgent)
                 epmem_id_removal_map::iterator r;
                 r = thisAgent->EpMem->epmem_node_removals->begin();
                 while (r != thisAgent->EpMem->epmem_node_removals->end())
-                {
+                {//so, basically, if we encounter a float here, it takes one of x paths. It may turn out we have a direction of change change -- in which case it's a proper float table removal.
+                    //It may be the case that the float is removed altogether, which is also a proper float table removal.
+                    //when the direction of change remains the same, it's not a real removal. That means the float was a potential delta, but then turned out not to be a delta.
+                    //
                     bool did_number_change = false;
                     if (r->second)
                     {
@@ -3298,23 +3325,33 @@ void epmem_new_episode(agent* thisAgent)
                                     thisAgent->EpMem->change_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
                                     thisAgent->EpMem->val_at_last_change.erase(std::pair<int64_t,int64_t>(parent_hash, attr_hash));
                                     //could be double to int transition.
+                                    //this is one place to do a float removal. basically, this has tested that it was indeed a float, but that the removal doesn't have a corresponding addition.
+                                    //this means a passage to either now or point
                                 }
                                 else
                                 {//If we have a change, then we can make sure not to treat as an addition or a subtraction and here add to the change table, but also prevent from being added to the remove table.
                                 //Things which were added, but not also removed, those will be later treated as final additions for sequitur.
                                     //double change = delta_it->second.second - value->fc->value;
-                                    double change = thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] - value->fc->value;
-                                    if (change > 0.1 || change < -0.1)//need a characterization of sensor noise.
+                                    bool has_change = thisAgent->EpMem->val_at_last_change->find(std::pair<int64_t,int64_t>(parent_hash, attr_hash)) != thisAgent->EpMem->val_at_last_change->end();
+
+                                    if (has_change) {// && (change > 0.001 || change < -0.001))//need a characterization of sensor noise.//independently from that, in practicality, this also is used to "if" out the case of the val at last change being *exactly* the same.
                                     {
+                                        double change = thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] - value->fc->value;
+
                                         thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
                                         if (thisAgent->EpMem->prev_delta->number_changes_find(parent_hash, attr_hash, change > 0.0) == thisAgent->EpMem->prev_delta->number_changes_end() && (thisAgent->EpMem->change_at_last_change.find(std::pair<int64_t,int64_t>(parent_hash, attr_hash)) == thisAgent->EpMem->change_at_last_change.end() || true))//change > 0.0 != thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)]))
                                         {
+                                            //todo this is one place to do the float insert. also do the passage of old float into now or point.
                                             some_delta->add_number_change(parent_hash, attr_hash, change > 0.0);//std::pair<std::pair<int64_t,int64_t>, bool>
                                             was_nothing = false;
-                                            thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
+                                            //thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
                                             thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = change > 0.0;
                                             epmem_surprise_bla(thisAgent, time_counter, true, parent_hash, attr_hash, r->first, true);//Often, a float is really just a change in an existing value, for which I treat calculation of surprise as qualitatively distinct from noncontinuous constant types.
                                         }
+                                        /*else
+                                        {
+                                            //it was just doing the same thing it was doing before. nothing to see here.
+                                        }*/
                                     }
                                     //potential_float_deltas.erase(delta_it);
                                     potential_delta_ids.erase(delta_it->second.first);
@@ -3378,7 +3415,7 @@ void epmem_new_episode(agent* thisAgent)
 
                 thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->reinitialize()
                 for (potential_delta_ids_it = potential_delta_ids_begin; potential_delta_ids_it != potential_delta_ids_end; ++potential_delta_ids_it)
-                {
+                {// actual additions
                     some_delta->add_addition_constant(*potential_delta_ids_it);
                     c_change_only = false;
                     was_nothing = false;
@@ -3388,7 +3425,7 @@ void epmem_new_episode(agent* thisAgent)
                     assert(res == soar_module::row);
                     byte sym_type = static_cast<byte>(thisAgent->EpMem->epmem_stmts_common->hash_get_type->column_int(0));
                     thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
-                    if(sym_type == FLOAT_CONSTANT_SYMBOL_TYPE)
+                    if(sym_type == FLOAT_CONSTANT_SYMBOL_TYPE)//todo this is another place to do a float insert
                     {//Some floats are altogether fresh. Those get their surprise calculated here.
                         thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->bind_int(1,r->first);//gets parent, attr, value from wc_id.
                         //Note that this just gives the hashes, which is fine for the parent and attr, but not the value.

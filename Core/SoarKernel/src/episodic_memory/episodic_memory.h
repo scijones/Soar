@@ -307,7 +307,9 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
         //
 
         soar_module::sqlite_statement* add_epmem_wmes_constant_now;
+        soar_module::sqlite_statement* add_epmem_wmes_float_now;
         soar_module::sqlite_statement* delete_epmem_wmes_constant_now;
+        soar_module::sqlite_statement* delete_epmem_wmes_float_now;
         soar_module::sqlite_statement* add_epmem_wmes_constant_point;
         soar_module::sqlite_statement* add_epmem_wmes_constant_range;
 
