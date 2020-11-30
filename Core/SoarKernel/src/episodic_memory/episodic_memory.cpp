@@ -977,7 +977,7 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_times (time_id INTEGER PRIMARY KEY AUTOINCREMENT,start_episode_id INTEGER, end_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_constant_now (wc_id INTEGER,start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_identifier_now (wi_id INTEGER,start_episode_id INTEGER, lti_id INTEGER)");
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_now (wf_id INTEGER, start_episde_id INTEGER)");// The new float tables such as this one do *not* replace functionality provided by the constant tables.
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_now (wf_id INTEGER, start_episode_id INTEGER)");// The new float tables such as this one do *not* replace functionality provided by the constant tables.
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_constant_point (wc_id INTEGER,episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_identifier_point (wi_id INTEGER,episode_id INTEGER, lti_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_point (wf_id INTEGER,episode_id INTEGER)");
@@ -1000,9 +1000,12 @@ void epmem_graph_statement_container::create_graph_indices()
 
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_index_type_id ON epmem_wmes_index (type,w_type_based_id)");
 
-    add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_id_start_end ON epmem_intervals (start_episode_id,end_episode_id,surprise DESC)");
-    add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_id_end_start ON epmem_intervals (end_episode_id,start_episode_id,surprise DESC)");
-    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_intervals_");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_times_start_end ON epmem_times (start_episode_id,end_episode_id)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_times_end_start ON epmem_times (end_episode_id,start_episode_id)");
+
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_id_start_end ON epmem_intervals (time_id,surprise DESC)");
+    //add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_id_end_start ON epmem_intervals (end_episode_id,start_episode_id,surprise DESC)");
+    //add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_intervals_");
     //A hash index would be nice here for id, start, end, without ordering. For now, can just retrieve by interval and filter at retrieval time by surprise.
 
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_node_lti ON epmem_nodes (n_id, lti_id)");
@@ -1012,7 +1015,7 @@ void epmem_graph_statement_container::create_graph_indices()
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_constant_now_id_start ON epmem_wmes_constant_now (wc_id,start_episode_id DESC)");
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_wmes_float_now_start ON epmem_wmes_float_now (start_episode_id)");
-    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_float_now_id_start ON epmem_wmes_float_now (wc_id,start_episode_id DESC)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_float_now_id ON epmem_wmes_float_now (wf_id)");
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_wmes_identifier_now_start ON epmem_wmes_identifier_now (start_episode_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_identifier_now_id_start ON epmem_wmes_identifier_now (wi_id,start_episode_id DESC)");
@@ -1137,7 +1140,7 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add_epmem_wmes_constant_range = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_constant_range (rit_id,start_episode_id,end_episode_id,wc_id) VALUES (?,?,?,?)");
     add(add_epmem_wmes_constant_range);
 
-    add_epmem_wmes_float_range = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_float_range (start_episode_id,end_episode_id,wf_id) VALUES (?,?,?,?)");
+    add_epmem_wmes_float_range = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_float_range (start_episode_id,end_episode_id,wf_id) VALUES (?,?,?)");
     add(add_epmem_wmes_float_range);
 
     add_epmem_wmes_float = new soar_module::sqlite_statement(new_db, "INSERT or IGNORE INTO epmem_wmes_float (parent_n_id,attribute_s_id,direction) VALUES (?,?,?)");
@@ -3364,18 +3367,14 @@ void epmem_new_episode(agent* thisAgent)
                                         f_id = thisAgent->EpMem->epmem_db->last_insert_rowid();
                                     }
 
-
-                                    thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(1,f_id);
-                                    thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(2,time_counter);
-                                    thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->execute(soar_module::op_reinit);
-
                                     //this gives the wf_id of the previous interval that's still in the now table.
                                     thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->bind_int(1,parent_hash);
                                     thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->bind_int(2,attr_hash);
-                                    thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->bind_int(3,thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)]);
+                                    thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->bind_int(3,(thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)]) ? 1 : -1);
                                     thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->execute();
                                     epmem_node_id previous_float_id = thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->column_int(0);
                                     thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->reinitialize();
+
 
                                     //We need the start_time of that float.
                                     thisAgent->EpMem->epmem_stmts_graph->find_time_epmem_wmes_float_now->bind_int(1,previous_float_id);
@@ -3384,9 +3383,16 @@ void epmem_new_episode(agent* thisAgent)
                                     thisAgent->EpMem->epmem_stmts_graph->find_time_epmem_wmes_float_now->reinitialize();
 
 
+
+
                                     //We take that id out of the float_now table
                                     thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_float_now->bind_int(1,previous_float_id);
                                     thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_float_now->execute(soar_module::op_reinit);
+
+                                    //We add the new id to the float_now table
+                                    thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(1,f_id);
+                                    thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(2,time_counter);
+                                    thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->execute(soar_module::op_reinit);
 
                                     //Now, that id gets added to the range or point table.
                                     if (time_counter-time_start > 1)
@@ -3439,9 +3445,7 @@ void epmem_new_episode(agent* thisAgent)
                             thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->reinitialize();
 
 
-                            //We take that id out of the float_now table
-                            thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_float_now->bind_int(1,previous_float_id);
-                            thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_float_now->execute(soar_module::op_reinit);
+
 
                             //We need the start_time of that float.
                             thisAgent->EpMem->epmem_stmts_graph->find_time_epmem_wmes_float_now->bind_int(1,previous_float_id);
@@ -3449,6 +3453,9 @@ void epmem_new_episode(agent* thisAgent)
                             int64_t time_start = thisAgent->EpMem->epmem_stmts_graph->find_time_epmem_wmes_float_now->column_int(0);
                             thisAgent->EpMem->epmem_stmts_graph->find_time_epmem_wmes_float_now->reinitialize();
 
+                            //We take that id out of the float_now table
+                            thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_float_now->bind_int(1,previous_float_id);
+                            thisAgent->EpMem->epmem_stmts_graph->delete_epmem_wmes_float_now->execute(soar_module::op_reinit);
                             if (time_counter-time_start > 1)
                             {//range
 
@@ -3542,7 +3549,7 @@ void epmem_new_episode(agent* thisAgent)
                     thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
                     if(sym_type == FLOAT_CONSTANT_SYMBOL_TYPE)//todo this is another place to do a float insert
                     {//Some floats are altogether fresh, not deltas. Those get their surprise calculated here.
-                        thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->bind_int(1,r->first);//gets parent, attr, value from wc_id.
+                        thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->bind_int(1,*potential_delta_ids_it);//gets parent, attr, value from wc_id.
                         //Note that this just gives the hashes, which is fine for the parent and attr, but not the value.
                         thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->execute();
                         int64_t parent_hash = thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->column_int(0);
@@ -3556,7 +3563,7 @@ void epmem_new_episode(agent* thisAgent)
                         bool found = thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->execute() == soar_module::row;
                         if (found)
                         {
-                            f_id = thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->column_int(0);
+                            f_id = static_cast<epmem_node_id>(thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->column_int(0));
                             thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->reinitialize();
                         }
                         else
@@ -3570,8 +3577,10 @@ void epmem_new_episode(agent* thisAgent)
                             //also do changing from now to point or range and insertion into now.
                             //for the "now" and other tables -- usually assumed that we have the id for the constant associated with the symbol passed through working memory. here, we
                             //might have to look it up instead.
-                            f_id = thisAgent->EpMem->epmem_db->last_insert_rowid();
+                            f_id = static_cast<epmem_node_id>(thisAgent->EpMem->epmem_db->last_insert_rowid());
                         }
+
+
 
                         thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(1,f_id);
                         thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(2,time_counter);
@@ -3675,7 +3684,9 @@ void epmem_new_episode(agent* thisAgent)
 
         thisAgent->EpMem->no_immediately_previous_change = was_nothing;
     }
-
+//    std::string err;
+//
+//    bool result = epmem_backup_db(thisAgent, "mid_process_error.db", &(err));
     ////////////////////////////////////////////////////////////////////////////
     thisAgent->EpMem->epmem_timers->storage->stop();
     ////////////////////////////////////////////////////////////////////////////
