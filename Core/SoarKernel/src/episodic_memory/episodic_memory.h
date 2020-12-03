@@ -306,6 +306,14 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
 
         //
 
+        soar_module::sqlite_statement* add_interval_time;
+        soar_module::sqlite_statement* get_interval_time;
+        soar_module::sqlite_statement* add_interval_data;
+        soar_module::sqlite_statement* update_interval_data;
+        soar_module::sqlite_statement* find_now_interval;
+
+        //
+
         soar_module::sqlite_statement* add_epmem_wmes;
         soar_module::sqlite_statement* add_epmem_wmes_constant_now;
         soar_module::sqlite_statement* find_time_epmem_wmes_float_now;
