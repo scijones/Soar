@@ -990,7 +990,7 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index (w_id INTEGER PRIMARY KEY AUTOINCREMENT, type INTEGER, w_type_based_id)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_ascii (ascii_num INTEGER PRIMARY KEY, ascii_chr TEXT)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL, is_now BOOLEAN)");//An interval is something at a time, and it may be surprising.
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, interval_id_left INTEGER, interval_id_right INTEGER)");//Will have to encode relation as a type.
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL)");//I have enums for the relation type.
 }
 
 void epmem_graph_statement_container::create_graph_indices()
@@ -1113,8 +1113,10 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add_time = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_episodes (episode_id) VALUES (?)");
     add(add_time);
 
-    add_interval_time = new soar_module::sqlite_statement(new_db, "INSERT or IGNORE INTO epmem_times (start_episode_id,end_episode_id) VALUES (?,?)");
+    add_interval_time = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_times (start_episode_id,end_episode_id) VALUES (?,?)");
     add(add_interval_time);
+
+
 
     get_interval_time = new soar_module::sqlite_statement(new_db, "SELECT time_id FROM epmem_times WHERE start_episode_id=? AND end_episode_id=?");
     add(get_interval_time);
@@ -2615,6 +2617,20 @@ double epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_
     return bla_before;
 }
 
+double epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id parent_id, epmem_hash_id attribute_id, epmem_node_id triple_id, bool is_a_float)
+{//The way this function works is you get as input the time at which the new thing just showed up, and the new thing, just like epmem_surprise_bla, but here, we instead look into the database to see what
+    //the expectation would have been for that element to show up. The magnitude of expectation violation is surprise. Then, we update the expectations for all pairwise associations defined by "fire-together-wire-together" hebbian update.
+    //The idea is to learn pairwise successions/associations (they are the same thing, when viewed in spacetime, just succession/association is more general than mere association).
+    //So, first, note that we already have intervals within the database and they have both a timeslot (interval of time) and a space/entry in the WMG (egospace value).
+    //All of the relations between all of the timeslots that are adjacent to each other (not all in general) can be efficiently computed. Think of a chain of befores/afters, but not including "way before", instead things like "overlapping before"
+    //These efficiently-computable temporal interval relations are then instantiated by different groundings to egospace values.
+    //pairwise relations between groundings are the ones that have a set of associated metadata. (instances)
+    //so, as an update rule, all of the groundings that share the same underlying temporal interval will likely share an increment update (won't be the same in general, but will be helpful for efficiency when incrementally changing the metadata)
+
+
+
+}
+
 
 
 
@@ -3422,7 +3438,7 @@ void epmem_new_episode(agent* thisAgent)
                         bool did_already = false;
                         //First, we can check if there exists a parent,attr in either potential delta map before doing further processing.
                         if (potential_float_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash)) != potential_float_deltas.end() && value->symbol_type == FLOAT_CONSTANT_SYMBOL_TYPE)
-                        {
+                        {//I just want to emphasize that the spaghetti here for how to handle floats comes down to "implement some form of discretization/feature-recognition" before storing to epmem.
                             std::map<std::pair<int64_t,int64_t>,std::pair<int64_t,double>>::iterator delta_it = potential_float_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash));
 
                             //If we have a change, then we can make sure not to treat as an addition or a subtraction and here add to the change table, but also prevent from being added to the remove table.

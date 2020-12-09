@@ -329,6 +329,19 @@ enum SymbolTypes
     UNDEFINED_SYMBOL_TYPE = 5
 };
 
+enum TemporalRelationTypes
+{
+    BEFORE = 0,
+    BEFORE_MEETS = 1,
+    BEFORE_OVERLAPS = 2,
+    MATCHES = 3,
+    CONTAINS = 4,
+    AFTER_OVERLAPS = 5,
+    AFTER_MEETS = 6,
+    AFTER_MEETS = 7,
+    AFTER = 8
+};
+
 enum ExplainTraceType
 {
     WM_Trace,
