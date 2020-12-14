@@ -1043,6 +1043,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
     ////////////////////////////////////////////////////////////////////////////
     timers->spreading_7->start();
     ////////////////////////////////////////////////////////////////////////////
+    std::map<uint64_t,uint64_t> source_fan_out;
     for (std::set<uint64_t>::iterator candidate = actual_candidates->begin(); candidate != actual_candidates->end(); ++candidate)//for every sink that has some spread, we calculate
     {
         ////////////////////////////////////////////////////////////////////////////
@@ -1253,11 +1254,22 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                         }
                         else
                         {
-                            SQL->act_lti_child_lti_ct_get->bind_int(1, calc_current_spread->column_int(4));
-                            SQL->act_lti_child_lti_ct_get->execute();
-                            uint64_t num_lti_edges = SQL->act_lti_child_lti_ct_get->column_int(0);
+
+                            uint64_t num_lti_edges = 0;
+                            if (source_fan_out.find(calc_current_spread->column_int(4)) != source_fan_out.end())
+                            {
+                                num_lti_edges = source_fan_out[calc_current_spread->column_int(4)];
+                            }
+                            else
+                            {
+                                SQL->act_lti_child_lti_ct_get->bind_int(1, calc_current_spread->column_int(4));
+                                SQL->act_lti_child_lti_ct_get->execute();
+                                num_lti_edges = SQL->act_lti_child_lti_ct_get->column_int(0);
+                                SQL->act_lti_child_lti_ct_get->reinitialize();
+                                source_fan_out[calc_current_spread->column_int(4)] = num_lti_edges;
+                            }
                             assert(num_lti_edges > 0);
-                            SQL->act_lti_child_lti_ct_get->reinitialize(); // Note that this is INCORRECT for spread with depths greater than 1. Instead, it should be calculated DURING TRAVERSAL. This is ONLY FOR depth = 1.
+                             // Note that this is INCORRECT for spread with depths greater than 1. Instead, it should be calculated DURING TRAVERSAL. This is ONLY FOR depth = 1.
                             //TODO BUGBUG: This code should be updated if it is to be used for depth > 1!
                             raw_prob = wma_multiplicative_factor*(((double)(calc_current_spread->column_double(2)))/(static_cast<double>(num_lti_edges)));
 
