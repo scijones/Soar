@@ -429,7 +429,9 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
         ////////////////////////////////////////////////////////////////////////////
         timers->query->start();
         ////////////////////////////////////////////////////////////////////////////
-
+        ////////////////////////////////////////////////////////////////////////////
+                timers->query_1->start();
+                ////////////////////////////////////////////////////////////////////////////
         // prepare query stats
         {
             smem_prioritized_weighted_cue weighted_pq;
@@ -527,7 +529,9 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
                     break;
                 }
             }
-
+            ////////////////////////////////////////////////////////////////////////////
+                    timers->query_1->stop();
+                    ////////////////////////////////////////////////////////////////////////////
             timers->query->stop();
 
             if (settings->spreading->get_value() == on)
@@ -554,7 +558,9 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
             }
 
             timers->query->start();
-
+            ////////////////////////////////////////////////////////////////////////////
+                    timers->query_2->start();
+                    ////////////////////////////////////////////////////////////////////////////
             soar_module::sqlite_statement* q2 = NULL;
             id_set::iterator prohibit_p;
 
@@ -592,7 +598,12 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
             // setup first query, which is sorted on activation already
             q =setup_web_crawl_without_spread((*cand_set));
             thisAgent->lastCue = new agent::BasicWeightedCue((*cand_set)->cue_element, (*cand_set)->weight);
-
+            ////////////////////////////////////////////////////////////////////////////
+                    timers->query_2->stop();
+                    ////////////////////////////////////////////////////////////////////////////
+                    ////////////////////////////////////////////////////////////////////////////
+                            timers->query_3->start();
+                            ////////////////////////////////////////////////////////////////////////////
             // this becomes the minimal set to walk (till match or fail)
             bool rows = q->execute() == soar_module::row;
             if (rows || settings->spreading->get_value() == on)
@@ -622,6 +633,9 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
                     spread_q->reinitialize();
                 }
                 bool first_element = false;
+                ////////////////////////////////////////////////////////////////////////////
+                        timers->query_4->start();
+                        ////////////////////////////////////////////////////////////////////////////
                 while (((match_ids->size() < number_to_retrieve) || (needFullSearch)) && ((more_rows) || (!plentiful_parents.empty())))
                 {
                     // choose next candidate (db vs. priority queue)
@@ -764,11 +778,17 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
                         }
                     }
                 }
+                ////////////////////////////////////////////////////////////////////////////
+                        timers->query_4->stop();
+                        ////////////////////////////////////////////////////////////////////////////
     //            if (!match_ids->empty())
     //            {
     //                king_id = match_ids->front();
     //            }
             }
+            ////////////////////////////////////////////////////////////////////////////
+                    timers->query_3->stop();
+                    ////////////////////////////////////////////////////////////////////////////
             q->reinitialize();
 
             // clean weighted cue

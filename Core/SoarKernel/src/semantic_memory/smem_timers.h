@@ -19,6 +19,10 @@ class smem_timer_container: public soar_module::timer_container
         soar_module::timer* storage;
         soar_module::timer* ncb_retrieval;
         soar_module::timer* query;
+        soar_module::timer* query_1;
+        soar_module::timer* query_2;
+        soar_module::timer* query_3;
+        soar_module::timer* query_4;
         soar_module::timer* api;
         soar_module::timer* init;
         soar_module::timer* hash;

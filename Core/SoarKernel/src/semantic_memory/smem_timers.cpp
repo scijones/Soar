@@ -26,6 +26,14 @@ smem_timer_container::smem_timer_container(agent* new_agent): soar_module::timer
 
     query = new smem_timer("smem_query", thisAgent, soar_module::timer::two);
     add(query);
+    query_1 = new smem_timer("smem_query_1", thisAgent, soar_module::timer::two);
+    add(query_1);
+    query_2 = new smem_timer("smem_query_2", thisAgent, soar_module::timer::two);
+    add(query_2);
+    query_3 = new smem_timer("smem_query_3", thisAgent, soar_module::timer::two);
+    add(query_3);
+    query_4 = new smem_timer("smem_query_4", thisAgent, soar_module::timer::two);
+    add(query_4);
 
     api = new smem_timer("smem_api", thisAgent, soar_module::timer::two);
     add(api);
