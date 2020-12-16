@@ -615,7 +615,7 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
                 ////////////////////////////////////////////////////////////////////////////
                 if (thisAgent->SMem->settings->spreading->get_value() == on)
                 {
-                    bool test
+                    bool test;
                     soar_module::sqlite_statement* spread_q = setup_web_crawl_spread(*cand_set);
                     //uint64_t highest_so_far = 0;
                     while (true)//(spread_q->execute() == soar_module::row) //keeping the real logic the same, but changing the format for timing purposes.
