@@ -429,9 +429,6 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
         ////////////////////////////////////////////////////////////////////////////
         timers->query->start();
         ////////////////////////////////////////////////////////////////////////////
-        ////////////////////////////////////////////////////////////////////////////
-                timers->query_1->start();
-                ////////////////////////////////////////////////////////////////////////////
         // prepare query stats
         {
             smem_prioritized_weighted_cue weighted_pq;
@@ -529,9 +526,6 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
                     break;
                 }
             }
-            ////////////////////////////////////////////////////////////////////////////
-                    timers->query_1->stop();
-                    ////////////////////////////////////////////////////////////////////////////
             timers->query->stop();
 
             if (settings->spreading->get_value() == on)
@@ -558,9 +552,6 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
             }
 
             timers->query->start();
-            ////////////////////////////////////////////////////////////////////////////
-                    timers->query_2->start();
-                    ////////////////////////////////////////////////////////////////////////////
             soar_module::sqlite_statement* q2 = NULL;
             id_set::iterator prohibit_p;
 
@@ -598,12 +589,6 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
             // setup first query, which is sorted on activation already
             q =setup_web_crawl_without_spread((*cand_set));
             thisAgent->lastCue = new agent::BasicWeightedCue((*cand_set)->cue_element, (*cand_set)->weight);
-            ////////////////////////////////////////////////////////////////////////////
-                    timers->query_2->stop();
-                    ////////////////////////////////////////////////////////////////////////////
-                    ////////////////////////////////////////////////////////////////////////////
-                            timers->query_3->start();
-                            ////////////////////////////////////////////////////////////////////////////
             // this becomes the minimal set to walk (till match or fail)
             bool rows = q->execute() == soar_module::row;
             if (rows || settings->spreading->get_value() == on)
@@ -613,6 +598,9 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
                 bool use_db = false;
                 bool has_feature = false;
 
+                ////////////////////////////////////////////////////////////////////////////
+                timers->query_1->start();
+                ////////////////////////////////////////////////////////////////////////////
                 while (more_rows && (q->column_double(1) == static_cast<double>(SMEM_ACT_MAX)))
                 {
                     SQL->act_lti_get->bind_int(1, q->column_int(0));
@@ -622,20 +610,38 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
 
                     more_rows = (q->execute() == soar_module::row);
                 }
+                ////////////////////////////////////////////////////////////////////////////
+                timers->query_1->stop();
+                ////////////////////////////////////////////////////////////////////////////
                 if (thisAgent->SMem->settings->spreading->get_value() == on)
                 {
+                    bool test
                     soar_module::sqlite_statement* spread_q = setup_web_crawl_spread(*cand_set);
                     //uint64_t highest_so_far = 0;
-                    while (spread_q->execute() == soar_module::row)
+                    while (true)//(spread_q->execute() == soar_module::row) //keeping the real logic the same, but changing the format for timing purposes.
                     {
+                        ////////////////////////////////////////////////////////////////////////////
+                        timers->query_2->start();
+                        ////////////////////////////////////////////////////////////////////////////
+                        test = (spread_q->execute() == soar_module::row);
+                        ////////////////////////////////////////////////////////////////////////////
+                        timers->query_2->stop();
+                        ////////////////////////////////////////////////////////////////////////////
+                        if (!test)
+                        {
+                            break;
+                        }
+                        ////////////////////////////////////////////////////////////////////////////
+                        timers->query_3->start();
+                        ////////////////////////////////////////////////////////////////////////////
                         plentiful_parents.push(std::make_pair<double, uint64_t>(spread_q->column_double(1), spread_q->column_int(0)));
+                        ////////////////////////////////////////////////////////////////////////////
+                        timers->query_3->stop();
+                        ////////////////////////////////////////////////////////////////////////////
                     }
                     spread_q->reinitialize();
                 }
                 bool first_element = false;
-                ////////////////////////////////////////////////////////////////////////////
-                        timers->query_4->start();
-                        ////////////////////////////////////////////////////////////////////////////
                 while (((match_ids->size() < number_to_retrieve) || (needFullSearch)) && ((more_rows) || (!plentiful_parents.empty())))
                 {
                     // choose next candidate (db vs. priority queue)
@@ -778,17 +784,11 @@ uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Sy
                         }
                     }
                 }
-                ////////////////////////////////////////////////////////////////////////////
-                        timers->query_4->stop();
-                        ////////////////////////////////////////////////////////////////////////////
     //            if (!match_ids->empty())
     //            {
     //                king_id = match_ids->front();
     //            }
             }
-            ////////////////////////////////////////////////////////////////////////////
-                    timers->query_3->stop();
-                    ////////////////////////////////////////////////////////////////////////////
             q->reinitialize();
 
             // clean weighted cue
