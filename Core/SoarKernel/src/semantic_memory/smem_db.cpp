@@ -275,13 +275,13 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     //
 
-    web_attr_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=?");
+    web_attr_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_current_spread_activations INNER JOIN smem_augmentations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=?");
     add(web_attr_all_spread);
 
-    web_const_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR "");
+    web_const_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_current_spread_activations INNER JOIN smem_augmentations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id=? AND value_lti_id=" SMEM_AUGMENTATIONS_NULL_STR "");
     add(web_const_all_spread);
 
-    web_lti_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_augmentations INNER JOIN smem_current_spread_activations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id = " SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id = ?");
+    web_lti_all_spread = new soar_module::sqlite_statement(new_db, "SELECT smem_augmentations.lti_id, smem_current_spread_activations.activation_value FROM smem_current_spread_activations INNER JOIN smem_augmentations ON smem_augmentations.lti_id = smem_current_spread_activations.lti_id WHERE attribute_s_id=? AND value_constant_s_id = " SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id = ?");
     add(web_lti_all_spread);
 
     web_attr_all_cheap = new soar_module::sqlite_statement(new_db, "SELECT lti_id AS lti_id1, activation_value AS activation_value_aug FROM smem_augmentations WHERE attribute_s_id=? ORDER BY activation_value_aug DESC");
