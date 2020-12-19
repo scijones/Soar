@@ -989,12 +989,31 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float (wf_id INTEGER PRIMARY KEY AUTOINCREMENT, parent_n_id INTEGER, attribute_s_id INTEGER, direction INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index (w_id INTEGER PRIMARY KEY AUTOINCREMENT, type INTEGER, w_type_based_id)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_ascii (ascii_num INTEGER PRIMARY KEY, ascii_chr TEXT)");
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL, is_now BOOLEAN)");//An interval is something at a time, and it may be surprising.
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL, is_now BOOLEAN, start_episode_id INTEGER)");//An interval is something at a time, and it may be surprising.
     add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL)");//I have enums for the relation type.
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index_now (w_id INTEGER PRIMARY KEY, start_episode_id INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_temp (w_id INTEGER PRIMARY KEY, time_id INTEGER, start_episode_id INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_potential_interval_updates (w_id_left INTEGER, w_id_right INTEGER, time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, finished_right BOOLEAN)");//Make this include some form of time data as well (to help provide update magnitude).
 }
 
 void epmem_graph_statement_container::create_graph_indices()
 {
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_w_id_now ON epmem_intervals (is_now,w_id)");
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_interval_relations_left_right ON epmem_interval_relations (w_id_left,w_id_right, relation, weight)");
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_time ON epmem_intervals (time_id)");
+    //add_structure("CREATE INDEX IF NOT EXISTS epmem_interval_relations_right_left ON epmem_interval_relations (w_id_right,w_id_left)");
+
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_find_update_index ON epmem_potential_interval_updates (w_id_left,w_id_right,relation) WHERE finished_right");
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_update_hold_up ON epmem_potential_interval_updates (w_id_right) WHERE finished_right=FALSE");
+
+
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_now AFTER INSERT ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_index_now (w_id,start_episode_id) VALUES (NEW.w_id,NEW.start_episode_id); END");
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_to_temp AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_temp (w_id,time_id,start_episode_id) VALUES (NEW.w_id,NEW.start_episode_id,NEW.time_id); END");
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_from_now AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN DELETE FROM epmem_wmes_index_now WHERE epmem_wmes_index_now.w_id=OLD.w_id; END");
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_find_weight_updates AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN UPDATE epmem_potential_interval_updates e SET e.finished_right=TRUE,e.time_id_right=NEW.time_id where e.w_id_right=OLD.w_id; END");
+    //when these triggers have fired and after the addition/removal loops of epmem processing at the end of the DC, there will now be a table of the contents of the intervals that have ended and a table of the things those could have before-relations to.
+    //cartesian product is the thing we want from that.
+
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_times_time_from_bounds ON epmem_times (start_episode_id,end_episode_id,time_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_float_parent_value_direction ON epmem_wmes_float (parent_n_id,attribute_s_id,direction)");
 
@@ -1116,15 +1135,25 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add_interval_time = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_times (start_episode_id,end_episode_id) VALUES (?,?)");
     add(add_interval_time);
 
+    insert_potential_before_relations = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_potential_interval_updates SELECT l.w_id, r.w_id, 0, FALSE FROM epmem_wmes_temp l,epmem_wmes_index_now r WHERE l.start_episode_id < r.start_episode_id");
+    add(insert_potential_before_relations);
 
+    delete_removed_nows = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_temp");
+    add(delete_removed_nows);
 
     get_interval_time = new soar_module::sqlite_statement(new_db, "SELECT time_id FROM epmem_times WHERE start_episode_id=? AND end_episode_id=?");
     add(get_interval_time);
 
+    select_updates = new soar_module::sqlite_statement(new_db, "SELECT * FROM epmem_potential_interval_updates WHERE finished_right");
+    add(select_updates);
+
+    finish_updates = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_potential_interval_updates WHERE finished_right=FALSE");
+    add(finish_updates);
+
     //add_interval_data = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_intervals (w_id,time_id,surprise) VALUES (?,?,?)");
     //add(add_interval_data);
     //epmem_wmes_index (w_id INTEGER PRIMARY KEY AUTOINCREMENT, type INTEGER, w_type_based_id)");
-    add_interval_data = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_intervals (w_id,time_id,surprise) SELECT i.w_id,?,? FROM epmem_wmes_index i WHERE i.type=? AND i.w_type_based_id=?");
+    add_interval_data = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_intervals (w_id,time_id,surprise,is_now,start_episode_id) SELECT i.w_id,?,?,TRUE,? FROM epmem_wmes_index i WHERE i.type=? AND i.w_type_based_id=?");
     add(add_interval_data);
 
     find_now_interval = new soar_module::sqlite_statement(new_db, "SELECT i.interval_id FROM epmem_intervals i INNER JOIN (SELECT x.w_id FROM epmem_wmes_index x WHERE x.type=? AND x.w_type_based_id=?) w ON i.w_id=w.w_id WHERE i.is_now");
@@ -2627,8 +2656,37 @@ double epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool
     //pairwise relations between groundings are the ones that have a set of associated metadata. (instances)
     //so, as an update rule, all of the groundings that share the same underlying temporal interval will likely share an increment update (won't be the same in general, but will be helpful for efficiency when incrementally changing the metadata)
 
+    //For the first implementation, ignoring "begins" "exact" "contains" as candidates for causal temporal relation. "before-overlap" as canonical case, "before-meets" as edge-case.
+    //current idea is that for "contains", you want to "and" with something else to turn it into a traditional before. That "and" candidate can be an explicit timer with
+    //for exact and begins, better to treat something else as a mutual cause.
+    //for "ends", similar.
+    //easily-perceptible causality will have temporal succession structure. Other structures will require additional reasoning or learning. The simple cases of before-overlap and before-meets are all I consider at first.
+    //can only update metadata once both intervals leave?
+        //measure of surprise as -- degree of expectation violation of thing showing up or ... metadata update magnitude? -- can't be the second because that doesn't exist when element shows up unless the update is like a filter -- (degree of mismatch *is* magnitude of update)
+        //hebbian update at least partially based on before/after ratios.
+    //question -- to allow self-relations or not? (for same-location interval succession, which is always a before-meets) -- will start with yes.
+    //when start of interval goes in, is a potential "before" for anything after, and a potential "after" for anything before.
+    //when end of interval goes in, all potential "afters" for that interval (those that started at the same time or that already started, but after this one that just ended began) have the type of relation clarified.
+    //when end of interval goes in, all potential "befores" (those that have ended during/just-at-start) to this interval have metadata updated  -- this is the one to figure out how to do efficiently. The rest is "to fit".
 
 
+    //restating for how i'll do the algorithm
+    //basically, keep a "version" that logs what "was now" at start of processing (leftover from last cycle)
+    //time+value interval gets added (with "now" end of interval). This interval now has a potential for relations from all the previous cycle's nows.
+    //The benefit of this method is that I can keep ram tables without ever referencing database file
+
+    //now, what if I don't keep a record of "potential befores"? (Currently, i'll waste processing when many "contains" happen)
+    //means that one the end of an interval, you look for other intervals with before lefts and before/at rights.
+    //Do I include "ends"? Could be as a subcase of "before" or "contains" (technically is a contains).
+
+    //definitely doing the "keep track of nows" version.
+    //contains should not have any boost. should instead have something that "ands" with the contains to make the relation happen.
+    //So, being practical, think about entering a room and expecting objects in that room. There is a temporal "contains" there, for sure, but is it just because of some other form of context-based spatial contains?
+    //I think an important form of "anding" that will make a lot of this work is "anding" with "timer since x less than y" as an explicit wme (log-based real time, so that perfectly-timed DCs line up with 1,2,4,8,16,etc).
+    //This allows an agent time to scan a room, then when you are surprised by the room not containing something because enough time has passed without you seeing it, you'll be surprised and perhaps prompted to look for it.
+
+    //thisAgent->EpMem->nows
+    //for efficiency, hebbian updating should be a batch job at the end of the cycle's processing and not a per-element update, I think.
 }
 
 
@@ -3332,9 +3390,11 @@ void epmem_new_episode(agent* thisAgent)
                     double temp_surprise = epmem_surprise_bla(thisAgent, time_counter, true, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.                    //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
-                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,sym_type);//w_id from master index comes from the type and the type-specific id. The query handles it.
-                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,(*temp_node));
+                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
+                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,sym_type);//w_id from master index comes from the type and the type-specific id. The query handles it.
+                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,(*temp_node));
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->execute(soar_module::op_reinit);
+
                 }
                 /*
                  * This is where we know we've added something to working memory.
@@ -3386,8 +3446,9 @@ void epmem_new_episode(agent* thisAgent)
                 //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
-                thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,IDENTIFIER_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
-                thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,(*temp_node));
+                thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
+                thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,IDENTIFIER_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
+                thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,(*temp_node));
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->execute(soar_module::op_reinit);
 
                 some_delta->add_addition(*temp_node);
@@ -3545,8 +3606,9 @@ void epmem_new_episode(agent* thisAgent)
                                     //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
-                                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,FLOAT_CONSTANT_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
-                                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,f_id);
+                                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
+                                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,FLOAT_CONSTANT_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
+                                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,f_id);
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->execute(soar_module::op_reinit);
 
                                     //Meanwhile, the old interval has data in the interval table that needs updating because now it has a stop point.
@@ -3579,6 +3641,8 @@ void epmem_new_episode(agent* thisAgent)
                                     thisAgent->EpMem->epmem_stmts_graph->update_interval_data->bind_int(1,new_interval_time);
                                     thisAgent->EpMem->epmem_stmts_graph->update_interval_data->bind_int(2,existing_interval_id);
                                     thisAgent->EpMem->epmem_stmts_graph->update_interval_data->execute(soar_module::op_reinit);
+                                    //Now that this grounded interval instance has ended, there are potential before relations to store/update.
+
 
                                 }
                             }
@@ -3836,8 +3900,9 @@ void epmem_new_episode(agent* thisAgent)
                         //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
-                        thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,FLOAT_CONSTANT_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
-                        thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,f_id);
+                        thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
+                        thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,FLOAT_CONSTANT_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
+                        thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,f_id);
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->execute(soar_module::op_reinit);
 
 
@@ -3923,6 +3988,7 @@ void epmem_new_episode(agent* thisAgent)
                 r++;
             }
             thisAgent->EpMem->epmem_edge_removals->clear();
+            //todo sjj ##
         }
 
         // add the time id to the epmem_episodes table

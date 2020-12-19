@@ -303,6 +303,10 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
         soar_module::sqlite_statement* add_node;
         soar_module::sqlite_statement* update_node;
         soar_module::sqlite_statement* add_time;
+        soar_module::sqlite_statement* insert_potential_before_relations;
+        soar_module::sqlite_statement* delete_removed_nows;
+        soar_module::sqlite_statement* select_updates;
+        soar_module::sqlite_statement* finish_updates;
 
         //
 
@@ -744,6 +748,16 @@ class EpMem_Manager
 		std::map<std::pair<bool,epmem_node_id>,uint64_t>* change_counter;//just keeping track of how often something has changed and the most recent change time.
 		std::map<std::pair<bool,epmem_node_id>,uint64_t>* change_time_recent;
 		std::map<std::pair<bool,epmem_node_id>,uint64_t>* change_time_first;
+
+		std::unordered_map<uint64_t>* nows;//do all additions first. Then do removals, but keep track of them.
+		//when something exits, can make it a potential "before left" w.r.t. all "nows"//can do by updating all things that are leaving first, removing them, but keeping them in a cache/set/list/whatever
+		//then, loop through them again, double-for, making new before-relations to existing nows (ones that weren't removed.)
+		//std::map<std::pair<uint64_t,uint64_t>, std::pair<bool,bool>>* potential_relations;//When the second in a pair is finished, time to update relation metadata and clarify relation.
+		//on insert, can add to nows table.
+		//on update, move to temp location
+		//then batch through temp location. (sqlite query based on join)
+		//surprise based on existing metadata, (note, surprise distinct from amount of later update) -- object permanence is learned... is it?, or else i'd care more about the notion that there has to be something else that "causes the negation".
+		//
 
         uint64_t total_wme_changes;
 
