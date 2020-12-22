@@ -975,6 +975,7 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_nodes (n_id INTEGER, lti_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_episodes (episode_id INTEGER PRIMARY KEY)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_times (time_id INTEGER PRIMARY KEY AUTOINCREMENT,start_episode_id INTEGER, end_episode_id INTEGER)");
+//    add_structure("CREATE TABLE IF NOT EXISTS epmem_time_time_weight (time_id_left INTEGER, time_id_right INTEGER, weight REAL)");//insert here after first calculation, always check to see if it's there.
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_constant_now (wc_id INTEGER,start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_identifier_now (wi_id INTEGER,start_episode_id INTEGER, lti_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_float_now (wf_id INTEGER, start_episode_id INTEGER)");// The new float tables such as this one do *not* replace functionality provided by the constant tables.
@@ -990,7 +991,7 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index (w_id INTEGER PRIMARY KEY AUTOINCREMENT, type INTEGER, w_type_based_id)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_ascii (ascii_num INTEGER PRIMARY KEY, ascii_chr TEXT)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL, is_now BOOLEAN, start_episode_id INTEGER)");//An interval is something at a time, and it may be surprising.
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL)");//I have enums for the relation type.
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL, total REAL, weight_norm REAL)");//I have enums for the relation type.
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index_now (w_id INTEGER PRIMARY KEY, start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_temp (w_id INTEGER PRIMARY KEY, time_id INTEGER, start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_potential_interval_updates (w_id_left INTEGER, w_id_right INTEGER, time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, finished_right BOOLEAN)");//Make this include some form of time data as well (to help provide update magnitude).
@@ -999,20 +1000,23 @@ void epmem_graph_statement_container::create_graph_tables()
 void epmem_graph_statement_container::create_graph_indices()
 {
     add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_w_id_now ON epmem_intervals (is_now,w_id)");
-    add_structure("CREATE INDEX IF NOT EXISTS epmem_interval_relations_left_right ON epmem_interval_relations (w_id_left,w_id_right, relation, weight)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_interval_relations_left_right ON epmem_interval_relations (w_id_left,w_id_right)");//, relation, weight)");
     add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_time ON epmem_intervals (time_id)");
     //add_structure("CREATE INDEX IF NOT EXISTS epmem_interval_relations_right_left ON epmem_interval_relations (w_id_right,w_id_left)");
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_find_update_index ON epmem_potential_interval_updates (w_id_left,w_id_right,relation) WHERE finished_right");
     add_structure("CREATE INDEX IF NOT EXISTS epmem_update_hold_up ON epmem_potential_interval_updates (w_id_right) WHERE finished_right=FALSE");
 
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_potential_update_grouping ON epmem_potential_interval_updates (w_id_left) WHERE finished_right=TRUE");
 
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_now AFTER INSERT ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_index_now (w_id,start_episode_id) VALUES (NEW.w_id,NEW.start_episode_id); END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_to_temp AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_temp (w_id,time_id,start_episode_id) VALUES (NEW.w_id,NEW.start_episode_id,NEW.time_id); END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_from_now AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN DELETE FROM epmem_wmes_index_now WHERE epmem_wmes_index_now.w_id=OLD.w_id; END");
-    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_find_weight_updates AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN UPDATE epmem_potential_interval_updates e SET e.finished_right=TRUE,e.time_id_right=NEW.time_id where e.w_id_right=OLD.w_id; END");
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_find_weight_updates AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN UPDATE epmem_potential_interval_updates e SET e.finished_right=TRUE,e.time_id_right=NEW.time_id WHERE e.w_id_right=OLD.w_id AND e.finished_right=FALSE; END");
     //when these triggers have fired and after the addition/removal loops of epmem processing at the end of the DC, there will now be a table of the contents of the intervals that have ended and a table of the things those could have before-relations to.
     //cartesian product is the thing we want from that.
+
+    //add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_time_update_do_weight AFTER UPDATE ON epmem_potential_interval_updates FOR EACH ROW BEGIN INSERT INTO epmem_interval_relations (w_id_left, w_id_right, relation, weight, total) SELECT () FROM  ON CONFLICT(w_id_left,w_id_right) DO UPDATE SET ; END");
 
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_times_time_from_bounds ON epmem_times (start_episode_id,end_episode_id,time_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_float_parent_value_direction ON epmem_wmes_float (parent_n_id,attribute_s_id,direction)");
@@ -1135,8 +1139,15 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add_interval_time = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_times (start_episode_id,end_episode_id) VALUES (?,?)");
     add(add_interval_time);
 
-    insert_potential_before_relations = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_potential_interval_updates SELECT l.w_id, r.w_id, 0, FALSE FROM epmem_wmes_temp l,epmem_wmes_index_now r WHERE l.start_episode_id < r.start_episode_id");
+    insert_potential_before_relations = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_potential_interval_updates SELECT l.w_id, r.w_id, l.time_id, -1, 0, FALSE FROM epmem_wmes_temp l,epmem_wmes_index_now r WHERE l.start_episode_id < r.start_episode_id");
     add(insert_potential_before_relations);
+
+    //After that insertion, there will be many transitions which were not observed, and these can be depreciated in a batch.
+    //for all lefts in epmem_wmes_temp, for all rights in epmem_interval_relations not within epmem_potential_interval_updates from those corresponding lefts, depreciate within epmem_interval_relations
+    //what form of update? -- start simple with nothing but an "n"-based average. adding a zero to the average in depreciation. adding to sum with a weight when actually observing a transition
+    //so, first, depreciation based on a join, performed by incrementing the total.
+    update_unobserved_before_relations = new soar_module::sqlite_statement(new_db, "REPLACE INTO epmem_interval_relations (w_id_left, w_id_right, relation, weight, total, weight_norm) SELECT (r.w_id_left, r.w_id_right, r.relation, r.weight, r.total+1.0,r.weight/(total+1.0)) FROM epmem_interval_relations r LEFT JOIN epmem_wmes_temp t ON r.w_id_left=t.w_id WHERE t.w_id IS NULL");
+    add(update_unobserved_before_relations);
 
     delete_removed_nows = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_temp");
     add(delete_removed_nows);
@@ -1144,10 +1155,19 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     get_interval_time = new soar_module::sqlite_statement(new_db, "SELECT time_id FROM epmem_times WHERE start_episode_id=? AND end_episode_id=?");
     add(get_interval_time);
 
-    select_updates = new soar_module::sqlite_statement(new_db, "SELECT * FROM epmem_potential_interval_updates WHERE finished_right");
-    add(select_updates);
+    //so, this really becomes a different query
+    select_updates = new soar_module::sqlite_statement(new_db, "SELECT * FROM epmem_potential_interval_updates WHERE finished_right ORDER BY w_id_left");
+    add(select_updates);//when this is true, can calculate once per time_id pair the weight. also, can avoid doing a "select" and within the database update the weight and total counts.
+    update_observed_before_relations = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_interval_relations (w_id_left,w_id_right,relation,weight,total, weight_norm) "
+            "SELECT (p.w_id_left, p.w_id_right, p.relation, "
+            "(CAST((tr.start_episode_id-tl.start_episode_id) AS REAL)/(tl.end_episode_id-tl.start_episode_id+1.0)+CAST((tr.end_episode_id-tl.end_episode_id) AS REAL)/(tr.end_episode_id-tr.start_episode_id+1.0))/2.0,1.0,(CAST((tr.start_episode_id-tl.start_episode_id) AS REAL)/(tl.end_episode_id-tl.start_episode_id+1.0)+CAST((tr.end_episode_id-tl.end_episode_id) AS REAL)/(tr.end_episode_id-tr.start_episode_id+1.0))/2.0) "
+            "FROM epmem_potential_interval_updates p, epmem_times tl, epmem_times tr WHERE p.time_id_left=tl.time_id AND p.time_id_right=tr.time_id "
+            "ON CONFLICT DO UPDATE SET weight=weight+excluded.weight,total=total+1.0, weight_norm=(weight+excluded.weight)/(total+1.0); END");
+    add(update_observed_before_relations);//We need a query that takes the weight associated with a given pair of time intervals and increments the weight in the interval relation between grounded elements
+    //We also need a query or trigger before this that, for all of the finished_right=TRUE elements calculates the weight update for that pair of time_ids
+    //may instead keep a time id characterization in ram (left, middle, right -> weight)-map and instead of time_ids, keep interval bounds explicitly (as they are already integers).
 
-    finish_updates = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_potential_interval_updates WHERE finished_right=FALSE");
+    finish_updates = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_potential_interval_updates WHERE finished_right=TRUE");
     add(finish_updates);
 
     //add_interval_data = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_intervals (w_id,time_id,surprise) VALUES (?,?,?)");
@@ -3988,7 +4008,19 @@ void epmem_new_episode(agent* thisAgent)
                 r++;
             }
             thisAgent->EpMem->epmem_edge_removals->clear();
-            //todo sjj ##
+        }
+        {//Now that the additions and then removals are done, we can update the relation strengths (right now only "before" relations)
+            //the logic -- for everything that we do a positive update for, do a negative update for the things that don't show up -- basically copying the existing smem code for this
+            //we have a log of the timeids and w_ids for updates to do
+            //The "select_updates" query orders by w_id_left, so we can collect all of the things w_id_left goes to before committing to depreciating the rest.
+            //also, we defer depreciation until it's clear remaining "nows" aren't potentially going to actually increase the weight (but just haven't left yet). alternatively, we do a count-based update and don't worry about specific timings of pre-post, just that a form of "before" was satisfied.
+            //for candidate "ands" in later reasoning that will want to make composite symbols, would help to keep track of "not together often, but when together, followed by y" as selective features.
+            //when a given left element leaves, you know for sure which potential updates it has. when the right element leaves, you know for sure the update.
+            //so, can immediately depreciate all that aren't potential, then mark as having done this (on first right element for a given left). then, for remaining left, just get to them eventually.
+            thisAgent->EpMem->epmem_stmts_graph->update_unobserved_before_relations->execute(soar_module::op_reinit);
+            thisAgent->EpMem->epmem_stmts_graph->update_observed_before_relations->execute(soar_module::op_reinit);
+            thisAgent->EpMem->epmem_stmts_graph->finish_updates->execute(soar_module::op_reinit);
+            thisAgent->EpMem->epmem_stmts_graph->delete_removed_nows->execute(soar_module::op_reinit);
         }
 
         // add the time id to the epmem_episodes table
