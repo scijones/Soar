@@ -751,7 +751,7 @@ class EpMem_Manager
 		std::map<std::pair<bool,epmem_node_id>,uint64_t>* change_time_recent;
 		std::map<std::pair<bool,epmem_node_id>,uint64_t>* change_time_first;
 
-		std::unordered_map<uint64_t>* nows;//do all additions first. Then do removals, but keep track of them.
+		//std::unordered_map<uint64_t>* nows;//do all additions first. Then do removals, but keep track of them.
 		//when something exits, can make it a potential "before left" w.r.t. all "nows"//can do by updating all things that are leaving first, removing them, but keeping them in a cache/set/list/whatever
 		//then, loop through them again, double-for, making new before-relations to existing nows (ones that weren't removed.)
 		//std::map<std::pair<uint64_t,uint64_t>, std::pair<bool,bool>>* potential_relations;//When the second in a pair is finished, time to update relation metadata and clarify relation.

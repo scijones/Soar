@@ -338,8 +338,7 @@ enum TemporalRelationTypes
     CONTAINS = 4,
     AFTER_OVERLAPS = 5,
     AFTER_MEETS = 6,
-    AFTER_MEETS = 7,
-    AFTER = 8
+    AFTER = 7
 };
 
 enum ExplainTraceType
