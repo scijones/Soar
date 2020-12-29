@@ -846,7 +846,7 @@ void SMem_Manager::init_db()
 
     if (settings->database->get_value() == smem_param_container::memory)
     {
-        db_path = ":memory:";
+        db_path = "file:smem_db?mode=memory&cache=shared";
         tabula_rasa = true;
         print_sysparam_trace(thisAgent, TRACE_SMEM_SYSPARAM, "Initializing semantic memory database in cpu memory.\n");
     }
@@ -857,7 +857,7 @@ void SMem_Manager::init_db()
     }
 
     // attempt connection
-    DB->connect(db_path);
+    DB->connect(db_path, SQLITE_OPEN_URI);
 
     if (DB->get_status() == soar_module::problem)
     {
@@ -870,8 +870,7 @@ void SMem_Manager::init_db()
 
         // If the database is on file, make sure the database contents use the current schema
         // If it does not, switch to memory-based database
-
-        if (strcmp(db_path, ":memory:")) // Check if database mode is to a file
+        if (strcmp(db_path, "file:smem_db?mode=memory&cache=shared")) // Check if database mode is to a file
         {
             bool switch_to_memory, sql_is_new;
             std::string schema_version, version_error_message;

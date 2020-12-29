@@ -2116,7 +2116,10 @@ void epmem_init_db(agent* thisAgent, bool readonly)
     const char* db_path;
     if (thisAgent->EpMem->epmem_params->database->get_value() == epmem_param_container::memory)
     {
-        db_path = ":memory:";
+        db_path = "file:epmem_db?mode=memory&cache=shared";//Without making a big mess and ruining backwards compatibility,
+        //I can have smem and epmem efficiently communicate with each other even when they are both in-memory databases by having them each be named in-memory databases,
+        //allowing the separate epmem and smem sqlite instances containing each independent in-memory database to separately attach to the other's in-memory database.
+        //This change requires that the same process run both smem and epmem's sqlite instances.
         print_sysparam_trace(thisAgent, TRACE_EPMEM_SYSPARAM, "Initializing episodic memory database in cpu memory.\n");
     }
     else
@@ -2126,7 +2129,7 @@ void epmem_init_db(agent* thisAgent, bool readonly)
     }
 
     // attempt connection
-    thisAgent->EpMem->epmem_db->connect(db_path);
+    thisAgent->EpMem->epmem_db->connect(db_path,SQLITE_OPEN_URI);
 
     if (thisAgent->EpMem->epmem_db->get_status() == soar_module::problem)
     {
@@ -2141,7 +2144,7 @@ void epmem_init_db(agent* thisAgent, bool readonly)
         // If the database is on file, make sure the database contents use the current schema
         // If it does not, switch to memory-based database
 
-        if (strcmp(db_path, ":memory:")) // Only worry about database version if writing to disk
+        if (strcmp(db_path, "file:epmem_db?mode=memory&cache=shared")) // Only worry about database version if writing to disk
         {
             bool switch_to_memory, sql_is_new;
             std::string schema_version, version_error_message;
