@@ -86,6 +86,7 @@ class epmem_param_container: public soar_module::param_container
         soar_module::constant_param<merge_choices>* merge;
 
         // surprise
+        soar_module::boolean_param* smem_surprise;
         soar_module::constant_param<surprise_method_choices>* surprise_method;
         soar_module::decimal_param* default_surprise_threshold;
         soar_module::sym_set_param* surprise_exclusions;//Not clear we really should want this to be distinct from exclusions in general, but I don't want to begin making theoretical claims about the sorts of things agents should be able to have as graph structures, such as "no floats"
@@ -774,6 +775,7 @@ class EpMem_Manager
         std::map<std::pair<int64_t,int64_t>, double> val_at_last_change;
 		std::map<std::pair<int64_t,int64_t>, bool> change_at_last_change;
 		bool no_immediately_previous_change;
+		bool smem_connected;
 
 
     private:

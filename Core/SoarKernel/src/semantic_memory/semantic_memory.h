@@ -108,6 +108,9 @@ class SMem_Manager
         std::set<uint64_t>* smem_context_additions;
         std::set<uint64_t>* smem_context_removals;
         smem_update_map* smem_edges_to_update;
+        bool        epmem_connected;
+
+        smem_param_container*           settings;//can fix and make this back to private later.
 
     private:
 
@@ -118,7 +121,7 @@ class SMem_Manager
         int64_t                         smem_max_cycle;
 
         smem_statement_container*       SQL;
-        smem_param_container*           settings;
+
         smem_stat_container*            statistics;
         soar_module::sqlite_database*   DB;
 

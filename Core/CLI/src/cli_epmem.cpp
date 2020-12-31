@@ -16,6 +16,7 @@
 #include "sml_AgentSML.h"
 
 #include "episodic_memory.h"
+#include "semantic_memory.h"
 #include "agent.h"
 #include "misc.h"
 
@@ -53,6 +54,7 @@ bool CommandLineInterface::DoEpMem(const char pOp, const std::string* pAttr, con
         PrintCLIMessage_Section("Experimental", 40);
         PrintCLIMessage_Item("merge:", thisAgent->EpMem->epmem_params->merge, 40);
         PrintCLIMessage_Section("Experimental Surprise Encoding", 40);
+        PrintCLIMessage_Item("smem-surprise:", thisAgent->EpMem->epmem_params->smem_surprise, 40);
         PrintCLIMessage_Item("surprise-method:", thisAgent->EpMem->epmem_params->surprise_method, 40);
         PrintCLIMessage_Item("default-surprise-threshold:", thisAgent->EpMem->epmem_params->default_surprise_threshold, 40);
         PrintCLIMessage_Item("surprise-exclusions:", thisAgent->EpMem->epmem_params->surprise_exclusions, 40);
@@ -172,6 +174,10 @@ bool CommandLineInterface::DoEpMem(const char pOp, const std::string* pAttr, con
         if (!my_param->validate_string(pVal->c_str()))
         {
             return SetError("Invalid setting for epmem parameter.");
+        }
+        if (!strcmp(pAttr->c_str(), "smem-surprise") && thisAgent->SMem->settings->learning->get_value() == off)
+        {
+            return SetError("Semantic memory must be on for episodic memory to use it.");//Need to make this turn off when smem does or force smem to stay open. also, should make sure each database inits before the other uses it.
         }
         
         epmem_param_container::db_choices last_db_mode = thisAgent->EpMem->epmem_params->database->get_value();

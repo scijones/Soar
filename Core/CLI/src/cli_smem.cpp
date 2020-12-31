@@ -259,6 +259,10 @@ bool CommandLineInterface::DoSMem(const char pOp, const std::string* pArg1, cons
         {
             return SetError("Invalid setting for SMem parameter.");
         }
+        if (!strcmp(pArg1->c_str(), "epmem-learning") && thisAgent->EpMem->epmem_params->learning->get_value() == off)
+        {
+            return SetError("Episodic memory must be enabled for semantic memory to use it.");//Need to also disable epmem being closed unless this is turned off, or make this turn off by default when epmem is closed.
+        }//Also, make sure each database inits before the other uses it.
         if (!strcmp(pArg1->c_str(), "spreading") && thisAgent->SMem->settings->activation_mode->get_value() != smem_param_container::act_base)
         {
             return SetError("Spreading activation cannot be turned on until the 'activation-mode' is also set to base-level.\n"

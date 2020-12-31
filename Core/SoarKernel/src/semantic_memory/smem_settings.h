@@ -59,6 +59,8 @@ class smem_param_container: public soar_module::param_container
         soar_module::decimal_param* spreading_edge_update_factor;
         soar_module::boolean_param* base_inhibition;
 
+        soar_module::boolean_param* epmem_learning;
+
         void print_settings(agent* thisAgent);
         void print_summary(agent* thisAgent);
         soar_module::unsigned_integer_param* initial_variable_id;

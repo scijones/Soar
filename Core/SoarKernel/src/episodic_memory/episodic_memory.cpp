@@ -181,6 +181,10 @@ epmem_param_container::epmem_param_container(agent* new_agent): soar_module::par
     merge->add_mapping(merge_add, "add");
     add(merge);
 
+    //smem surprise
+    smem_surprise = new soar_module::boolean_param("smem-surprise", off, new soar_module::f_predicate<boolean>());
+    add(smem_surprise);
+
     // surprise
     surprise_method = new soar_module::constant_param<surprise_method_choices>("surprise-method", bla, new soar_module::f_predicate<surprise_method_choices>());
     surprise_method->add_mapping(bla,"bla");
@@ -2129,7 +2133,7 @@ void epmem_init_db(agent* thisAgent, bool readonly)
     }
 
     // attempt connection
-    thisAgent->EpMem->epmem_db->connect(db_path,SQLITE_OPEN_URI);
+    thisAgent->EpMem->epmem_db->connect(db_path,SQLITE_OPEN_URI | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
 
     if (thisAgent->EpMem->epmem_db->get_status() == soar_module::problem)
     {
@@ -2137,6 +2141,12 @@ void epmem_init_db(agent* thisAgent, bool readonly)
     }
     else
     {
+        //need a statement that basically says "if not already attached, attach". Also, the database that opens second does all the lifting.
+        //so, logic is to check that smem is already open and running and totally happy.
+        //then, attach to that totally happy smem.
+        //dumbdumb, can just do the attach when it is needed waaaaaay later.!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1111
+        //for that matter, literally call the other database's attach when you need it.
+
         epmem_time_id time_max;
         soar_module::sqlite_statement* temp_q = NULL;
         soar_module::sqlite_statement* temp_q2 = NULL;
@@ -2711,6 +2721,35 @@ double epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool
 
     //thisAgent->EpMem->nows
     //for efficiency, hebbian updating should be a batch job at the end of the cycle's processing and not a per-element update, I think.
+
+    if (!thisAgent->EpMem->smem_connected && thisAgent->EpMem->epmem_params->smem_surprise->get_value() == on)
+    {
+        thisAgent->SMem->attach();//if smem not initialized, this will do it.
+        //This is where we actually have epmem connect to the smem database
+        {
+            std::string sql_to_execute;
+            const char* smem_db_path;
+            if (thisAgent->SMem->settings->database->get_value() == smem_param_container::memory)
+            {
+                smem_db_path = "file:smem_db";
+            }
+            else
+            {
+                smem_db_path = thisAgent->SMem->settings->path->get_value();
+            }
+            sql_to_execute = "ATTACH DATABASE ";
+            sql_to_execute+= smem_db_path;
+            sql_to_execute+= " AS smem_db";
+            bool result = thisAgent->EpMem->epmem_db->sql_execute(sql_to_execute.c_str());
+            assert(result);
+        }
+        thisAgent->EpMem->smem_connected = true;
+        //While we're here, we may as well make smem do the same thing.
+
+    }
+    //The "could have been expected" version of surprise is what we'll be doing. Basically, smem's job with spreading is going to be to predict, sure, but also to compute the predictability of events that weren't predicted.
+    //That seems to be how things usually go anyways, unpredicted, but not unusual.
+
 }
 
 
@@ -7565,6 +7604,7 @@ EpMem_Manager::EpMem_Manager(agent* myAgent)
     total_wme_changes = 0;
     no_immediately_previous_change = false;
     prev_delta = NULL;
+    smem_connected = false;
 };
 
 void EpMem_Manager::clean_up_for_agent_deletion()

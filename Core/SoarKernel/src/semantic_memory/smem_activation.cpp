@@ -7,6 +7,8 @@
 
 #include "semantic_memory.h"
 
+#include "episodic_memory.h"
+
 #include "smem_settings.h"
 #include "smem_db.h"
 #include "smem_stats.h"
@@ -375,131 +377,155 @@ void SMem_Manager::child_spread(uint64_t lti_id, std::map<uint64_t, std::list<st
         soar_module::sqlite_statement* children_q = SQL->web_val_child;
         std::list<uint64_t> children;
 
-        //First, we don't bother changing edge weights unless we have changes with which to update the edge weights.
-        if (smem_edges_to_update->find(lti_id) != smem_edges_to_update->end())
+        //When doing spread, we're gonna use epmem-based edge weights now. This means attaching to epmem.
+        if (!thisAgent->SMem->epmem_connected && thisAgent->SMem->settings->epmem_learning->get_value() == on)
         {
-            bool first_time = true;// The first set of weights comes from the db store.
-
-            std::map<uint64_t, double> old_edge_weight_map_for_children;
-            std::map<uint64_t, double> edge_weight_update_map_for_children;
-            std::list<smem_edge_update*>* edge_updates = &(smem_edges_to_update->find(lti_id)->second);
-            uint64_t time;
-            uint64_t previous_time;
-            double total_touches = 0;
-            std::list<smem_edge_update*>::iterator edge_begin_it = edge_updates->begin();
-            std::list<smem_edge_update*>::iterator edge_it;
-            bool prohibited = false;
-            double edge_update_decay = thisAgent->SMem->settings->spreading_edge_update_factor->get_value();//.99;
-            for (edge_it = edge_begin_it; edge_it != edge_updates->end(); ++edge_it)
-            {
-                time = (*edge_it)->update_time;
-                if (time != previous_time && !first_time)
-                {//We need to compile the edge weight changes for the previous timestep before moving on to the next timestep.
-                    std::map<uint64_t,double>::iterator updates_begin = old_edge_weight_map_for_children.begin();
-                    std::map<uint64_t,double>::iterator updates_it;
-                    double normalizing_sum = 0;
-                    for (updates_it = updates_begin; updates_it != old_edge_weight_map_for_children.end(); ++updates_it)
-                    {//We are looping through the update map and inserting those updates into the old edge weight map.
-                        if (edge_weight_update_map_for_children.find(updates_it->first) == edge_weight_update_map_for_children.end())
-                        {//If we don't have an update for that edge, we just decrease it.
-                            old_edge_weight_map_for_children[updates_it->first] = pow(edge_update_decay,total_touches)*old_edge_weight_map_for_children[updates_it->first];
-                            normalizing_sum += old_edge_weight_map_for_children[updates_it->first];
-                        }
-                        else
-                        {//If we do have an update, we adjust.
-                            old_edge_weight_map_for_children[updates_it->first] = old_edge_weight_map_for_children[updates_it->first] + edge_weight_update_map_for_children[updates_it->first];
-                            normalizing_sum += old_edge_weight_map_for_children[updates_it->first];
-                        }
-                    }
-                    for (updates_it = updates_begin; updates_it != old_edge_weight_map_for_children.end(); ++updates_it)
-                    {
-                        old_edge_weight_map_for_children[updates_it->first] = old_edge_weight_map_for_children[updates_it->first]/normalizing_sum;
-                    }
-                    edge_weight_update_map_for_children.clear();
-                    total_touches = 0;
-                }
-                if (first_time)
-                {//this is where we extract the old edge weights from the database store.
-                    first_time = false;
-                    children_q->bind_int(1, lti_id);
-                    //children_q->bind_int(2, lti_id);
-                    while (children_q->execute() == soar_module::row)
-                    {
-                        /*if (settings->spreading_loop_avoidance->get_value() == on && children_q->column_int(0) == lti_id)
-                        {
-                            continue;
-                        }*///We actually do want the edge weight to a self-edge to adjust even if we don't use it.
-                        old_edge_weight_map_for_children[(uint64_t)(children_q->column_int(0))] = children_q->column_double(1);
-                        edge_weight_update_map_for_children[(uint64_t)(children_q->column_int(0))] = 0;
-                    }
-                    children_q->reinitialize();
-                }
-                uint64_t child = (*edge_it)->lti_edge_id;
-                double touches = (*edge_it)->num_touches;
-                total_touches+=touches;
-                /*SQL->prohibit_check->bind_int(1, child);
-                prohibited = SQL->prohibit_check->execute()==soar_module::row;
-                bool dirty = false;
-                if (prohibited)
+            epmem_attach(thisAgent);
+            {//This is where we actually connect the epmem database to this here smem connection.
+                std::string sql_to_execute;
+                const char* epmem_db_path;
+                if (thisAgent->EpMem->epmem_params->database->get_value() == epmem_param_container::memory)
                 {
-                    dirty = SQL->prohibit_check->column_int(1)==1;
-                }
-                SQL->prohibit_check->reinitialize();*/
-                //This is where the updates are actually collected for touches from working memory.
-                for (int touch_ct = 1; touch_ct <= touches; ++touch_ct)
-                {
-                    if (edge_weight_update_map_for_children.find(child) != edge_weight_update_map_for_children.end())
-                    {
-                        edge_weight_update_map_for_children[child] = edge_weight_update_map_for_children[child] + (1.0-old_edge_weight_map_for_children[child])*(1.0-edge_update_decay)*pow(edge_update_decay,touch_ct-1.0);
-                    }
-                    else
-                    {
-                        edge_weight_update_map_for_children[child] = 0.0 + (1.0 - old_edge_weight_map_for_children[child])*(1.0-edge_update_decay);
-                    }
-                }
-                previous_time = time;
-            }
-            std::map<uint64_t,double>::iterator final_updates_begin = old_edge_weight_map_for_children.begin();
-            std::map<uint64_t,double>::iterator final_updates_it;
-            double normalizing_sum = 0;
-            for (final_updates_it = final_updates_begin; final_updates_it != old_edge_weight_map_for_children.end(); ++final_updates_it)
-            {//We are looping through the update map and inserting those updates into the old edge weight map.
-                if (edge_weight_update_map_for_children.find(final_updates_it->first) == edge_weight_update_map_for_children.end())
-                {//If we don't have an update for that edge, we just decrease it.
-                    old_edge_weight_map_for_children[final_updates_it->first] = pow(edge_update_decay,total_touches)*old_edge_weight_map_for_children[final_updates_it->first];
-                    normalizing_sum += old_edge_weight_map_for_children[final_updates_it->first];
+                    epmem_db_path = "file:epmem_db";
                 }
                 else
-                {//If we do have an update, we adjust.
-                    old_edge_weight_map_for_children[final_updates_it->first] = old_edge_weight_map_for_children[final_updates_it->first] + edge_weight_update_map_for_children[final_updates_it->first];
-                    normalizing_sum += old_edge_weight_map_for_children[final_updates_it->first];
+                {
+                    epmem_db_path = thisAgent->EpMem->epmem_params->path->get_value();
                 }
+                sql_to_execute = "ATTACH DATABASE ";
+                sql_to_execute+= epmem_db_path;
+                sql_to_execute+= " AS epmem_db";
+                bool result = thisAgent->SMem->DB->sql_execute(sql_to_execute.c_str());
+                assert(result);
             }
-            for (final_updates_it = final_updates_begin; final_updates_it != old_edge_weight_map_for_children.end(); ++final_updates_it)
-            {
-                old_edge_weight_map_for_children[final_updates_it->first] = old_edge_weight_map_for_children[final_updates_it->first]/normalizing_sum;
-            }
-            edge_weight_update_map_for_children.clear();
-            //This is the point at which the final timestamp's updates should be applied and then we should write those to the db and then we should clear out the malloc'd (new) updates.
-            //We use a new sqlite command that updates an existing edge with a new value for the edge weight. We loop over all edges in the old edge weight map for children for the vals.
-            //After the loop of commits to the table, we then loop over thge original updates map attached to the agent to do the deletions (frees).
-            std::map<uint64_t,double>::iterator updates_begin = old_edge_weight_map_for_children.begin();
-            std::map<uint64_t,double>::iterator updates_it;
-            double update_sum = 0;
-            soar_module::sqlite_statement* update_edge = SQL->web_update_child_edge;
-            for (updates_it = updates_begin; updates_it != old_edge_weight_map_for_children.end(); ++updates_it)
-            {// args are edge weight, parent lti it, child lti id.
-                update_edge->bind_double(1, updates_it->second);
-                update_edge->bind_int(2, lti_id);
-                update_edge->bind_int(3, updates_it->first);
-                update_edge->execute(soar_module::op_reinit);
-            }
-            for (edge_it = edge_begin_it; edge_it != edge_updates->end(); ++edge_it)
-            {
-                delete (*edge_it);
-            }
-            smem_edges_to_update->erase(lti_id);
+            thisAgent->SMem->epmem_connected = true;
         }
+
+        //First, we don't bother changing edge weights unless we have changes with which to update the edge weights.
+//        if (smem_edges_to_update->find(lti_id) != smem_edges_to_update->end())
+//        {
+//            bool first_time = true;// The first set of weights comes from the db store.
+//
+//            std::map<uint64_t, double> old_edge_weight_map_for_children;
+//            std::map<uint64_t, double> edge_weight_update_map_for_children;
+//            std::list<smem_edge_update*>* edge_updates = &(smem_edges_to_update->find(lti_id)->second);
+//            uint64_t time;
+//            uint64_t previous_time;
+//            double total_touches = 0;
+//            std::list<smem_edge_update*>::iterator edge_begin_it = edge_updates->begin();
+//            std::list<smem_edge_update*>::iterator edge_it;
+//            bool prohibited = false;
+//            double edge_update_decay = thisAgent->SMem->settings->spreading_edge_update_factor->get_value();//.99;
+//            for (edge_it = edge_begin_it; edge_it != edge_updates->end(); ++edge_it)
+//            {
+//                time = (*edge_it)->update_time;
+//                if (time != previous_time && !first_time)
+//                {//We need to compile the edge weight changes for the previous timestep before moving on to the next timestep.
+//                    std::map<uint64_t,double>::iterator updates_begin = old_edge_weight_map_for_children.begin();
+//                    std::map<uint64_t,double>::iterator updates_it;
+//                    double normalizing_sum = 0;
+//                    for (updates_it = updates_begin; updates_it != old_edge_weight_map_for_children.end(); ++updates_it)
+//                    {//We are looping through the update map and inserting those updates into the old edge weight map.
+//                        if (edge_weight_update_map_for_children.find(updates_it->first) == edge_weight_update_map_for_children.end())
+//                        {//If we don't have an update for that edge, we just decrease it.
+//                            old_edge_weight_map_for_children[updates_it->first] = pow(edge_update_decay,total_touches)*old_edge_weight_map_for_children[updates_it->first];
+//                            normalizing_sum += old_edge_weight_map_for_children[updates_it->first];
+//                        }
+//                        else
+//                        {//If we do have an update, we adjust.
+//                            old_edge_weight_map_for_children[updates_it->first] = old_edge_weight_map_for_children[updates_it->first] + edge_weight_update_map_for_children[updates_it->first];
+//                            normalizing_sum += old_edge_weight_map_for_children[updates_it->first];
+//                        }
+//                    }
+//                    for (updates_it = updates_begin; updates_it != old_edge_weight_map_for_children.end(); ++updates_it)
+//                    {
+//                        old_edge_weight_map_for_children[updates_it->first] = old_edge_weight_map_for_children[updates_it->first]/normalizing_sum;
+//                    }
+//                    edge_weight_update_map_for_children.clear();
+//                    total_touches = 0;
+//                }
+//                if (first_time)
+//                {//this is where we extract the old edge weights from the database store.
+//                    first_time = false;
+//                    children_q->bind_int(1, lti_id);
+//                    //children_q->bind_int(2, lti_id);
+//                    while (children_q->execute() == soar_module::row)
+//                    {
+//                        /*if (settings->spreading_loop_avoidance->get_value() == on && children_q->column_int(0) == lti_id)
+//                        {
+//                            continue;
+//                        }*///We actually do want the edge weight to a self-edge to adjust even if we don't use it.
+//                        old_edge_weight_map_for_children[(uint64_t)(children_q->column_int(0))] = children_q->column_double(1);
+//                        edge_weight_update_map_for_children[(uint64_t)(children_q->column_int(0))] = 0;
+//                    }
+//                    children_q->reinitialize();
+//                }
+//                uint64_t child = (*edge_it)->lti_edge_id;
+//                double touches = (*edge_it)->num_touches;
+//                total_touches+=touches;
+//                /*SQL->prohibit_check->bind_int(1, child);
+//                prohibited = SQL->prohibit_check->execute()==soar_module::row;
+//                bool dirty = false;
+//                if (prohibited)
+//                {
+//                    dirty = SQL->prohibit_check->column_int(1)==1;
+//                }
+//                SQL->prohibit_check->reinitialize();*/
+//                //This is where the updates are actually collected for touches from working memory.
+//                for (int touch_ct = 1; touch_ct <= touches; ++touch_ct)
+//                {
+//                    if (edge_weight_update_map_for_children.find(child) != edge_weight_update_map_for_children.end())
+//                    {
+//                        edge_weight_update_map_for_children[child] = edge_weight_update_map_for_children[child] + (1.0-old_edge_weight_map_for_children[child])*(1.0-edge_update_decay)*pow(edge_update_decay,touch_ct-1.0);
+//                    }
+//                    else
+//                    {
+//                        edge_weight_update_map_for_children[child] = 0.0 + (1.0 - old_edge_weight_map_for_children[child])*(1.0-edge_update_decay);
+//                    }
+//                }
+//                previous_time = time;
+//            }
+//            std::map<uint64_t,double>::iterator final_updates_begin = old_edge_weight_map_for_children.begin();
+//            std::map<uint64_t,double>::iterator final_updates_it;
+//            double normalizing_sum = 0;
+//            for (final_updates_it = final_updates_begin; final_updates_it != old_edge_weight_map_for_children.end(); ++final_updates_it)
+//            {//We are looping through the update map and inserting those updates into the old edge weight map.
+//                if (edge_weight_update_map_for_children.find(final_updates_it->first) == edge_weight_update_map_for_children.end())
+//                {//If we don't have an update for that edge, we just decrease it.
+//                    old_edge_weight_map_for_children[final_updates_it->first] = pow(edge_update_decay,total_touches)*old_edge_weight_map_for_children[final_updates_it->first];
+//                    normalizing_sum += old_edge_weight_map_for_children[final_updates_it->first];
+//                }
+//                else
+//                {//If we do have an update, we adjust.
+//                    old_edge_weight_map_for_children[final_updates_it->first] = old_edge_weight_map_for_children[final_updates_it->first] + edge_weight_update_map_for_children[final_updates_it->first];
+//                    normalizing_sum += old_edge_weight_map_for_children[final_updates_it->first];
+//                }
+//            }
+//            for (final_updates_it = final_updates_begin; final_updates_it != old_edge_weight_map_for_children.end(); ++final_updates_it)
+//            {
+//                old_edge_weight_map_for_children[final_updates_it->first] = old_edge_weight_map_for_children[final_updates_it->first]/normalizing_sum;
+//            }
+//            edge_weight_update_map_for_children.clear();
+//            //This is the point at which the final timestamp's updates should be applied and then we should write those to the db and then we should clear out the malloc'd (new) updates.
+//            //We use a new sqlite command that updates an existing edge with a new value for the edge weight. We loop over all edges in the old edge weight map for children for the vals.
+//            //After the loop of commits to the table, we then loop over thge original updates map attached to the agent to do the deletions (frees).
+//            std::map<uint64_t,double>::iterator updates_begin = old_edge_weight_map_for_children.begin();
+//            std::map<uint64_t,double>::iterator updates_it;
+//            double update_sum = 0;
+//            soar_module::sqlite_statement* update_edge = SQL->web_update_child_edge;
+//            for (updates_it = updates_begin; updates_it != old_edge_weight_map_for_children.end(); ++updates_it)
+//            {// args are edge weight, parent lti it, child lti id.
+//                update_edge->bind_double(1, updates_it->second);
+//                update_edge->bind_int(2, lti_id);
+//                update_edge->bind_int(3, updates_it->first);
+//                update_edge->execute(soar_module::op_reinit);
+//            }
+//            for (edge_it = edge_begin_it; edge_it != edge_updates->end(); ++edge_it)
+//            {
+//                delete (*edge_it);
+//            }
+//            smem_edges_to_update->erase(lti_id);
+//        }
         children_q->bind_int(1, lti_id);
         //children_q->bind_int(2, lti_id);
         lti_trajectories[lti_id] = new std::list<std::pair<uint64_t, double>>;

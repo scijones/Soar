@@ -857,7 +857,7 @@ void SMem_Manager::init_db()
     }
 
     // attempt connection
-    DB->connect(db_path, SQLITE_OPEN_URI);
+    DB->connect(db_path, SQLITE_OPEN_URI | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
 
     if (DB->get_status() == soar_module::problem)
     {
@@ -865,6 +865,9 @@ void SMem_Manager::init_db()
     }
     else
     {
+        //need a statement that basically says "if not already attached, attach". Also, the database that opens second does all the lifting.
+        //dumbdumb -- only need to bother with that just before trying to do spreading.
+
         // temporary queries for one-time init actions
         soar_module::sqlite_statement* temp_q = NULL;
 
