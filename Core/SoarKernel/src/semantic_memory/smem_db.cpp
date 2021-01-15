@@ -843,10 +843,15 @@ void SMem_Manager::init_db()
 
     const char* db_path;
     bool tabula_rasa = false;
+    std::string filename_string;
 
     if (settings->database->get_value() == smem_param_container::memory)
     {
-        db_path = "file:smem_db?mode=memory&cache=shared";
+        filename_string.append("file:smem_");
+        filename_string.append(thisAgent->name);
+        filename_string.append("_db?mode=memory&cache=shared");
+        db_path = filename_string.c_str();
+        // Another potential problem with this way of doing things -- multiple agents in the same kernel might try to have the same filename. (":memory:" without anything else makes it inaccessible, I think.)
         tabula_rasa = true;
         print_sysparam_trace(thisAgent, TRACE_SMEM_SYSPARAM, "Initializing semantic memory database in cpu memory.\n");
     }
@@ -1050,7 +1055,7 @@ void SMem_Manager::init_db()
                 DB->sql_execute("PRAGMA journal_mode = OFF");
 
                 // locking_mode - no one else can view the database after our first write
-                DB->sql_execute("PRAGMA locking_mode = EXCLUSIVE");
+                //DB->sql_execute("PRAGMA locking_mode = EXCLUSIVE");
             }
         }
 

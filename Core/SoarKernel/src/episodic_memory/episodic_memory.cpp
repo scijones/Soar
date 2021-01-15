@@ -998,11 +998,14 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL, total REAL, weight_norm REAL)");//I have enums for the relation type.
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index_now (w_id INTEGER PRIMARY KEY, start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_temp (w_id INTEGER PRIMARY KEY, time_id INTEGER, start_episode_id INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_just_added (w_id INTEGER PRIMARY KEY)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_potential_interval_updates (w_id_left INTEGER, w_id_right INTEGER, time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, finished_right BOOLEAN)");//Make this include some form of time data as well (to help provide update magnitude).
 }
 
 void epmem_graph_statement_container::create_graph_indices()
-{
+{//todo organize in two ways -- by the table(s) referenced and by the aspect of memory, the functionality they support
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_wmes_index_now_time_id ON epmem_wmes_index_now (start_episode_id DESC, w_id)");
+
     add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_w_id_now ON epmem_intervals (is_now,w_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_interval_relations_left_right ON epmem_interval_relations (w_id_left,w_id_right)");//, relation, weight)");//when adding more relations, this should only be unique per relation type.
     add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_time ON epmem_intervals (time_id)");
@@ -1019,6 +1022,9 @@ void epmem_graph_statement_container::create_graph_indices()
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_find_weight_updates AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN UPDATE epmem_potential_interval_updates SET finished_right=1,time_id_right=NEW.time_id WHERE w_id_right=OLD.w_id AND finished_right=0; END");
     //when these triggers have fired and after the addition/removal loops of epmem processing at the end of the DC, there will now be a table of the contents of the intervals that have ended and a table of the things those could have before-relations to.
     //cartesian product is the thing we want from that.
+
+    //The following trigger adds w_ids to epmem_wmes_just_added when they are newly-added to the now table, so that they can have surprise calculated. After this table is used each cycle, it will be deleted. Equivalent with indexing into epmem_wmes_index_now by start_episode_id=[whatever now is])
+    //and, because of that equivalence, not going to make this table. Probably can make the subqueries work by index without making table.
 
     //add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_time_update_do_weight AFTER UPDATE ON epmem_potential_interval_updates FOR EACH ROW BEGIN INSERT INTO epmem_interval_relations (w_id_left, w_id_right, relation, weight, total) SELECT () FROM  ON CONFLICT(w_id_left,w_id_right) DO UPDATE SET ; END");
 
@@ -1171,6 +1177,8 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add(update_observed_before_relations);//We need a query that takes the weight associated with a given pair of time intervals and increments the weight in the interval relation between grounded elements
     //We also need a query or trigger before this that, for all of the finished_right=TRUE elements calculates the weight update for that pair of time_ids
     //may instead keep a time id characterization in ram (left, middle, right -> weight)-map and instead of time_ids, keep interval bounds explicitly (as they are already integers).
+
+
 
     finish_updates = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_potential_interval_updates WHERE finished_right=1");
     add(finish_updates);
@@ -2118,9 +2126,13 @@ void epmem_init_db(agent* thisAgent, bool readonly)
     ////////////////////////////////////////////////////////////////////////////
 
     const char* db_path;
+    std::string filename_string;
     if (thisAgent->EpMem->epmem_params->database->get_value() == epmem_param_container::memory)
     {
-        db_path = "file:epmem_db?mode=memory&cache=shared";//Without making a big mess and ruining backwards compatibility,
+        filename_string.append("file:epmem_");
+        filename_string.append(thisAgent->name);
+        filename_string.append("_db?mode=memory&cache=shared");
+        db_path = filename_string.c_str();//Without making a big mess and ruining backwards compatibility,
         //I can have smem and epmem efficiently communicate with each other even when they are both in-memory databases by having them each be named in-memory databases,
         //allowing the separate epmem and smem sqlite instances containing each independent in-memory database to separately attach to the other's in-memory database.
         //This change requires that the same process run both smem and epmem's sqlite instances.
@@ -2277,7 +2289,7 @@ void epmem_init_db(agent* thisAgent, bool readonly)
                 thisAgent->EpMem->epmem_db->sql_execute("PRAGMA journal_mode = OFF");
 
                 // locking_mode - no one else can view the database after our first write
-                thisAgent->EpMem->epmem_db->sql_execute("PRAGMA locking_mode = EXCLUSIVE");
+                //thisAgent->EpMem->epmem_db->sql_execute("PRAGMA locking_mode = EXCLUSIVE");
             }
         }
 
@@ -2680,6 +2692,38 @@ double epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_
     return bla_before;
 }
 
+void epmem_attach_smem(agent* thisAgent)
+{
+    if (!thisAgent->EpMem->smem_connected && thisAgent->EpMem->epmem_params->smem_surprise->get_value() == on)
+    {
+        thisAgent->SMem->attach();//if smem not initialized, this will do it.
+        //This is where we actually have epmem connect to the smem database
+        {
+            std::string sql_to_execute;
+            std::string path_str;
+            const char* smem_db_path;
+            if (thisAgent->SMem->settings->database->get_value() == smem_param_container::memory)
+            {
+                path_str = "smem_";
+                path_str.append(thisAgent->name);
+                path_str.append("_db");
+                smem_db_path = path_str.c_str();
+            }
+            else
+            {
+                smem_db_path = thisAgent->SMem->settings->path->get_value();
+            }
+            sql_to_execute = "ATTACH DATABASE ";
+            sql_to_execute+= smem_db_path;
+            sql_to_execute+= " AS smem_db";
+            bool result = thisAgent->EpMem->epmem_db->sql_execute(sql_to_execute.c_str());
+            assert(result);
+
+        }
+        thisAgent->EpMem->smem_connected = true;
+    }
+}
+
 double epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id parent_id, epmem_hash_id attribute_id, epmem_node_id triple_id, bool is_a_float)
 {//The way this function works is you get as input the time at which the new thing just showed up, and the new thing, just like epmem_surprise_bla, but here, we instead look into the database to see what
     //the expectation would have been for that element to show up. The magnitude of expectation violation is surprise. Then, we update the expectations for all pairwise associations defined by "fire-together-wire-together" hebbian update.
@@ -2722,33 +2766,36 @@ double epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool
     //thisAgent->EpMem->nows
     //for efficiency, hebbian updating should be a batch job at the end of the cycle's processing and not a per-element update, I think.
 
-    if (!thisAgent->EpMem->smem_connected && thisAgent->EpMem->epmem_params->smem_surprise->get_value() == on)
-    {
-        thisAgent->SMem->attach();//if smem not initialized, this will do it.
-        //This is where we actually have epmem connect to the smem database
-        {
-            std::string sql_to_execute;
-            const char* smem_db_path;
-            if (thisAgent->SMem->settings->database->get_value() == smem_param_container::memory)
-            {
-                smem_db_path = "file:smem_db";
-            }
-            else
-            {
-                smem_db_path = thisAgent->SMem->settings->path->get_value();
-            }
-            sql_to_execute = "ATTACH DATABASE ";
-            sql_to_execute+= smem_db_path;
-            sql_to_execute+= " AS smem_db";
-            bool result = thisAgent->EpMem->epmem_db->sql_execute(sql_to_execute.c_str());
-            assert(result);
-        }
-        thisAgent->EpMem->smem_connected = true;
-        //While we're here, we may as well make smem do the same thing.
-
-    }
+    epmem_attach_smem(thisAgent);
     //The "could have been expected" version of surprise is what we'll be doing. Basically, smem's job with spreading is going to be to predict, sure, but also to compute the predictability of events that weren't predicted.
     //That seems to be how things usually go anyways, unpredicted, but not unusual.
+
+    //Alright, smem should be attached. The next thing to do is to have smem create a table of spreading activation values for the elements just put into the now table within epmem. the "context" is things that were in the now table or that only just left.
+    //In a hardware version, absolutely abstractified better through matrix operations where I'm throwing in a slightly different sparse matrix every cycle. could even use this kernel still with matrix operations made into virtual tables to not have to butcher ltm code.
+    //Currently, smem spreads based on smem_current_spread, which is fingerprints (spread ~~p(i|j) for sources j) incrementally added each cycle. Could add something similar within epmem. should end up being the same in the end, but for backwards compatibility not yet.
+
+    //should make another spread function using almost the same function as the one in smem, but going to reference the epmem table for determining context instead. could even implement as just a "epmem_current_spread", really.
+
+    //done and good is better than perfect -- make the epmem_current_spread table format (even just as a view on stuff already in epmem).
+
+    //can do as a batch-like thing. select by context of epmem now and just-previous and only candidates are those that can be spread to by these and also those which were only just added (joins should make this small).
+    //then, only for those elements, need the edges to calculate spread. //I suppose in the work that I do that I am capable of putting what I am not conscious of into a string of symbols. I am perhaps similarly not conscious of the ball hidden in the box, but can maintain object permamence as an inference.
+    //really, spread could be done much more efficiently in this manner if we didn't have a base-level decay thing to do.
+
+    //This particular function will be the one that calculates the surprise to associate with a given element, given the existing spread so that it fills the same role as the bla version. a different function will actually do the metadata update stuff.
+//How do we keep track of what all was the "previous now" without including in that the "just-this-cycle-added" nows?
+    //answer -- select from now based on !=startthiscycle.
+    //basically, do an insert or ignore fingerprint for all things added to "now",
+
+    return .77;
+
+}
+
+void epmem_update_spread(agent* thisAgent)
+{
+    //epmem_wmes_index_now is the table that should serve as the "context" for doing spread.
+    //Since surprise is calcuated every cycle, don't need to try efficiency from never processing things that go in and then out. instead, worth processing w.r.t. all changes.
+    epmem_attach_smem(thisAgent);
 
 }
 
@@ -3162,7 +3209,7 @@ inline void _epmem_store_level(agent* thisAgent,
                 epmem_edge.emplace((*w_p)->epmem_id,static_cast<int64_t>((*w_p)->value->id->is_lti() ? (*w_p)->value->id->LTI_ID : 0));
                 thisAgent->EpMem->epmem_edge_mins->push_back(time_counter);
                 thisAgent->EpMem->epmem_edge_maxes->push_back(false);
-                //epmem_surprise_bla(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);// surprise for an identifier interval.
+                //epmem_surprise_hebbian(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);// surprise for an identifier interval.
                 additions_epmem_id_to_parent_attr.emplace(std::pair<bool,int64_t>(true,(*w_p)->epmem_id),std::pair<int64_t,int64_t>(parent_id,my_hash));
             }
             else
@@ -3178,7 +3225,7 @@ inline void _epmem_store_level(agent* thisAgent,
                 {
                     epmem_edge.emplace((*w_p)->epmem_id,static_cast<int64_t>((*w_p)->value->id->is_lti() ? (*w_p)->value->id->LTI_ID : 0));
                     (*thisAgent->EpMem->epmem_edge_maxes)[static_cast<size_t>((*w_p)->epmem_id - 1)] = false;
-                    //epmem_surprise_bla(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);// surprise for an identifier interval.
+                    //epmem_surprise_hebbian(thisAgent, time_counter, false, parent_id, my_hash, (*w_p)->epmem_id, false);// surprise for an identifier interval.
                     additions_epmem_id_to_parent_attr.emplace(std::pair<bool,int64_t>(true,(*w_p)->epmem_id),std::pair<int64_t,int64_t>(parent_id,my_hash));
                 }
             }
@@ -3272,11 +3319,11 @@ inline void _epmem_store_level(agent* thisAgent,
                     epmem_node.push((*w_p)->epmem_id);
 
 
-                    //void epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id triple_id, bool is_a_float)
+                    //void epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id triple_id, bool is_a_float)
 
 					if ((*w_p)->value->symbol_type == FLOAT_CONSTANT_SYMBOL_TYPE)
 					{
-						//epmem_surprise_bla(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, true);
+						//epmem_surprise_hebbian(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, true);
 						float_deltas.emplace(std::pair<int64_t,int64_t>(parent_id,my_hash),std::pair<int64_t,double>((*w_p)->epmem_id,(*w_p)->value->fc->value));
 						delta_ids.insert((*w_p)->epmem_id);
 						thisAgent->EpMem->val_at_last_change.insert(std::pair<std::pair<int64_t,int64_t>,double>(std::pair<int64_t,int64_t>(parent_id,my_hash),(*w_p)->value->fc->value));
@@ -3286,7 +3333,7 @@ inline void _epmem_store_level(agent* thisAgent,
 					    thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes->bind_int(1,(*w_p)->value->symbol_type);
                         thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes->bind_int(2,(*w_p)->epmem_id);
                         thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes->execute(soar_module::op_reinit);
-					    //epmem_surprise_bla(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, false);
+					    //epmem_surprise_hebbian(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, false);
                         additions_epmem_id_to_parent_attr.emplace(std::pair<bool,int64_t>(false,(*w_p)->epmem_id),std::pair<int64_t,int64_t>(parent_id,my_hash));
 					}
 
@@ -3315,7 +3362,7 @@ inline void _epmem_store_level(agent* thisAgent,
 						}
                         else
                         {
-                            //epmem_surprise_bla(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, false);
+                            //epmem_surprise_hebbian(thisAgent, time_counter, true, parent_id, my_hash, (*w_p)->epmem_id, false);
                             additions_epmem_id_to_parent_attr.emplace(std::pair<bool,int64_t>(false,(*w_p)->epmem_id),std::pair<int64_t,int64_t>(parent_id,my_hash));
                         }
 
@@ -3450,7 +3497,7 @@ void epmem_new_episode(agent* thisAgent)
                     assert(res == soar_module::row);
                     byte sym_type = static_cast<byte>(thisAgent->EpMem->epmem_stmts_common->hash_get_type->column_int(0));
                     thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
-                    double temp_surprise = epmem_surprise_bla(thisAgent, time_counter, true, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.                    //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
+                    double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.                    //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
@@ -3505,7 +3552,7 @@ void epmem_new_episode(agent* thisAgent)
                 thisAgent->EpMem->total_wme_changes++;
 
                 //This is where to add surprise.
-                double temp_surprise = epmem_surprise_bla(thisAgent, time_counter, false, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.
+                double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, false, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.
                 //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
@@ -3659,7 +3706,7 @@ void epmem_new_episode(agent* thisAgent)
                                     was_nothing = false;
                                     //thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
                                     thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = change > 0.0;
-                                    double temp_surprise = epmem_surprise_bla(thisAgent, time_counter, true, parent_hash, attr_hash, f_id, true);//Often, a float is really just a change in an existing value, for which I treat calculation of surprise as qualitatively distinct from noncontinuous constant types.
+                                    double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, parent_hash, attr_hash, f_id, true);//Often, a float is really just a change in an existing value, for which I treat calculation of surprise as qualitatively distinct from noncontinuous constant types.
                                     //We add the new id to the float_now table
                                     thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(1,f_id);
                                     thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(2,time_counter);
@@ -3945,7 +3992,7 @@ void epmem_new_episode(agent* thisAgent)
                             thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes->execute(soar_module::op_reinit);
                         }
 
-                        double temp_surprise = epmem_surprise_bla(thisAgent, time_counter, true, parent_hash, attr_hash, f_id, true);
+                        double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, parent_hash, attr_hash, f_id, true);
 
                         thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(1,f_id);
                         thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(2,time_counter);
@@ -4063,6 +4110,12 @@ void epmem_new_episode(agent* thisAgent)
             thisAgent->EpMem->epmem_stmts_graph->insert_potential_before_relations->execute(soar_module::op_reinit);
             thisAgent->EpMem->epmem_stmts_graph->update_unobserved_before_relations->execute(soar_module::op_reinit);
             thisAgent->EpMem->epmem_stmts_graph->update_observed_before_relations->execute(soar_module::op_reinit);
+            //Before doing these deletes, could use these tables to update smem edges. (don't want to always update all edges, just those changed here.)
+            //todo -- this is the place to update edge weights.
+
+            epmem_update_spread(thisAgent);
+
+
             thisAgent->EpMem->epmem_stmts_graph->finish_updates->execute(soar_module::op_reinit);
             thisAgent->EpMem->epmem_stmts_graph->delete_removed_nows->execute(soar_module::op_reinit);
             //importantly, the calculation of surprise before these updates depended on the state of metadata before these updates.

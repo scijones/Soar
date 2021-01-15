@@ -384,9 +384,13 @@ void SMem_Manager::child_spread(uint64_t lti_id, std::map<uint64_t, std::list<st
             {//This is where we actually connect the epmem database to this here smem connection.
                 std::string sql_to_execute;
                 const char* epmem_db_path;
+                std::string path_str;
                 if (thisAgent->EpMem->epmem_params->database->get_value() == epmem_param_container::memory)
                 {
-                    epmem_db_path = "file:epmem_db";
+                    path_str = "epmem_";
+                    path_str.append(thisAgent->name);
+                    path_str.append("_db");
+                    epmem_db_path = path_str.c_str();
                 }
                 else
                 {
@@ -400,6 +404,7 @@ void SMem_Manager::child_spread(uint64_t lti_id, std::map<uint64_t, std::list<st
             }
             thisAgent->SMem->epmem_connected = true;
         }
+        //To update edges, can do a batch update from epmem table of edges, selecting only for those that have changed since last update. alternatively, make epmem do that every cycle just before it wipes them out! that's better.
 
         //First, we don't bother changing edge weights unless we have changes with which to update the edge weights.
 //        if (smem_edges_to_update->find(lti_id) != smem_edges_to_update->end())
