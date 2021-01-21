@@ -999,6 +999,7 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index_now (w_id INTEGER PRIMARY KEY, start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_temp (w_id INTEGER PRIMARY KEY, time_id INTEGER, start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_just_added (w_id INTEGER PRIMARY KEY)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_relations_just_added (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_potential_interval_updates (w_id_left INTEGER, w_id_right INTEGER, time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, finished_right BOOLEAN)");//Make this include some form of time data as well (to help provide update magnitude).
 }
 
@@ -1016,6 +1017,8 @@ void epmem_graph_statement_container::create_graph_indices()
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_potential_update_grouping ON epmem_potential_interval_updates (w_id_left) WHERE finished_right=1");
 
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_new_relations AFTER INSERT ON epmem_interval_relations FOR EACH ROW BEGIN INSERT INTO epmem_relations_just_added (w_id_left, w_id_right, relation) VALUES (NEW.w_id_left, NEW.w_id_right, NEW.relation); END");
+
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_now AFTER INSERT ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_index_now (w_id,start_episode_id) VALUES (NEW.w_id,NEW.start_episode_id); END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_to_temp AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_temp (w_id,time_id,start_episode_id) VALUES (NEW.w_id,NEW.time_id,NEW.start_episode_id); END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_from_now AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN DELETE FROM epmem_wmes_index_now WHERE epmem_wmes_index_now.w_id=OLD.w_id; END");
@@ -1023,7 +1026,8 @@ void epmem_graph_statement_container::create_graph_indices()
     //when these triggers have fired and after the addition/removal loops of epmem processing at the end of the DC, there will now be a table of the contents of the intervals that have ended and a table of the things those could have before-relations to.
     //cartesian product is the thing we want from that.
 
-    //The following trigger adds w_ids to epmem_wmes_just_added when they are newly-added to the now table, so that they can have surprise calculated. After this table is used each cycle, it will be deleted. Equivalent with indexing into epmem_wmes_index_now by start_episode_id=[whatever now is])
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_new AFTER INSERT ON epmem_wmes_index FOR EACH ROW BEGIN INSERT INTO epmem_wmes_just_added (w_id) VALUES (NEW.w_id); END");
+
     //and, because of that equivalence, not going to make this table. Probably can make the subqueries work by index without making table.
 
     //add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_time_update_do_weight AFTER UPDATE ON epmem_potential_interval_updates FOR EACH ROW BEGIN INSERT INTO epmem_interval_relations (w_id_left, w_id_right, relation, weight, total) SELECT () FROM  ON CONFLICT(w_id_left,w_id_right) DO UPDATE SET ; END");
@@ -1178,7 +1182,17 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     //We also need a query or trigger before this that, for all of the finished_right=TRUE elements calculates the weight update for that pair of time_ids
     //may instead keep a time id characterization in ram (left, middle, right -> weight)-map and instead of time_ids, keep interval bounds explicitly (as they are already integers).
 
+    make_adds_into_ltis = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_db.smem_lti (lti_id, total_augmentations, activation_base_level, activations_total, activations_last, activations_first, activation_spread, activation_value, lti_augmentations) SELECT (-ja.w_id,0,0,0,0,0,0,0,0) FROM epmem_wmes_just_added ja");
+    add(make_adds_into_ltis);//I don't know if negative lti_ids will break everything, but if they don't, it's a very easy way to give epmem a special space of lti numbers.
 
+    select_new_relations = new soar_module::sqlite_statement(new_db, "SELECT w_id_left FROM epmem_relations_just_added");
+    add(select_new_relations);
+
+    delete_brand_new_relation_adds = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_relations_just_added");
+    add(delete_brand_new_adds);
+
+    delete_brand_new_adds = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_just_added");
+    add(delete_brand_new_adds);
 
     finish_updates = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_potential_interval_updates WHERE finished_right=1");
     add(finish_updates);
@@ -2797,7 +2811,64 @@ void epmem_update_spread(agent* thisAgent)
     //Since surprise is calcuated every cycle, don't need to try efficiency from never processing things that go in and then out. instead, worth processing w.r.t. all changes.
     epmem_attach_smem(thisAgent);
 
-}
+    //make a newbies table when things are added to the epmem index, but have yet to be moved to smem
+    //make a new relations table when relations are added to epmem relations, but have yet to be moved to smem.
+    //all ids should be set up before any relations are set up
+    //modelling after cli_add
+        //for all new ids, gonna add_specific_LTI -- want to map to epmem index somehow -- gonna use negatives for now.
+        //for all new relations, gonna populate slots for those  new ids
+        //for all ids with non-nil slots, ltm_to_db
+            //need to make the children ltm slot map handle the addition so that ltm_to_db handles processing automatically (such as spread invalidation)
+//    ltm_set newbies;
+//    //thing that populates newbies
+//    //just pull rows from table of newly-added-to-epmem-index
+//
+//    ltm_set::iterator c_new;
+//    for (c_new = newbies.begin(); c_new != newbies.end(); c_new++)
+//    {
+//
+//        //add_specific_LTI((*c_new)->lti_id);//don't loop, can just call for each row in table, given that it's all lti_add and no logic.
+//    }
+
+    thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->execute(soar_module::op_reinit);//take the newly-added wmemgraph elements and make them into ltis
+    thisAgent->EpMem->epmem_stmts_graph->delete_brand_new_adds->execute(soar_module::op_reinit);//delete the temp table that kept track of them.
+
+    while (thisAgent->EpMem->epmem_stmts_graph->select_new_relations->execute() == soar_module::row)
+    {//for each new relation, add that relation and invalidate spread that came from the left of that relation
+        uint64_t existing_edges = 0;
+        uint64_t existing_lti_edges = 0;
+        thisAgent->SMem->EpMem_to_DB(-thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0), -thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(1));//just doing each relation
+        thisAgent->SMem->invalidate_from_lti(-thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0));
+    }
+    thisAgent->EpMem->epmem_stmts_graph->select_new_relations->reinitialize();
+    thisAgent->EpMem->epmem_stmts_graph->delete_brand_new_relation_adds->execute(soar_module::op_reinit);
+
+    //the below would be easier to do by directly manipulating the smem structures than by reusing the code and faking intermediate ltms.
+//    //the slots should be the new relations. -- pull rows again.
+//    //each attribute is "before" and each value is some lti.
+//    //need a slot map per lti parent and a slot in that map for the attr, and values for that attr.
+//    ltm_slot_map same_slots_every_time;
+//    ltm_slot same_slot_attr_every_time;
+//    same_slot_attr_every_time.insert();
+//    same_slots_every_time.insert();
+//    for (c_new = newbies.begin(); c_new != newbies.end(); c_new++)
+//    {
+//        if ((*c_new)->slots != NIL)
+//        {
+//           LTM_to_DB((*c_new)->lti_id, (*c_new)->slots, false, false);
+//        }
+//    }
+
+    //find the attR_hash for "before".
+    //then do web_add, and invalidate_trajectories. --  web_add acccepts an edge weight.
+    //do wmes_lti_frequency changes.
+
+    //do need the same act_set stuff about numbber of augmentations.
+
+    //so, basically, this is a partial rewrite of ltm_to_db.
+
+
+}//Much of this can be optimized to be in-database instead of looped here.
 
 
 

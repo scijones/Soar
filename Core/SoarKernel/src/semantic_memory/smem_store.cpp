@@ -180,6 +180,196 @@ void SMem_Manager::disconnect_ltm(uint64_t pLTI_ID, std::map<uint64_t, uint64_t>
     }
 }
 
+void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child)
+{
+    std::map<uint64_t, uint64_t>* old_children = NULL;
+    std::map<uint64_t, int64_t>* new_children = NULL;
+    if (settings->spreading->get_value() == on)
+    {
+        new_children = new std::map<uint64_t, int64_t>();
+    }
+    // if remove children, disconnect ltm -> no existing edges
+    // else, need to query number of existing edges
+    uint64_t existing_edges = 0;
+    uint64_t existing_lti_edges = 0;
+    {
+        SQL->act_lti_child_ct_get->bind_int(1, pLTI_ID);
+        SQL->act_lti_child_ct_get->execute();
+
+        existing_edges = static_cast<uint64_t>(SQL->act_lti_child_ct_get->column_int(0));
+
+        SQL->act_lti_child_ct_get->reinitialize();
+
+        //
+
+        SQL->act_lti_child_lti_ct_get->bind_int(1,pLTI_ID);
+        SQL->act_lti_child_lti_ct_get->execute();
+
+        existing_lti_edges = static_cast<uint64_t>(SQL->act_lti_child_lti_ct_get->column_int(0));
+
+        SQL->act_lti_child_lti_ct_get->reinitialize();
+    }
+
+    // get new edges
+    // if didn't disconnect, entails lookups in existing edges
+    std::set<smem_hash_id> attr_new;
+    std::set< std::pair<smem_hash_id, smem_hash_id> > const_new;
+    std::set< std::pair<smem_hash_id, uint64_t> > lti_new;
+    bool ever_updated_edge_weight = false;
+    bool added_edges = false;
+    std::unordered_map<uint64_t, double> edge_weights;
+    {
+        ltm_slot_map::iterator s;
+        ltm_slot::iterator v;
+
+        smem_hash_id attr_hash = 0;
+        smem_hash_id value_hash = 0;
+        uint64_t value_lti = 0;
+
+
+            attr_hash = ;//hash for "before"
+            {
+                SQL->web_lti_child->bind_int(1, pLTI_ID);
+                                       SQL->web_lti_child->bind_int(2, attr_hash);
+                                       SQL->web_lti_child->bind_int(3, value_lti);
+    }
+
+
+    // activation function assumes proper thresholding state
+    // thus, consider four cases of augmentation counts (w.r.t. thresh)
+    // 1. before=below, after=below: good (activation will update smem_augmentations)
+    // 2. before=below, after=above: need to update smem_augmentations->inf
+    // 3. before=after, after=below: good (activation will update smem_augmentations, free transition)
+    // 4. before=after, after=after: good (activation won't touch smem_augmentations)
+    //
+    // hence, we detect + handle case #2 here
+    uint64_t new_edges = (existing_edges + const_new.size() + lti_new.size());
+    uint64_t new_lti_edges = existing_lti_edges + lti_new.size();
+    bool after_above;
+    double web_act = static_cast<double>(SMEM_ACT_LOW);
+    {
+        uint64_t thresh = static_cast<uint64_t>(settings->thresh->get_value());
+        after_above = (new_edges >= thresh);
+
+        // if before below
+        if (existing_edges < thresh)
+        {
+            if (after_above)
+            {
+                // update smem_augmentations to inf
+                SQL->act_set->bind_double(1, web_act);
+                SQL->act_set->bind_int(2, pLTI_ID);
+                SQL->act_set->execute(soar_module::op_reinit);
+            }
+        }
+    }
+
+    // update edge counter
+    {
+        SQL->act_lti_child_ct_set->bind_int(1, new_edges);
+        SQL->act_lti_child_ct_set->bind_int(2, pLTI_ID);
+        SQL->act_lti_child_ct_set->execute(soar_module::op_reinit);
+    }
+    {
+        SQL->act_lti_child_lti_ct_set->bind_int(1, new_lti_edges);
+        SQL->act_lti_child_lti_ct_set->bind_int(2, pLTI_ID);
+        SQL->act_lti_child_lti_ct_set->execute(soar_module::op_reinit);
+    }
+
+
+
+    //Put the initialization of the entry in the prohibit table here.
+    //This doesn't create a prohibt. It creates an entry in the prohibit tracking table.
+    {
+        SQL->prohibit_add->bind_int(1,pLTI_ID);
+        SQL->prohibit_add->execute(soar_module::op_reinit);
+    }
+
+
+
+    // insert new edges, update counters
+
+        // attr/lti pairs
+        {
+            for (std::set< std::pair< smem_hash_id, uint64_t > >::iterator p = lti_new.begin(); p != lti_new.end(); p++)
+            {
+                // insert
+                {
+                    // lti_id, attribute_s_id, val_const, value_lti_id, activation_value
+                    SQL->web_add->bind_int(1, pLTI_ID);
+                    SQL->web_add->bind_int(2, p->first);
+                    SQL->web_add->bind_int(3, SMEM_AUGMENTATIONS_NULL);
+                    SQL->web_add->bind_int(4, p->second);
+                    SQL->web_add->bind_double(5, web_act);
+                    if (ever_updated_edge_weight && edge_weights.find(p->second) != edge_weights.end())
+                    {
+                        /*
+                         * This will currently silently fail if the user doesn't supply all of the edge weights
+                         *  that they should. Some will be initialized to fan and others will not.
+                         *  The first round of normalization will "fix" this, in that things won't "break",
+                         *  but the values will be different than what the user presumably intended.
+                         */
+                        SQL->web_add->bind_double(6, edge_weights[p->second]);
+                    }
+                    else
+                    {
+                        SQL->web_add->bind_double(6, 1.0/((double)new_lti_edges));
+                    }
+                    SQL->web_add->execute(soar_module::op_reinit);
+                }
+
+                // update counter
+                {
+                    // check if counter exists (and add if does not): attribute_s_id, val
+                    SQL->wmes_lti_frequency_check->bind_int(1, p->first);
+                    SQL->wmes_lti_frequency_check->bind_int(2, p->second);
+                    if (SQL->wmes_lti_frequency_check->execute(soar_module::op_reinit) != soar_module::row)
+                    {
+                        SQL->wmes_lti_frequency_add->bind_int(1, p->first);
+                        SQL->wmes_lti_frequency_add->bind_int(2, p->second);
+                        SQL->wmes_lti_frequency_add->execute(soar_module::op_reinit);
+                    }
+                    else
+                    {
+                        // adjust count (adjustment, attribute_s_id, lti)
+                        SQL->wmes_lti_frequency_update->bind_int(1, 1);
+                        SQL->wmes_lti_frequency_update->bind_int(2, p->first);
+                        SQL->wmes_lti_frequency_update->bind_int(3, p->second);
+                        SQL->wmes_lti_frequency_update->execute(soar_module::op_reinit);
+                    }
+                }
+            }
+        }
+
+        // update attribute count
+        {
+            for (std::set< smem_hash_id >::iterator a = attr_new.begin(); a != attr_new.end(); a++)
+            {
+                // check if counter exists (and add if does not): attribute_s_id
+                SQL->attribute_frequency_check->bind_int(1, *a);
+                if (SQL->attribute_frequency_check->execute(soar_module::op_reinit) != soar_module::row)
+                {
+                    SQL->attribute_frequency_add->bind_int(1, *a);
+                    SQL->attribute_frequency_add->execute(soar_module::op_reinit);
+                }
+                else
+                {
+                    // adjust count (adjustment, attribute_s_id)
+                    SQL->attribute_frequency_update->bind_int(1, 1);
+                    SQL->attribute_frequency_update->bind_int(2, *a);
+                    SQL->attribute_frequency_update->execute(soar_module::op_reinit);
+                }
+            }
+        }
+
+        // update local edge count
+        {
+            statistics->edges->set_value(statistics->edges->get_value() + (const_new.size() + lti_new.size()));
+        }
+    }
+}
+
+
 /* This function now requires that all LTI IDs are set up beforehand */
 
 void SMem_Manager::LTM_to_DB(uint64_t pLTI_ID, ltm_slot_map* children, bool remove_old_children, bool activate, smem_storage_type store_type)
