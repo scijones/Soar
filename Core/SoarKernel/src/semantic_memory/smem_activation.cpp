@@ -396,9 +396,9 @@ void SMem_Manager::child_spread(uint64_t lti_id, std::map<uint64_t, std::list<st
                 {
                     epmem_db_path = thisAgent->EpMem->epmem_params->path->get_value();
                 }
-                sql_to_execute = "ATTACH DATABASE ";
+                sql_to_execute = "ATTACH DATABASE '";
                 sql_to_execute+= epmem_db_path;
-                sql_to_execute+= " AS epmem_db";
+                sql_to_execute+= "' AS epmem_db";
                 bool result = thisAgent->SMem->DB->sql_execute(sql_to_execute.c_str());
                 assert(result);
             }

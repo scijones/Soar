@@ -77,7 +77,7 @@ class SMem_Manager
         void        set_id_counter(uint64_t counter_value);
 
         /*like ltm to db, but for epmem to add edges*/
-        void        EpMem_to_DB(uint64_t pLTI_ID, uint64_t child);
+        void        EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight);
 
 
         /* Methods for creating an instance of a LTM using STIs */

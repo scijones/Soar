@@ -999,7 +999,7 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index_now (w_id INTEGER PRIMARY KEY, start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_temp (w_id INTEGER PRIMARY KEY, time_id INTEGER, start_episode_id INTEGER)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_just_added (w_id INTEGER PRIMARY KEY)");
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_relations_just_added (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_relations_just_added (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_potential_interval_updates (w_id_left INTEGER, w_id_right INTEGER, time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, finished_right BOOLEAN)");//Make this include some form of time data as well (to help provide update magnitude).
 }
 
@@ -1017,7 +1017,7 @@ void epmem_graph_statement_container::create_graph_indices()
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_potential_update_grouping ON epmem_potential_interval_updates (w_id_left) WHERE finished_right=1");
 
-    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_new_relations AFTER INSERT ON epmem_interval_relations FOR EACH ROW BEGIN INSERT INTO epmem_relations_just_added (w_id_left, w_id_right, relation) VALUES (NEW.w_id_left, NEW.w_id_right, NEW.relation); END");
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_new_relations AFTER INSERT ON epmem_interval_relations FOR EACH ROW BEGIN INSERT INTO epmem_relations_just_added (w_id_left, w_id_right, relation, weight) VALUES (NEW.w_id_left, NEW.w_id_right, NEW.relation, NEW.weight); END");//needs weight
 
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_now AFTER INSERT ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_index_now (w_id,start_episode_id) VALUES (NEW.w_id,NEW.start_episode_id); END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_to_temp AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_temp (w_id,time_id,start_episode_id) VALUES (NEW.w_id,NEW.time_id,NEW.start_episode_id); END");
@@ -1182,14 +1182,22 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     //We also need a query or trigger before this that, for all of the finished_right=TRUE elements calculates the weight update for that pair of time_ids
     //may instead keep a time id characterization in ram (left, middle, right -> weight)-map and instead of time_ids, keep interval bounds explicitly (as they are already integers).
 
-    make_adds_into_ltis = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_db.smem_lti (lti_id, total_augmentations, activation_base_level, activations_total, activations_last, activations_first, activation_spread, activation_value, lti_augmentations) SELECT (-ja.w_id,0,0,0,0,0,0,0,0) FROM epmem_wmes_just_added ja");
+    /*The below can't be initialized here and then called by the usual "prepare" loop because it won't always be the case that smem_db exists. Instead, these must be initialized when smem_db is attached.*/
+
+    make_adds_into_ltis = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_db.smem_lti (lti_id, total_augmentations, activation_base_level, activations_total, activations_last, activations_first, activation_spread, activation_value, lti_augmentations) SELECT -ja.w_id,0,0,0,0,0,0,0,0 FROM epmem_wmes_just_added ja");
     add(make_adds_into_ltis);//I don't know if negative lti_ids will break everything, but if they don't, it's a very easy way to give epmem a special space of lti numbers.
 
-    select_new_relations = new soar_module::sqlite_statement(new_db, "SELECT w_id_left FROM epmem_relations_just_added");
+
+    update_smem_edges = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=ir.weight FROM "
+            "smem_augmentations sa INNER JOIN epmem_interval_relations ir INNER JOIN epmem_potential_interval_updates iu ON sa.lti_id=-ir.w_id_left AND sa.value_lti_id=-ir.w_id_right AND iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right WHERE iu.finished_right AND sa.lti_id=smem_augmentations.lti_id AND sa.value_lti_id=smem_augmentations.value_lti_id");
+    add(update_smem_edges);//updates all of the changed edge weights within the smem store.
+
+
+    select_new_relations = new soar_module::sqlite_statement(new_db, "SELECT w_id_left, w_id_right, weight FROM epmem_relations_just_added");
     add(select_new_relations);
 
     delete_brand_new_relation_adds = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_relations_just_added");
-    add(delete_brand_new_adds);
+    add(delete_brand_new_relation_adds);
 
     delete_brand_new_adds = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_just_added");
     add(delete_brand_new_adds);
@@ -2115,6 +2123,70 @@ void epmem_switch_db_mode(agent* thisAgent, std::string& buf, bool readonly)
 //////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 
+void epmem_attach_smem(agent* thisAgent)
+{
+
+
+    if (!thisAgent->EpMem->smem_connected && thisAgent->EpMem->epmem_params->smem_surprise->get_value() == on)
+    {
+        thisAgent->SMem->attach();//if smem not initialized, this will do it.
+        //This is where we actually have epmem connect to the smem database
+        {
+            std::string sql_to_execute;
+            std::string path_str;
+            const char* smem_db_path;
+            if (thisAgent->SMem->settings->database->get_value() == smem_param_container::memory)
+            {
+                path_str = "smem_";
+                path_str.append(thisAgent->name);
+                path_str.append("_db");
+                smem_db_path = path_str.c_str();
+            }
+            else
+            {
+                smem_db_path = thisAgent->SMem->settings->path->get_value();
+            }
+            sql_to_execute = "ATTACH DATABASE '";
+            sql_to_execute+= smem_db_path;
+            sql_to_execute+= "' AS smem_db";
+            //bool result = thisAgent->EpMem->epmem_db->sql_execute(sql_to_execute.c_str());
+            soar_module::sqlite_statement* test_attach = new soar_module::sqlite_statement(thisAgent->EpMem->epmem_db,sql_to_execute.c_str());
+            test_attach->prepare();
+            test_attach->execute();
+            test_attach->reinitialize();
+            delete test_attach;
+            soar_module::sqlite_statement* test_it_works = new soar_module::sqlite_statement(thisAgent->EpMem->epmem_db, "SELECT * FROM smem_db.sqlite_master WHERE type='table'");
+            test_it_works->prepare();
+            bool whatever = false;
+            while(test_it_works->execute() == soar_module::row)
+            {
+                std::string what_is_it = test_it_works->column_text(0);
+                whatever= true;
+            }
+            assert(whatever);
+            test_it_works->reinitialize();
+            delete test_it_works;
+        }
+        thisAgent->EpMem->smem_connected = true;
+
+        /*make_adds_into_ltis = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_db.smem_lti (lti_id, total_augmentations, activation_base_level, activations_total, activations_last, activations_first, activation_spread, activation_value, lti_augmentations) SELECT (-ja.w_id,0,0,0,0,0,0,0,0) FROM epmem_wmes_just_added ja");
+    add(make_adds_into_ltis);//I don't know if negative lti_ids will break everything, but if they don't, it's a very easy way to give epmem a special space of lti numbers.
+
+
+    update_smem_edges = new soar_module::sqlite_statement(new_db,"UPDATE smem_db.smem_augmentations AS sa SET sa.edge_weight=ir.weight FROM "
+            "sa INNER JOIN epmem_interval_relations ir INNER JOIN epmem_potential_interval_updates iu ON sa.lti_id=-ir.w_id_left AND sa.value_lti_id=-ir.w_id_right AND iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right WHERE iu.finished_right");
+    add(update_smem_edges);//updates all of the changed edge weights within the smem store.*/
+       /* thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis = new soar_module::sqlite_statement(thisAgent->EpMem->epmem_db, "INSERT INTO smem_db.smem_lti (lti_id, total_augmentations, activation_base_level, activations_total, activations_last, activations_first, activation_spread, activation_value, lti_augmentations) SELECT (-ja.w_id,0,0,0,0,0,0,0,0) FROM epmem_wmes_just_added ja");
+        thisAgent->EpMem->epmem_stmts_graph->add(thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis);
+        thisAgent->EpMem->epmem_stmts_graph->update_smem_edges = new soar_module::sqlite_statement(thisAgent->EpMem->epmem_db,"UPDATE smem_db.smem_augmentations AS sa SET sa.edge_weight=ir.weight FROM "
+                "sa INNER JOIN epmem_interval_relations ir INNER JOIN epmem_potential_interval_updates iu ON sa.lti_id=-ir.w_id_left AND sa.value_lti_id=-ir.w_id_right AND iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right WHERE iu.finished_right");
+        thisAgent->EpMem->epmem_stmts_graph->add(thisAgent->EpMem->epmem_stmts_graph->update_smem_edges);
+        thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->prepare();
+        thisAgent->EpMem->epmem_stmts_graph->update_smem_edges->prepare();*/
+    }
+}
+
+
 /***************************************************************************
  * Function     : epmem_init_db
  * Author       : Nate Derbinsky
@@ -2317,6 +2389,7 @@ void epmem_init_db(agent* thisAgent, bool readonly)
         // setup common structures/queries
         thisAgent->EpMem->epmem_stmts_common = new epmem_common_statement_container(thisAgent);
         thisAgent->EpMem->epmem_stmts_common->structure();
+        epmem_attach_smem(thisAgent);
         thisAgent->EpMem->epmem_stmts_common->prepare();
 
         {
@@ -2706,37 +2779,7 @@ double epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_
     return bla_before;
 }
 
-void epmem_attach_smem(agent* thisAgent)
-{
-    if (!thisAgent->EpMem->smem_connected && thisAgent->EpMem->epmem_params->smem_surprise->get_value() == on)
-    {
-        thisAgent->SMem->attach();//if smem not initialized, this will do it.
-        //This is where we actually have epmem connect to the smem database
-        {
-            std::string sql_to_execute;
-            std::string path_str;
-            const char* smem_db_path;
-            if (thisAgent->SMem->settings->database->get_value() == smem_param_container::memory)
-            {
-                path_str = "smem_";
-                path_str.append(thisAgent->name);
-                path_str.append("_db");
-                smem_db_path = path_str.c_str();
-            }
-            else
-            {
-                smem_db_path = thisAgent->SMem->settings->path->get_value();
-            }
-            sql_to_execute = "ATTACH DATABASE ";
-            sql_to_execute+= smem_db_path;
-            sql_to_execute+= " AS smem_db";
-            bool result = thisAgent->EpMem->epmem_db->sql_execute(sql_to_execute.c_str());
-            assert(result);
 
-        }
-        thisAgent->EpMem->smem_connected = true;
-    }
-}
 
 double epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id parent_id, epmem_hash_id attribute_id, epmem_node_id triple_id, bool is_a_float)
 {//The way this function works is you get as input the time at which the new thing just showed up, and the new thing, just like epmem_surprise_bla, but here, we instead look into the database to see what
@@ -2810,6 +2853,7 @@ void epmem_update_spread(agent* thisAgent)
     //epmem_wmes_index_now is the table that should serve as the "context" for doing spread.
     //Since surprise is calcuated every cycle, don't need to try efficiency from never processing things that go in and then out. instead, worth processing w.r.t. all changes.
     epmem_attach_smem(thisAgent);
+//
 
     //make a newbies table when things are added to the epmem index, but have yet to be moved to smem
     //make a new relations table when relations are added to epmem relations, but have yet to be moved to smem.
@@ -2837,11 +2881,16 @@ void epmem_update_spread(agent* thisAgent)
     {//for each new relation, add that relation and invalidate spread that came from the left of that relation
         uint64_t existing_edges = 0;
         uint64_t existing_lti_edges = 0;
-        thisAgent->SMem->EpMem_to_DB(-thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0), -thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(1));//just doing each relation
+        //need to make sure this function is timed such that the *weights* have been updated before this happens.
+        thisAgent->SMem->EpMem_to_DB(-thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0), -thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(1),thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(2));//just doing each relation
         thisAgent->SMem->invalidate_from_lti(-thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0));
     }
     thisAgent->EpMem->epmem_stmts_graph->select_new_relations->reinitialize();
     thisAgent->EpMem->epmem_stmts_graph->delete_brand_new_relation_adds->execute(soar_module::op_reinit);
+    //here, put the join update that makes the smem augmentations weights equal to the weights from epmem.
+    //requires that "finish_updates" *not* happen *before* this.
+    thisAgent->EpMem->epmem_stmts_graph->update_smem_edges->execute(soar_module::op_reinit);//This should make it so that smem now will do spread over "nexts" that came from epmem.
+
 
     //the below would be easier to do by directly manipulating the smem structures than by reusing the code and faking intermediate ltms.
 //    //the slots should be the new relations. -- pull rows again.
@@ -4185,6 +4234,7 @@ void epmem_new_episode(agent* thisAgent)
             //todo -- this is the place to update edge weights.
 
             epmem_update_spread(thisAgent);
+            //epmem_update_spread is written such that "finish_updates" needs to happen after, not before.
 
 
             thisAgent->EpMem->epmem_stmts_graph->finish_updates->execute(soar_module::op_reinit);

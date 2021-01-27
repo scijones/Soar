@@ -180,7 +180,7 @@ void SMem_Manager::disconnect_ltm(uint64_t pLTI_ID, std::map<uint64_t, uint64_t>
     }
 }
 
-void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child)
+void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
 {
     std::map<uint64_t, uint64_t>* old_children = NULL;
     std::map<uint64_t, int64_t>* new_children = NULL;
@@ -224,15 +224,23 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child)
 
         smem_hash_id attr_hash = 0;
         smem_hash_id value_hash = 0;
-        uint64_t value_lti = 0;
+        uint64_t value_lti = child;
 
 
-            attr_hash = ;//hash for "before"
+            attr_hash = hash_str("before", true);//hash for "before"
             {
                 SQL->web_lti_child->bind_int(1, pLTI_ID);
-                                       SQL->web_lti_child->bind_int(2, attr_hash);
-                                       SQL->web_lti_child->bind_int(3, value_lti);
-    }
+                SQL->web_lti_child->bind_int(2, attr_hash);
+                SQL->web_lti_child->bind_int(3, value_lti);
+                if (SQL->web_lti_child->execute(soar_module::op_reinit) != soar_module::row)
+                {
+                    lti_new.insert(std::make_pair(attr_hash, value_lti));
+                    if (new_children != NULL)
+                    {
+                        //count_child_connection(new_children, value_lti);
+                    }
+                }
+            }
 
 
     // activation function assumes proper thresholding state
@@ -367,6 +375,10 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child)
             statistics->edges->set_value(statistics->edges->get_value() + (const_new.size() + lti_new.size()));
         }
     }
+    //the function that falls this should have already invalidated the lti for the sake of spread, so this weight change here is fine.
+    //web_update_child_edge = new soar_module::sqlite_statement(new_db, "UPDATE smem_augmentations SET edge_weight = ? WHERE lti_id = ? AND value_constant_s_id = " SMEM_AUGMENTATIONS_NULL_STR " AND value_lti_id = ?");
+        //SQL->web_update_child_edge->
+    //scratch that -- want to do this as one giant table-based update.
 }
 
 
