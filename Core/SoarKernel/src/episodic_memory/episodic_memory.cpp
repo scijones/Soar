@@ -1017,7 +1017,7 @@ void epmem_graph_statement_container::create_graph_indices()
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_potential_update_grouping ON epmem_potential_interval_updates (w_id_left) WHERE finished_right=1");
 
-    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_new_relations AFTER INSERT ON epmem_interval_relations FOR EACH ROW BEGIN INSERT INTO epmem_relations_just_added (w_id_left, w_id_right, relation, weight) VALUES (NEW.w_id_left, NEW.w_id_right, NEW.relation, NEW.weight); END");//needs weight
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_new_relations AFTER INSERT ON epmem_interval_relations FOR EACH ROW BEGIN INSERT INTO epmem_relations_just_added (w_id_left, w_id_right, relation, weight) VALUES (NEW.w_id_left, NEW.w_id_right, NEW.relation, NEW.weight_norm); END");//needs weight
 
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_now AFTER INSERT ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_index_now (w_id,start_episode_id) VALUES (NEW.w_id,NEW.start_episode_id); END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_to_temp AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_temp (w_id,time_id,start_episode_id) VALUES (NEW.w_id,NEW.time_id,NEW.start_episode_id); END");
@@ -1188,7 +1188,7 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add(make_adds_into_ltis);//I don't know if negative lti_ids will break everything, but if they don't, it's a very easy way to give epmem a special space of lti numbers.
 
 
-    update_smem_edges = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=ir.weight FROM "
+    update_smem_edges = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=ir.weight_norm FROM "
             "smem_augmentations sa INNER JOIN epmem_interval_relations ir INNER JOIN epmem_potential_interval_updates iu ON sa.lti_id=-ir.w_id_left AND sa.value_lti_id=-ir.w_id_right AND iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right WHERE iu.finished_right AND sa.lti_id=smem_augmentations.lti_id AND sa.value_lti_id=smem_augmentations.value_lti_id");
     add(update_smem_edges);//updates all of the changed edge weights within the smem store.
 
@@ -2881,8 +2881,10 @@ void epmem_update_spread(agent* thisAgent)
     {//for each new relation, add that relation and invalidate spread that came from the left of that relation
         uint64_t existing_edges = 0;
         uint64_t existing_lti_edges = 0;
-        //need to make sure this function is timed such that the *weights* have been updated before this happens.
+        //need to make sure this function is timed such that the *weights* have been updated before this happens. %need to make sure this initial addition is the weight_norm. also need to make later updating use the weight_norm.
         thisAgent->SMem->EpMem_to_DB(-thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0), -thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(1),thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(2));//just doing each relation
+        //todo one way to make the above line more efficient is to take each sql statement used inside that function and instead of looping here, do them as a batch table-level change. need to check whether some modifications require line-by-line calculation, but likely not necessary, or can merely loop over *ONLY* those.
+        //first glance says it's doable -- basically requires using SUM and maybe boolean logic, (I think sqlite lets that), in a few places.
         thisAgent->SMem->invalidate_from_lti(-thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0));
     }
     thisAgent->EpMem->epmem_stmts_graph->select_new_relations->reinitialize();
@@ -3617,7 +3619,7 @@ void epmem_new_episode(agent* thisAgent)
                     assert(res == soar_module::row);
                     byte sym_type = static_cast<byte>(thisAgent->EpMem->epmem_stmts_common->hash_get_type->column_int(0));
                     thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
-                    double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.                    //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
+                    /* todo Don't actually do surprise here. do altogether at end of cycle, but before weight updates. */ //double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.                    //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
@@ -3672,7 +3674,7 @@ void epmem_new_episode(agent* thisAgent)
                 thisAgent->EpMem->total_wme_changes++;
 
                 //This is where to add surprise.
-                double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, false, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.
+                /* todo Don't actually do surprise here. do altogether at end of cycle, but before weight updates. */ //double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, false, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.
                 //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
@@ -3826,7 +3828,7 @@ void epmem_new_episode(agent* thisAgent)
                                     was_nothing = false;
                                     //thisAgent->EpMem->val_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = delta_it->second.second;
                                     thisAgent->EpMem->change_at_last_change[std::pair<int64_t,int64_t>(parent_hash, attr_hash)] = change > 0.0;
-                                    double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, parent_hash, attr_hash, f_id, true);//Often, a float is really just a change in an existing value, for which I treat calculation of surprise as qualitatively distinct from noncontinuous constant types.
+                                    /* todo Don't actually do surprise here. do altogether at end of cycle, but before weight updates. */ //double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, parent_hash, attr_hash, f_id, true);//Often, a float is really just a change in an existing value, for which I treat calculation of surprise as qualitatively distinct from noncontinuous constant types.
                                     //We add the new id to the float_now table
                                     thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(1,f_id);
                                     thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(2,time_counter);
@@ -4112,7 +4114,7 @@ void epmem_new_episode(agent* thisAgent)
                             thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes->execute(soar_module::op_reinit);
                         }
 
-                        double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, parent_hash, attr_hash, f_id, true);
+                        /* todo Don't actually do surprise here. do altogether at end of cycle, but before weight updates. */ //double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, parent_hash, attr_hash, f_id, true);
 
                         thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(1,f_id);
                         thisAgent->EpMem->epmem_stmts_graph->add_epmem_wmes_float_now->bind_int(2,time_counter);
@@ -4219,6 +4221,13 @@ void epmem_new_episode(agent* thisAgent)
             }
             thisAgent->EpMem->epmem_edge_removals->clear();
         }
+        //The following block of code calculates the surprise for the things that happened this cycle based on what the weights were before. It's a post-hoc "how unexpected was that given what I knew" surprise using smem spread.
+        {// Let's say there's a maximum of 1 unit of surprise for an unaccounted for transition. This means that something altogether unexpected doesn't have infinite surprise, but O(size-of-context) surprise.
+            //First things first, need the collection of things for which there is to be a calculation of surprise -- things that showed up this cycle.
+
+
+        }
+        // The next block of code updates the weights based on what happened this cycle.
         {//Now that the additions and then removals are done, we can update the relation strengths (right now only "before" relations)
             //the logic -- for everything that we do a positive update for, do a negative update for the things that don't show up -- basically copying the existing smem code for this
             //we have a log of the timeids and w_ids for updates to do

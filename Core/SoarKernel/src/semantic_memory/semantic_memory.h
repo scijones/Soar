@@ -200,7 +200,7 @@ class SMem_Manager
 
         /* Methods for supporting spreading activation */
         void child_spread(uint64_t lti_id, std::map<uint64_t, std::list<std::pair<uint64_t,double>>*>& lti_trajectories, int depth);
-        void trajectory_construction(uint64_t lti_id, std::map<uint64_t, std::list<std::pair<uint64_t, double>>*>& lti_trajectories, int depth, bool initial);
+        void trajectory_construction(uint64_t lti_id, std::map<uint64_t, std::list<std::pair<uint64_t, double>>*>& lti_trajectories, int depth = 0, bool initial = false);
         //void calc_likelihoods_for_trajectories(uint64_t lti_id);
         inline soar_module::sqlite_statement* setup_manual_web_crawl(smem_weighted_cue_element* el, uint64_t lti_id);
         //void calc_spread(std::set<uint64_t>* current_candidates, bool do_manual_crawl, smem_weighted_cue_list::iterator* cand_set=NULL);

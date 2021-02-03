@@ -182,12 +182,7 @@ void SMem_Manager::disconnect_ltm(uint64_t pLTI_ID, std::map<uint64_t, uint64_t>
 
 void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
 {
-    std::map<uint64_t, uint64_t>* old_children = NULL;
-    std::map<uint64_t, int64_t>* new_children = NULL;
-    if (settings->spreading->get_value() == on)
-    {
-        new_children = new std::map<uint64_t, int64_t>();
-    }
+
     // if remove children, disconnect ltm -> no existing edges
     // else, need to query number of existing edges
     uint64_t existing_edges = 0;
@@ -213,7 +208,6 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
     // get new edges
     // if didn't disconnect, entails lookups in existing edges
     std::set<smem_hash_id> attr_new;
-    std::set< std::pair<smem_hash_id, smem_hash_id> > const_new;
     std::set< std::pair<smem_hash_id, uint64_t> > lti_new;
     bool ever_updated_edge_weight = false;
     bool added_edges = false;
@@ -226,7 +220,7 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
         smem_hash_id value_hash = 0;
         uint64_t value_lti = child;
 
-
+//It's like the LTM_to_DB case where you have a single child_lti and you want to append, not replace.
             attr_hash = hash_str("before", true);//hash for "before"
             {
                 SQL->web_lti_child->bind_int(1, pLTI_ID);
@@ -235,10 +229,6 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
                 if (SQL->web_lti_child->execute(soar_module::op_reinit) != soar_module::row)
                 {
                     lti_new.insert(std::make_pair(attr_hash, value_lti));
-                    if (new_children != NULL)
-                    {
-                        //count_child_connection(new_children, value_lti);
-                    }
                 }
             }
 
@@ -251,7 +241,7 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
     // 4. before=after, after=after: good (activation won't touch smem_augmentations)
     //
     // hence, we detect + handle case #2 here
-    uint64_t new_edges = (existing_edges + const_new.size() + lti_new.size());
+    uint64_t new_edges = (existing_edges + lti_new.size());
     uint64_t new_lti_edges = existing_lti_edges + lti_new.size();
     bool after_above;
     double web_act = static_cast<double>(SMEM_ACT_LOW);
@@ -309,20 +299,7 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
                     SQL->web_add->bind_int(3, SMEM_AUGMENTATIONS_NULL);
                     SQL->web_add->bind_int(4, p->second);
                     SQL->web_add->bind_double(5, web_act);
-                    if (ever_updated_edge_weight && edge_weights.find(p->second) != edge_weights.end())
-                    {
-                        /*
-                         * This will currently silently fail if the user doesn't supply all of the edge weights
-                         *  that they should. Some will be initialized to fan and others will not.
-                         *  The first round of normalization will "fix" this, in that things won't "break",
-                         *  but the values will be different than what the user presumably intended.
-                         */
-                        SQL->web_add->bind_double(6, edge_weights[p->second]);
-                    }
-                    else
-                    {
-                        SQL->web_add->bind_double(6, 1.0/((double)new_lti_edges));
-                    }
+                        SQL->web_add->bind_double(6, weight);
                     SQL->web_add->execute(soar_module::op_reinit);
                 }
 
@@ -372,7 +349,7 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
 
         // update local edge count
         {
-            statistics->edges->set_value(statistics->edges->get_value() + (const_new.size() + lti_new.size()));
+            statistics->edges->set_value(statistics->edges->get_value() + ( lti_new.size()));
         }
     }
     //the function that falls this should have already invalidated the lti for the sake of spread, so this weight change here is fine.

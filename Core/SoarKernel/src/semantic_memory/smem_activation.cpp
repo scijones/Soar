@@ -554,7 +554,7 @@ void SMem_Manager::child_spread(uint64_t lti_id, std::map<uint64_t, std::list<st
     }
 }
 
-void SMem_Manager::trajectory_construction(uint64_t lti_id, std::map<uint64_t, std::list<std::pair<uint64_t, double>>*>& lti_trajectories, int depth = 0, bool initial = false)
+void SMem_Manager::trajectory_construction(uint64_t lti_id, std::map<uint64_t, std::list<std::pair<uint64_t, double>>*>& lti_trajectories, int depth, bool initial)
 {
     //If this isn't the initial formation of the trajectories for this lti, we should get rid of the old trajectory
     if (!initial)
