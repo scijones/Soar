@@ -64,6 +64,7 @@ class smem_param_container: public soar_module::param_container
         soar_module::boolean_param* base_inhibition;
         soar_module::decimal_param* inhibition_scale;
         soar_module::decimal_param* inhibition_decay;
+        soar_module::decimal_param* noise_magnitude;
 
         void print_settings(agent* thisAgent);
         void print_summary(agent* thisAgent);

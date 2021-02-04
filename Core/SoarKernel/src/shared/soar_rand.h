@@ -485,6 +485,9 @@ EXPORT uint32_t SoarRandInt();
 // integer in [0,n] for n < 2^32
 EXPORT uint32_t SoarRandInt(const uint32_t& max);
 
+// real number from normal distribution
+EXPORT double SoarRandNorm(const double& mean, const double& stddev);
+
 // automatically seed with a value based on the time or /dev/urandom
 EXPORT void SoarSeedRNG();
 

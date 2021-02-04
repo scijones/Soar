@@ -26,6 +26,12 @@ uint32_t SoarRandInt(const uint32_t& max)
     return gSoarRand.randInt(max);
 }
 
+// real number from normal distribution
+double SoarRandNorm(const double& mean, const double& stddev)
+{
+    return gSoarRand.randNorm(mean, stddev);
+}
+
 
 // automatically seed with a value based on the time or /dev/urandom
 void SoarSeedRNG()

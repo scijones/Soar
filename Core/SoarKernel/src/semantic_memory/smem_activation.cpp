@@ -13,6 +13,7 @@
 #include "smem_timers.h"
 #include "working_memory_activation.h"
 #include "working_memory.h"
+#include "soar_rand.h"
 
 double SMem_Manager::lti_calc_base(uint64_t pLTI_ID, int64_t time_now, uint64_t n, uint64_t activations_first)
 {
@@ -1328,7 +1329,16 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                     ////////////////////////////////////////////////////////////////////////////
                     SQL->act_lti_fake_set->bind_double(1, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
                     SQL->act_lti_fake_set->bind_double(2, spread);
-                    SQL->act_lti_fake_set->bind_double(3, modified_spread+ new_base);
+                    double noise_mean = 0;
+                    double noise_stddeviation = settings->noise_magnitude->get_value();//should get the value from a command parameter.
+                    if (noise_stddeviation <= 0.000001)
+                    {
+                        SQL->act_lti_fake_set->bind_double(3, modified_spread+ new_base);
+                    }
+                    else
+                    {
+                        SQL->act_lti_fake_set->bind_double(3, modified_spread+ new_base +SoarRandNorm(noise_mean, noise_stddeviation));
+                    }
                     SQL->act_lti_fake_set->bind_int(4, *candidate);
                     SQL->act_lti_fake_set->execute(soar_module::op_reinit);
                     ////////////////////////////////////////////////////////////////////////////
@@ -1343,7 +1353,16 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                     SQL->act_lti_fake_insert->bind_int(1, *candidate);
                     SQL->act_lti_fake_insert->bind_double(2, ((static_cast<double>(prev_base)==0) ? (SMEM_ACT_LOW):(prev_base)));
                     SQL->act_lti_fake_insert->bind_double(3, spread);
-                    SQL->act_lti_fake_insert->bind_double(4, modified_spread+ new_base);
+                    double noise_mean = 0;
+                    double noise_stddeviation = settings->noise_magnitude->get_value();//should get the value from a command parameter.
+                    if (noise_stddeviation <= 0.000001)
+                    {
+                        SQL->act_lti_fake_insert->bind_double(4, modified_spread+ new_base );
+                    }
+                    else
+                    {
+                        SQL->act_lti_fake_insert->bind_double(4, modified_spread+ new_base + SoarRandNorm(noise_mean, noise_stddeviation));
+                    }
                     SQL->act_lti_fake_insert->execute(soar_module::op_reinit);
 
                     //In order to prevent the activation from the augmentations table from coming into play after this has been given spread, we set the augmentations bla to be smemactlow
