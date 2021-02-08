@@ -310,6 +310,7 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
         soar_module::sqlite_statement* select_removed_nows;
         soar_module::sqlite_statement* delete_removed_nows;
         soar_module::sqlite_statement* select_new_nows;
+        soar_module::sqlite_statement* count_old_nows;
         soar_module::sqlite_statement* select_updates;
         soar_module::sqlite_statement* select_new_relations;
         soar_module::sqlite_statement* update_smem_edges;

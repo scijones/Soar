@@ -1173,6 +1173,9 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     select_new_nows = new soar_module::sqlite_statement(new_db, "SELECT w_id FROM epmem_wmes_index_now WHERE start_episode_id=?");
     add(select_new_nows);
 
+    count_old_nows = new soar_module::sqlite_statement(new_db, "SELECT COUNT(*) FROM epmem_wmes_index_now WHERE start_episode_id<?");
+    add(count_old_nows);
+
     get_interval_time = new soar_module::sqlite_statement(new_db, "SELECT time_id FROM epmem_times WHERE start_episode_id=? AND end_episode_id=?");
     add(get_interval_time);
 
@@ -1224,8 +1227,8 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add(update_interval_data); //I'm gonna make an in-memory map between those things which are current in "now" tables and their existing interval_ids.
     //also going to make an in-memory map that is updated each cycle that associates this-cycle-used time intervals with their time_ids (so that they don't need to be looked up each instance during a cycle, since many elements with share time_ids).
 
-    update_interval_surprise = new soar_module::sqlite_statement(new_db, "UPDATE epmem_intervals SET surprise=? WHERE interval_id=?");//can instead make into a select from now with start_id=actually_just_now joined with smem spread.
-    add(update_interval_surprise);//basically, an update from join between "now" and smem spread."UPDATE epmem_intervals SET surprise=sa.
+    update_interval_surprise = new soar_module::sqlite_statement(new_db, "UPDATE epmem_intervals SET surprise=(1.0-(sc.kinda_spread/?)) FROM (SELECT sum(num_appearances_i_j/num_appearances) AS kinda_spread, lti_id smem_current_spread GROUP BY lti_id) AS sc WHERE epmem_intervals.w_id=sc.lti_id");//"UPDATE epmem_intervals SET surprise=? WHERE interval_id=?");//can instead make into a select from now with start_id=actually_just_now joined with smem spread.
+    add(update_interval_surprise);//basically, an update from join between "now" and smem spread.
     //probably want to transform data that's within the smem_current_spread table because it has the raw numbers used in any spread calculation without the weirdness.
 
 
@@ -2793,7 +2796,7 @@ double epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_
 double epmem_surprise_hebbian_batch(agent* thisAgent)
 {
     //using the current contents of smem's spreading, updates the surprise of epmem_intervals.
-
+    return 0.0;
 }
 
 double epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id parent_id, epmem_hash_id attribute_id, epmem_node_id triple_id, bool is_a_float)
@@ -4257,7 +4260,13 @@ void epmem_new_episode(agent* thisAgent)
             thisAgent->SMem->calc_spread(&current_candidates,do_manual_crawl);
 
             //Now that spread has been calculated, we want to association something like "1-spread" to the newly-added elements.
-            epmem_surprise_hebbian_batch(thisAgent);
+            //epmem_surprise_hebbian_batch(thisAgent);
+            thisAgent->EpMem->epmem_stmts_graph->count_old_nows->bind_int(1,(time_counter - 1));
+            uint64_t total_number_of_sources = thisAgent->EpMem->epmem_stmts_graph->count_old_nows->column_int(0);
+            thisAgent->EpMem->epmem_stmts_graph->count_old_nows->reinitialize();
+
+            thisAgent->EpMem->epmem_stmts_graph->update_interval_surprise->bind_int(1,total_number_of_sources);//size of the now table before this cycle's additions.
+            thisAgent->EpMem->epmem_stmts_graph->update_interval_surprise->execute(soar_module::op_reinit);
 
 
 
