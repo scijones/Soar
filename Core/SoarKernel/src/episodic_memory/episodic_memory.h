@@ -307,7 +307,9 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
         soar_module::sqlite_statement* insert_potential_before_relations;
         soar_module::sqlite_statement* update_unobserved_before_relations;
         soar_module::sqlite_statement* update_observed_before_relations;
+        soar_module::sqlite_statement* select_removed_nows;
         soar_module::sqlite_statement* delete_removed_nows;
+        soar_module::sqlite_statement* select_new_nows;
         soar_module::sqlite_statement* select_updates;
         soar_module::sqlite_statement* select_new_relations;
         soar_module::sqlite_statement* update_smem_edges;
@@ -322,6 +324,7 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
         soar_module::sqlite_statement* get_interval_time;
         soar_module::sqlite_statement* add_interval_data;
         soar_module::sqlite_statement* update_interval_data;
+        soar_module::sqlite_statement* update_interval_surprise;
         soar_module::sqlite_statement* find_now_interval;
 
         //

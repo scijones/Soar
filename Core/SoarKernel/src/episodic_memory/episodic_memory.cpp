@@ -1021,7 +1021,7 @@ void epmem_graph_statement_container::create_graph_indices()
 
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_now AFTER INSERT ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_index_now (w_id,start_episode_id) VALUES (NEW.w_id,NEW.start_episode_id); END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_to_temp AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_temp (w_id,time_id,start_episode_id) VALUES (NEW.w_id,NEW.time_id,NEW.start_episode_id); END");
-    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_from_now AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN DELETE FROM epmem_wmes_index_now WHERE epmem_wmes_index_now.w_id=OLD.w_id; END");
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_from_now AFTER UPDATE OF time_id ON epmem_intervals FOR EACH ROW BEGIN DELETE FROM epmem_wmes_index_now WHERE epmem_wmes_index_now.w_id=OLD.w_id; END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_find_weight_updates AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN UPDATE epmem_potential_interval_updates SET finished_right=1,time_id_right=NEW.time_id WHERE w_id_right=OLD.w_id AND finished_right=0; END");
     //when these triggers have fired and after the addition/removal loops of epmem processing at the end of the DC, there will now be a table of the contents of the intervals that have ended and a table of the things those could have before-relations to.
     //cartesian product is the thing we want from that.
@@ -1164,8 +1164,14 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
             "(epmem_interval_relations r INNER JOIN epmem_wmes_temp t ON r.w_id_left=t.w_id LEFT JOIN epmem_wmes_index_now n ON n.w_id=r.w_id_right) WHERE n.w_id IS NULL");//(epmem_interval_relations r LEFT JOIN epmem_wmes_temp t ON r.w_id_left=t.w_id) WHERE t.w_id IS NULL");
     add(update_unobserved_before_relations);//The logic on this update is to look for relations with left_w_ids that just finished (are in temp), but without corresponding right_w_ids in now.
 
+    select_removed_nows = new soar_module::sqlite_statement(new_db, "SELECT w_id FROM epmem_wmes_temp");
+    add(select_removed_nows);
+
     delete_removed_nows = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_temp");
     add(delete_removed_nows);
+
+    select_new_nows = new soar_module::sqlite_statement(new_db, "SELECT w_id FROM epmem_wmes_index_now WHERE start_episode_id=?");
+    add(select_new_nows);
 
     get_interval_time = new soar_module::sqlite_statement(new_db, "SELECT time_id FROM epmem_times WHERE start_episode_id=? AND end_episode_id=?");
     add(get_interval_time);
@@ -1217,6 +1223,11 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     update_interval_data = new soar_module::sqlite_statement(new_db, "UPDATE epmem_intervals SET time_id=?,is_now=0 WHERE interval_id=?");
     add(update_interval_data); //I'm gonna make an in-memory map between those things which are current in "now" tables and their existing interval_ids.
     //also going to make an in-memory map that is updated each cycle that associates this-cycle-used time intervals with their time_ids (so that they don't need to be looked up each instance during a cycle, since many elements with share time_ids).
+
+    update_interval_surprise = new soar_module::sqlite_statement(new_db, "UPDATE epmem_intervals SET surprise=? WHERE interval_id=?");//can instead make into a select from now with start_id=actually_just_now joined with smem spread.
+    add(update_interval_surprise);//basically, an update from join between "now" and smem spread."UPDATE epmem_intervals SET surprise=sa.
+    //probably want to transform data that's within the smem_current_spread table because it has the raw numbers used in any spread calculation without the weirdness.
+
 
     add_node = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_nodes (n_id,lti_id) VALUES (?,?)");
     add(add_node);
@@ -2779,7 +2790,11 @@ double epmem_surprise_bla(agent* thisAgent, epmem_time_id time_counter, bool is_
     return bla_before;
 }
 
+double epmem_surprise_hebbian_batch(agent* thisAgent)
+{
+    //using the current contents of smem's spreading, updates the surprise of epmem_intervals.
 
+}
 
 double epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool is_a_constant, epmem_node_id parent_id, epmem_hash_id attribute_id, epmem_node_id triple_id, bool is_a_float)
 {//The way this function works is you get as input the time at which the new thing just showed up, and the new thing, just like epmem_surprise_bla, but here, we instead look into the database to see what
@@ -2843,6 +2858,10 @@ double epmem_surprise_hebbian(agent* thisAgent, epmem_time_id time_counter, bool
 //How do we keep track of what all was the "previous now" without including in that the "just-this-cycle-added" nows?
     //answer -- select from now based on !=startthiscycle.
     //basically, do an insert or ignore fingerprint for all things added to "now",
+
+    //I'm going to have a value between 0 and 1 for surprise. maximum surprise is when nothing could have predicted what happened. (post-hoc)
+    //minimum surprise is when everything pointed to exactly 1 and only 1 potential successor that happened.
+    //basically, this thing here updates the surprise values in the table by interpreting the spread values.
 
     return .77;
 
@@ -3621,7 +3640,7 @@ void epmem_new_episode(agent* thisAgent)
                     thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
                     /* todo Don't actually do surprise here. do altogether at end of cycle, but before weight updates. */ //double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.                    //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
-                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
+                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,-1.0);//surprise value
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,sym_type);//w_id from master index comes from the type and the type-specific id. The query handles it.
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,(*temp_node));
@@ -3677,7 +3696,7 @@ void epmem_new_episode(agent* thisAgent)
                 /* todo Don't actually do surprise here. do altogether at end of cycle, but before weight updates. */ //double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, false, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.
                 //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
-                thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
+                thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,-1.0);//surprise value
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,IDENTIFIER_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,(*temp_node));
@@ -3837,7 +3856,7 @@ void epmem_new_episode(agent* thisAgent)
 
                                     //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
-                                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
+                                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,-1.0);//surprise value
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,FLOAT_CONSTANT_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,f_id);
@@ -4131,7 +4150,7 @@ void epmem_new_episode(agent* thisAgent)
 
                         //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
-                        thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,temp_surprise);//surprise value
+                        thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,-1.0);//surprise value
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,FLOAT_CONSTANT_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,f_id);
@@ -4225,6 +4244,42 @@ void epmem_new_episode(agent* thisAgent)
         {// Let's say there's a maximum of 1 unit of surprise for an unaccounted for transition. This means that something altogether unexpected doesn't have infinite surprise, but O(size-of-context) surprise.
             //First things first, need the collection of things for which there is to be a calculation of surprise -- things that showed up this cycle.
 
+            std::set<uint64_t> current_candidates;//need to populate with things that showed up this cycle. (the targets for spread from sources that were things present last cycle).
+            bool do_manual_crawl = false;
+            //for each row in the now table that has a start_episode id equal to right actually now.
+            thisAgent->EpMem->epmem_stmts_graph->select_new_nows->bind_int(1,(time_counter - 1));//could make more efficient by tracking them in the cpp code here. doing this for now for simplicity.
+            while (thisAgent->EpMem->epmem_stmts_graph->select_new_nows->execute() == soar_module::row)
+            {
+                current_candidates.insert(thisAgent->EpMem->epmem_stmts_graph->select_new_nows->column_int(0));
+            }
+            thisAgent->EpMem->epmem_stmts_graph->select_new_nows->reinitialize();
+
+            thisAgent->SMem->calc_spread(&current_candidates,do_manual_crawl);
+
+            //Now that spread has been calculated, we want to association something like "1-spread" to the newly-added elements.
+            epmem_surprise_hebbian_batch(thisAgent);
+
+
+
+            //to add to smem_context_additions, we select from the "now" table in epmem those which have a start_episode_id equal to the current time index within epmem. (they started this cycle)
+            //to add to smem_context_removals, we select from the "epmem_wmes_temp" table -- things that were just stopped, and so are no longer now.
+            //BUT, we only do this AFTER spread because things that were present last cycle are suitable for doing this spread.
+            //so, the calculation of spread here uses last cycle's smem_context_removals and smem_context_additions. We accomplish this by updating after we call calc_spread.
+
+            //for each row in the now table that has a start episode id equal to right actually now.
+            thisAgent->EpMem->epmem_stmts_graph->select_new_nows->bind_int(1,(time_counter - 1));//could make more efficient by tracking them in the cpp code here. doing this for now for simplicity.
+            while (thisAgent->EpMem->epmem_stmts_graph->select_new_nows->execute() == soar_module::row)
+            {
+                thisAgent->SMem->smem_context_additions->insert(thisAgent->EpMem->epmem_stmts_graph->select_new_nows->column_int(0));
+            }
+            thisAgent->EpMem->epmem_stmts_graph->select_new_nows->reinitialize();
+
+            //now we can add removals:
+            //for each row in the epmem_wmes_temp table.
+            while (thisAgent->EpMem->epmem_stmts_graph->select_removed_nows->execute() == soar_module::row)
+            {
+                thisAgent->SMem->smem_context_removals->insert(thisAgent->EpMem->epmem_stmts_graph->select_removed_nows->column_int(0));// Currently a set of unsigned ints. need to recheck code //TODO everywhere! for ltis being forced into unsigned, since I'm using signed ones now. (half of almost infinity is almostish infinity -- hoping 64 bits hold out).
+            }
 
         }
         // The next block of code updates the weights based on what happened this cycle.
