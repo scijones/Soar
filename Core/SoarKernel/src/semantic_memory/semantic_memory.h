@@ -113,8 +113,8 @@ class SMem_Manager
         smem_update_map* smem_edges_to_update;
         bool        epmem_connected;
 
-        smem_param_container*           settings;//can fix and make this back to private later.
-
+        smem_param_container*           settings;//can fix and make this back to private later.//todo
+        uint64_t        add_new_LTI();//same -- want epmem to have access.//todo
     private:
 
         agent*                          thisAgent;
@@ -159,7 +159,6 @@ class SMem_Manager
         Symbol*         rhash_(byte symbol_type, smem_hash_id hash_value);
 
         /* Methods for LTIs */
-        uint64_t        add_new_LTI();
         uint64_t        add_specific_LTI(uint64_t lti_id);
         void            get_lti_name(uint64_t pLTI_ID, std::string &lti_name) { lti_name.append("@");  lti_name.append(std::to_string(pLTI_ID)); }
         uint64_t        get_max_lti_id();

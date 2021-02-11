@@ -1001,11 +1001,13 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_just_added (w_id INTEGER PRIMARY KEY)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_relations_just_added (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_potential_interval_updates (w_id_left INTEGER, w_id_right INTEGER, time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, finished_right BOOLEAN)");//Make this include some form of time data as well (to help provide update magnitude).
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_w_id_to_lti_id (w_id INTEGER, lti_id INTEGER, PRIMARY KEY(w_id,lti_id)) WITHOUT ROWID");//the lti identity for any interval associated with w_id.
 }
 
 void epmem_graph_statement_container::create_graph_indices()
 {//todo organize in two ways -- by the table(s) referenced and by the aspect of memory, the functionality they support
     add_structure("CREATE INDEX IF NOT EXISTS epmem_wmes_index_now_time_id ON epmem_wmes_index_now (start_episode_id DESC, w_id)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_w_id_to_lti_index ON epmem_w_id_to_lti_id (lti_id,w_id)");
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_w_id_now ON epmem_intervals (is_now,w_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_interval_relations_left_right ON epmem_interval_relations (w_id_left,w_id_right)");//, relation, weight)");//when adding more relations, this should only be unique per relation type.
@@ -1020,7 +1022,7 @@ void epmem_graph_statement_container::create_graph_indices()
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_new_relations AFTER INSERT ON epmem_interval_relations FOR EACH ROW BEGIN INSERT INTO epmem_relations_just_added (w_id_left, w_id_right, relation, weight) VALUES (NEW.w_id_left, NEW.w_id_right, NEW.relation, NEW.weight_norm); END");//needs weight
 
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_insert_add_to_now AFTER INSERT ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_index_now (w_id,start_episode_id) VALUES (NEW.w_id,NEW.start_episode_id); END");
-    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_to_temp AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_temp (w_id,time_id,start_episode_id) VALUES (NEW.w_id,NEW.time_id,NEW.start_episode_id); END");
+    add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_to_temp AFTER UPDATE OF time_id ON epmem_intervals FOR EACH ROW BEGIN INSERT INTO epmem_wmes_temp (w_id,time_id,start_episode_id) VALUES (NEW.w_id,NEW.time_id,NEW.start_episode_id); END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_move_from_now AFTER UPDATE OF time_id ON epmem_intervals FOR EACH ROW BEGIN DELETE FROM epmem_wmes_index_now WHERE epmem_wmes_index_now.w_id=OLD.w_id; END");
     add_structure("CREATE TRIGGER IF NOT EXISTS epmem_on_update_find_weight_updates AFTER UPDATE ON epmem_intervals FOR EACH ROW BEGIN UPDATE epmem_potential_interval_updates SET finished_right=1,time_id_right=NEW.time_id WHERE w_id_right=OLD.w_id AND finished_right=0; END");
     //when these triggers have fired and after the addition/removal loops of epmem processing at the end of the DC, there will now be a table of the contents of the intervals that have ended and a table of the things those could have before-relations to.
@@ -1164,13 +1166,13 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
             "(epmem_interval_relations r INNER JOIN epmem_wmes_temp t ON r.w_id_left=t.w_id LEFT JOIN epmem_wmes_index_now n ON n.w_id=r.w_id_right) WHERE n.w_id IS NULL");//(epmem_interval_relations r LEFT JOIN epmem_wmes_temp t ON r.w_id_left=t.w_id) WHERE t.w_id IS NULL");
     add(update_unobserved_before_relations);//The logic on this update is to look for relations with left_w_ids that just finished (are in temp), but without corresponding right_w_ids in now.
 
-    select_removed_nows = new soar_module::sqlite_statement(new_db, "SELECT w_id FROM epmem_wmes_temp");
+    select_removed_nows = new soar_module::sqlite_statement(new_db, "SELECT wl.lti_id FROM epmem_wmes_temp t INNER JOIN epmem_w_id_to_lti_id wl ON t.w_id=wl.w_id");//needs to be the lti_id.
     add(select_removed_nows);
 
     delete_removed_nows = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_wmes_temp");
     add(delete_removed_nows);
 
-    select_new_nows = new soar_module::sqlite_statement(new_db, "SELECT w_id FROM epmem_wmes_index_now WHERE start_episode_id=?");
+    select_new_nows = new soar_module::sqlite_statement(new_db, "SELECT wl.lti_id FROM epmem_wmes_index_now i INNER JOIN epmem_w_id_to_lti_id wl ON i.w_id=wl.w_id WHERE start_episode_id=?");//needs to be the lti_id
     add(select_new_nows);
 
     count_old_nows = new soar_module::sqlite_statement(new_db, "SELECT COUNT(*) FROM epmem_wmes_index_now WHERE start_episode_id<?");
@@ -1193,17 +1195,20 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
 
     /*The below can't be initialized here and then called by the usual "prepare" loop because it won't always be the case that smem_db exists. Instead, these must be initialized when smem_db is attached.*/
 
-    make_adds_into_ltis = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_db.smem_lti (lti_id, total_augmentations, activation_base_level, activations_total, activations_last, activations_first, activation_spread, activation_value, lti_augmentations) SELECT -ja.w_id,0,0,0,0,0,0,0,0 FROM epmem_wmes_just_added ja");
+    //make_adds_into_ltis = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_db.smem_lti (lti_id, total_augmentations, activation_base_level, activations_total, activations_last, activations_first, activation_spread, activation_value, lti_augmentations) SELECT -ja.w_id,0,0,0,0,0,0,0,0 FROM epmem_wmes_just_added ja");
+    make_adds_into_ltis = new soar_module::sqlite_statement(new_db, "SELECT w_id FROM epmem_wmes_just_added");
     add(make_adds_into_ltis);//I don't know if negative lti_ids will break everything, but if they don't, it's a very easy way to give epmem a special space of lti numbers.
 
+    record_lti_id_for_w_id = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_w_id_to_lti_id (w_id, lti_id) VALUES (?,?)");
+    add(record_lti_id_for_w_id);
 
     update_smem_edges = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=ir.weight_norm FROM "
-            "smem_augmentations sa INNER JOIN epmem_interval_relations ir INNER JOIN epmem_potential_interval_updates iu ON sa.lti_id=-ir.w_id_left AND sa.value_lti_id=-ir.w_id_right AND iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right WHERE iu.finished_right AND sa.lti_id=smem_augmentations.lti_id AND sa.value_lti_id=smem_augmentations.value_lti_id");
-    add(update_smem_edges);//updates all of the changed edge weights within the smem store.
+            "smem_augmentations sa INNER JOIN epmem_interval_relations ir INNER JOIN epmem_potential_interval_updates iu INNER JOIN epmem_w_id_to_lti_id wl INNER JOIN epmem_w_id_to_lti_id wll ON sa.lti_id=wl.lti_id AND wl.lti_id=ir.w_id_left AND sa.value_lti_id=wll.lti_id AND wll.lti_id=ir.w_id_right AND iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right WHERE iu.finished_right AND sa.lti_id=smem_augmentations.lti_id AND sa.value_lti_id=smem_augmentations.value_lti_id");
+    add(update_smem_edges);//updates all of the changed edge weights within the smem store.//udpated to use the lti_id_stored in the epmem_w_id_to_lti table.
 
 
-    select_new_relations = new soar_module::sqlite_statement(new_db, "SELECT w_id_left, w_id_right, weight FROM epmem_relations_just_added");
-    add(select_new_relations);
+    select_new_relations = new soar_module::sqlite_statement(new_db, "SELECT left_lti.lti_id, right_lti.lti_id, ja.weight FROM epmem_relations_just_added ja INNER JOIN epmem_w_id_to_lti_id left_lti INNER JOIN epmem_w_id_to_lti_id right_lti ON left_lti.w_id=ja.w_id_left AND right_lti.w_id=ja.w_id_right");
+    add(select_new_relations);//since the point of this one is to later insert the relevant edge into the smem database, it should now return the lti_ids instead of the w_ids.
 
     delete_brand_new_relation_adds = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_relations_just_added");
     add(delete_brand_new_relation_adds);
@@ -1227,7 +1232,7 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add(update_interval_data); //I'm gonna make an in-memory map between those things which are current in "now" tables and their existing interval_ids.
     //also going to make an in-memory map that is updated each cycle that associates this-cycle-used time intervals with their time_ids (so that they don't need to be looked up each instance during a cycle, since many elements with share time_ids).
 
-    update_interval_surprise = new soar_module::sqlite_statement(new_db, "UPDATE epmem_intervals SET surprise=(1.0-(sc.kinda_spread/?)) FROM (SELECT sum(num_appearances_i_j/num_appearances) AS kinda_spread, lti_id smem_current_spread GROUP BY lti_id) AS sc WHERE epmem_intervals.w_id=sc.lti_id");//"UPDATE epmem_intervals SET surprise=? WHERE interval_id=?");//can instead make into a select from now with start_id=actually_just_now joined with smem spread.
+    update_interval_surprise = new soar_module::sqlite_statement(new_db, "UPDATE epmem_intervals SET surprise=(1.0-(1.0*sc.kinda_spread/(?*1.0))) FROM epmem_w_id_to_lti_id AS wl INNER JOIN (SELECT sum(num_appearances_i_j/num_appearances) AS kinda_spread, lti_id FROM smem_current_spread GROUP BY lti_id) AS sc ON sc.lti_id=wl.lti_id WHERE epmem_intervals.w_id=wl.w_id");//"UPDATE epmem_intervals SET surprise=? WHERE interval_id=?");//can instead make into a select from now with start_id=actually_just_now joined with smem spread.
     add(update_interval_surprise);//basically, an update from join between "now" and smem spread.
     //probably want to transform data that's within the smem_current_spread table because it has the raw numbers used in any spread calculation without the weirdness.
 
@@ -2896,7 +2901,20 @@ void epmem_update_spread(agent* thisAgent)
 //        //add_specific_LTI((*c_new)->lti_id);//don't loop, can just call for each row in table, given that it's all lti_add and no logic.
 //    }
 
-    thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->execute(soar_module::op_reinit);//take the newly-added wmemgraph elements and make them into ltis
+    //thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->execute(soar_module::op_reinit);//take the newly-added wmemgraph elements and make them into ltis
+    //doing it the slow way for now -- going to loop through the adds, add ltis, get those ltis, make a table of epmem_id and lti_id because they are two different address spaces.
+    uint64_t epmem_w_id = 0;
+    uint64_t smem_lti_for_w_id = 0;
+    while (thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->execute() == soar_module::row)
+    {
+        epmem_w_id = thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->column_int(0);
+        smem_lti_for_w_id = thisAgent->SMem->add_new_LTI();
+        //Now that I have a w_id and some lti, I can add the pair to a table in epmem that keeps track of which ltis are associated with which w_ids. //todo: I have no idea how I'm going to juggle epmem ids with ltis associated with them.
+        thisAgent->EpMem->epmem_stmts_graph->record_lti_id_for_w_id->bind_int(1,epmem_w_id);
+        thisAgent->EpMem->epmem_stmts_graph->record_lti_id_for_w_id->bind_int(2,smem_lti_for_w_id);
+        thisAgent->EpMem->epmem_stmts_graph->record_lti_id_for_w_id->execute(soar_module::op_reinit);
+    }
+    thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->reinitialize();
     thisAgent->EpMem->epmem_stmts_graph->delete_brand_new_adds->execute(soar_module::op_reinit);//delete the temp table that kept track of them.
 
     while (thisAgent->EpMem->epmem_stmts_graph->select_new_relations->execute() == soar_module::row)
@@ -2904,10 +2922,10 @@ void epmem_update_spread(agent* thisAgent)
         uint64_t existing_edges = 0;
         uint64_t existing_lti_edges = 0;
         //need to make sure this function is timed such that the *weights* have been updated before this happens. %need to make sure this initial addition is the weight_norm. also need to make later updating use the weight_norm.
-        thisAgent->SMem->EpMem_to_DB(-thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0), -thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(1),thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(2));//just doing each relation
+        thisAgent->SMem->EpMem_to_DB(thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0), thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(1),thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(2));//just doing each relation
         //todo one way to make the above line more efficient is to take each sql statement used inside that function and instead of looping here, do them as a batch table-level change. need to check whether some modifications require line-by-line calculation, but likely not necessary, or can merely loop over *ONLY* those.
         //first glance says it's doable -- basically requires using SUM and maybe boolean logic, (I think sqlite lets that), in a few places.
-        thisAgent->SMem->invalidate_from_lti(-thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0));
+        thisAgent->SMem->invalidate_from_lti(thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0));
     }
     thisAgent->EpMem->epmem_stmts_graph->select_new_relations->reinitialize();
     thisAgent->EpMem->epmem_stmts_graph->delete_brand_new_relation_adds->execute(soar_module::op_reinit);
@@ -4250,7 +4268,7 @@ void epmem_new_episode(agent* thisAgent)
             std::set<uint64_t> current_candidates;//need to populate with things that showed up this cycle. (the targets for spread from sources that were things present last cycle).
             bool do_manual_crawl = false;
             //for each row in the now table that has a start_episode id equal to right actually now.
-            thisAgent->EpMem->epmem_stmts_graph->select_new_nows->bind_int(1,(time_counter - 1));//could make more efficient by tracking them in the cpp code here. doing this for now for simplicity.
+            thisAgent->EpMem->epmem_stmts_graph->select_new_nows->bind_int(1,(time_counter));//could make more efficient by tracking them in the cpp code here. doing this for now for simplicity.
             while (thisAgent->EpMem->epmem_stmts_graph->select_new_nows->execute() == soar_module::row)
             {
                 current_candidates.insert(thisAgent->EpMem->epmem_stmts_graph->select_new_nows->column_int(0));
@@ -4261,13 +4279,14 @@ void epmem_new_episode(agent* thisAgent)
 
             //Now that spread has been calculated, we want to association something like "1-spread" to the newly-added elements.
             //epmem_surprise_hebbian_batch(thisAgent);
-            thisAgent->EpMem->epmem_stmts_graph->count_old_nows->bind_int(1,(time_counter - 1));
+            thisAgent->EpMem->epmem_stmts_graph->count_old_nows->bind_int(1,(time_counter));
+            thisAgent->EpMem->epmem_stmts_graph->count_old_nows->execute();
             uint64_t total_number_of_sources = thisAgent->EpMem->epmem_stmts_graph->count_old_nows->column_int(0);
             thisAgent->EpMem->epmem_stmts_graph->count_old_nows->reinitialize();
 
-            thisAgent->EpMem->epmem_stmts_graph->update_interval_surprise->bind_int(1,total_number_of_sources);//size of the now table before this cycle's additions.
+            thisAgent->EpMem->epmem_stmts_graph->update_interval_surprise->bind_double(1,static_cast<double>(total_number_of_sources));//size of the now table before this cycle's additions.
             thisAgent->EpMem->epmem_stmts_graph->update_interval_surprise->execute(soar_module::op_reinit);
-
+//UPDATE epmem_intervals SET surprise=(1.0-(sc.kinda_spread/?)) FROM epmem_w_id_to_lti_id AS wl INNER JOIN (SELECT sum(num_appearances_i_j/num_appearances) AS kinda_spread, lti_id FROM smem_current_spread GROUP BY lti_id) AS sc ON sc.lti_id=wl.lti_id WHERE epmem_intervals.w_id=wl.w_id");
 
 
             //to add to smem_context_additions, we select from the "now" table in epmem those which have a start_episode_id equal to the current time index within epmem. (they started this cycle)
@@ -4276,8 +4295,8 @@ void epmem_new_episode(agent* thisAgent)
             //so, the calculation of spread here uses last cycle's smem_context_removals and smem_context_additions. We accomplish this by updating after we call calc_spread.
 
             //for each row in the now table that has a start episode id equal to right actually now.
-            thisAgent->EpMem->epmem_stmts_graph->select_new_nows->bind_int(1,(time_counter - 1));//could make more efficient by tracking them in the cpp code here. doing this for now for simplicity.
-            while (thisAgent->EpMem->epmem_stmts_graph->select_new_nows->execute() == soar_module::row)
+            thisAgent->EpMem->epmem_stmts_graph->select_new_nows->bind_int(1,(time_counter));//could make more efficient by tracking them in the cpp code here. doing this for now for simplicity.
+            while (thisAgent->EpMem->epmem_stmts_graph->select_new_nows->execute() == soar_module::row)//the only way this is correct is if the nows that only just stopped aren't yet removed. (they arne't until the next code block).
             {
                 thisAgent->SMem->smem_context_additions->insert(thisAgent->EpMem->epmem_stmts_graph->select_new_nows->column_int(0));
             }
