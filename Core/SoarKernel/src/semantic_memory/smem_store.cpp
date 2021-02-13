@@ -219,7 +219,7 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
         smem_hash_id attr_hash = 0;
         smem_hash_id value_hash = 0;
         uint64_t value_lti = child;
-
+        thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_2_1->start();
 //It's like the LTM_to_DB case where you have a single child_lti and you want to append, not replace.
             attr_hash = hash_str("before", true);//hash for "before"
             {
@@ -283,7 +283,7 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
         SQL->prohibit_add->execute(soar_module::op_reinit);
     }
 
-
+    thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_2_1->stop();
 
     // insert new edges, update counters
 
@@ -291,6 +291,8 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
         {
             for (std::set< std::pair< smem_hash_id, uint64_t > >::iterator p = lti_new.begin(); p != lti_new.end(); p++)
             {
+
+
                 // insert
                 {
                     // lti_id, attribute_s_id, val_const, value_lti_id, activation_value
@@ -302,6 +304,8 @@ void SMem_Manager::EpMem_to_DB(uint64_t pLTI_ID, uint64_t child, double weight)
                         SQL->web_add->bind_double(6, weight);
                     SQL->web_add->execute(soar_module::op_reinit);
                 }
+
+
 
                 // update counter
                 {

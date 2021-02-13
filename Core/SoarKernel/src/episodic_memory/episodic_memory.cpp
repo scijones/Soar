@@ -751,6 +751,42 @@ epmem_timer_container::epmem_timer_container(agent* new_agent): soar_module::tim
 
     // three
 
+    storage_store_levels = new epmem_timer("epmem_storage_store_levels", thisAgent, soar_module::timer::three);
+    add(storage_store_levels);
+    storage_insert_constants = new epmem_timer("epmem_storage_insert_constants", thisAgent, soar_module::timer::three);
+    add(storage_insert_constants);
+    storage_insert_ids = new epmem_timer("epmem_storage_insert_ids", thisAgent, soar_module::timer::three);
+    add(storage_insert_ids);
+    storage_remove_constants = new epmem_timer("epmem_storage_remove_constants", thisAgent, soar_module::timer::three);
+    add(storage_remove_constants);
+    storage_remove_ids = new epmem_timer("epmem_storage_remove_ids", thisAgent, soar_module::timer::three);
+    add(storage_remove_ids);
+    storage_do_surprise = new epmem_timer("epmem_storage_do_surprise", thisAgent, soar_module::timer::three);
+    add(storage_do_surprise);
+    storage_do_edge_updates = new epmem_timer("epmem_storage_do_edge_updates", thisAgent, soar_module::timer::three);
+    add(storage_do_edge_updates);
+    storage_do_edge_updates_1 = new epmem_timer("epmem_storage_do_edge_updates_1", thisAgent, soar_module::timer::three);
+    add(storage_do_edge_updates_1);
+    storage_do_edge_updates_2 = new epmem_timer("epmem_storage_do_edge_updates_2", thisAgent, soar_module::timer::three);
+    add(storage_do_edge_updates_2);
+    storage_do_edge_updates_3 = new epmem_timer("epmem_storage_do_edge_updates_3", thisAgent, soar_module::timer::three);
+    add(storage_do_edge_updates_3);
+    storage_do_edge_updates_4 = new epmem_timer("epmem_storage_do_edge_updates_4", thisAgent, soar_module::timer::three);
+    add(storage_do_edge_updates_4);
+    storage_do_edge_updates_4_1 = new epmem_timer("epmem_storage_do_edge_updates_4_1", thisAgent, soar_module::timer::three);
+        add(storage_do_edge_updates_4_1);
+        storage_do_edge_updates_4_2 = new epmem_timer("epmem_storage_do_edge_updates_4_2", thisAgent, soar_module::timer::three);
+            add(storage_do_edge_updates_4_2);
+            storage_do_edge_updates_4_3 = new epmem_timer("epmem_storage_do_edge_updates_4_3", thisAgent, soar_module::timer::three);
+                add(storage_do_edge_updates_4_3);
+
+    storage_do_edge_updates_5 = new epmem_timer("epmem_storage_do_edge_updates_5", thisAgent, soar_module::timer::three);
+    add(storage_do_edge_updates_5);
+    storage_do_edge_updates_6 = new epmem_timer("epmem_storage_do_edge_updates_6", thisAgent, soar_module::timer::three);
+    add(storage_do_edge_updates_6);
+    storage_do_edge_updates_4_2_1 = new epmem_timer("epmem_storage_do_edge_updates_4_2_1", thisAgent, soar_module::timer::three);
+                add(storage_do_edge_updates_4_2_1);
+
     ncb_edge = new epmem_timer("ncb_edge", thisAgent, soar_module::timer::three);
     add(ncb_edge);
 
@@ -1202,8 +1238,9 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     record_lti_id_for_w_id = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_w_id_to_lti_id (w_id, lti_id) VALUES (?,?)");
     add(record_lti_id_for_w_id);
 
+    //todo: is slow because sa version of smem_augmentations doesn't index properly within the join -- needs
     update_smem_edges = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=ir.weight_norm FROM "
-            "smem_augmentations sa INNER JOIN epmem_interval_relations ir INNER JOIN epmem_potential_interval_updates iu INNER JOIN epmem_w_id_to_lti_id wl INNER JOIN epmem_w_id_to_lti_id wll ON sa.lti_id=wl.lti_id AND wl.lti_id=ir.w_id_left AND sa.value_lti_id=wll.lti_id AND wll.lti_id=ir.w_id_right AND iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right WHERE iu.finished_right AND sa.lti_id=smem_augmentations.lti_id AND sa.value_lti_id=smem_augmentations.value_lti_id");
+            "smem_augmentations sa INNER JOIN epmem_interval_relations ir INNER JOIN epmem_potential_interval_updates iu INNER JOIN epmem_w_id_to_lti_id wl INNER JOIN epmem_w_id_to_lti_id wll ON sa.lti_id=wl.lti_id AND wl.lti_id=ir.w_id_left AND sa.value_lti_id=wll.lti_id AND wll.lti_id=ir.w_id_right AND iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right AND sa.value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND iu.finished_right WHERE sa.lti_id=smem_augmentations.lti_id AND smem_augmentations.value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND sa.value_lti_id=smem_augmentations.value_lti_id");
     add(update_smem_edges);//updates all of the changed edge weights within the smem store.//udpated to use the lti_id_stored in the epmem_w_id_to_lti table.
 
 
@@ -2905,6 +2942,7 @@ void epmem_update_spread(agent* thisAgent)
     //doing it the slow way for now -- going to loop through the adds, add ltis, get those ltis, make a table of epmem_id and lti_id because they are two different address spaces.
     uint64_t epmem_w_id = 0;
     uint64_t smem_lti_for_w_id = 0;
+    thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_1->start();
     while (thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->execute() == soar_module::row)
     {
         epmem_w_id = thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->column_int(0);
@@ -2915,24 +2953,39 @@ void epmem_update_spread(agent* thisAgent)
         thisAgent->EpMem->epmem_stmts_graph->record_lti_id_for_w_id->execute(soar_module::op_reinit);
     }
     thisAgent->EpMem->epmem_stmts_graph->make_adds_into_ltis->reinitialize();
+    thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_1->stop();
     thisAgent->EpMem->epmem_stmts_graph->delete_brand_new_adds->execute(soar_module::op_reinit);//delete the temp table that kept track of them.
 
+    thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_2->start();
+    thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_2_1->start();
     while (thisAgent->EpMem->epmem_stmts_graph->select_new_relations->execute() == soar_module::row)
     {//for each new relation, add that relation and invalidate spread that came from the left of that relation
+        thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_2_1->stop();
         uint64_t existing_edges = 0;
         uint64_t existing_lti_edges = 0;
         //need to make sure this function is timed such that the *weights* have been updated before this happens. %need to make sure this initial addition is the weight_norm. also need to make later updating use the weight_norm.
+
+
         thisAgent->SMem->EpMem_to_DB(thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0), thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(1),thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(2));//just doing each relation
+
         //todo one way to make the above line more efficient is to take each sql statement used inside that function and instead of looping here, do them as a batch table-level change. need to check whether some modifications require line-by-line calculation, but likely not necessary, or can merely loop over *ONLY* those.
         //first glance says it's doable -- basically requires using SUM and maybe boolean logic, (I think sqlite lets that), in a few places.
-        thisAgent->SMem->invalidate_from_lti(thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0));
+        thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_2_1->start();
+        //thisAgent->SMem->invalidate_from_lti(thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0));
+        thisAgent->SMem->add_to_invalidate_from_lti_table(thisAgent->EpMem->epmem_stmts_graph->select_new_relations->column_int(0));
     }
     thisAgent->EpMem->epmem_stmts_graph->select_new_relations->reinitialize();
+    thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_2_1->stop();
+    thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_2->stop();
     thisAgent->EpMem->epmem_stmts_graph->delete_brand_new_relation_adds->execute(soar_module::op_reinit);
     //here, put the join update that makes the smem augmentations weights equal to the weights from epmem.
     //requires that "finish_updates" *not* happen *before* this.
-    thisAgent->EpMem->epmem_stmts_graph->update_smem_edges->execute(soar_module::op_reinit);//This should make it so that smem now will do spread over "nexts" that came from epmem.
-
+    thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_3->start();
+//        std::string err;
+//
+//        bool result = epmem_backup_db(thisAgent, "mid_process_error.db", &(err));
+    thisAgent->EpMem->epmem_stmts_graph->update_smem_edges->execute(soar_module::op_reinit);//This should make it so that smem now will do spread over "nexts" that came from epmem. //todo gets slow.
+    thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4_3->stop();
 
     //the below would be easier to do by directly manipulating the smem structures than by reusing the code and faking intermediate ltms.
 //    //the slots should be the new relations. -- pull rows again.
@@ -3565,6 +3618,7 @@ void epmem_new_episode(agent* thisAgent)
 		std::set<epmem_node_id> potential_delta_ids;
 		std::map<std::pair<bool,int64_t>,std::pair<int64_t,int64_t>> additions_epmem_id_to_parent_attr;
 
+		thisAgent->EpMem->epmem_timers->storage_store_levels->start();
         // walk appropriate levels
         {
             // prevents infinite loops
@@ -3609,7 +3663,7 @@ void epmem_new_episode(agent* thisAgent)
                 }
             }
         }
-
+        thisAgent->EpMem->epmem_timers->storage_store_levels->stop();
         // Before we process inserts, we need to initialize the data structure which keeps track of them
         EpMem_Id_Delta* some_delta = NIL;
         some_delta = new EpMem_Id_Delta(thisAgent);//may end up wrapping this in an "if" and using the nil as a check later.
@@ -3625,6 +3679,7 @@ void epmem_new_episode(agent* thisAgent)
             epmem_node_id* temp_node;
             int64_t* lti_id;
 
+            thisAgent->EpMem->epmem_timers->storage_insert_constants->start();
             // nodes
             while (!epmem_node.empty())
             {
@@ -3661,7 +3716,7 @@ void epmem_new_episode(agent* thisAgent)
                     thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
                     /* todo Don't actually do surprise here. do altogether at end of cycle, but before weight updates. */ //double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, true, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(false,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.                    //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
-                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,-1.0);//surprise value
+                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,1.0);//surprise value
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,sym_type);//w_id from master index comes from the type and the type-specific id. The query handles it.
                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,(*temp_node));
@@ -3683,7 +3738,9 @@ void epmem_new_episode(agent* thisAgent)
 
                 epmem_node.pop();
             }
+            thisAgent->EpMem->epmem_timers->storage_insert_constants->stop();
 
+            thisAgent->EpMem->epmem_timers->storage_insert_ids->start();
             // edges
             while (!epmem_edge.empty())
             {//For the identifiers that are lti instances and for which they previously were not stored with the lti metadata they currently possess,
@@ -3717,7 +3774,7 @@ void epmem_new_episode(agent* thisAgent)
                 /* todo Don't actually do surprise here. do altogether at end of cycle, but before weight updates. */ //double temp_surprise = epmem_surprise_hebbian(thisAgent, time_counter, false, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].first, additions_epmem_id_to_parent_attr[std::pair<bool,int64_t>(true,(*temp_node))].second, (*temp_node), false);// surprise for an identifier interval.
                 //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
-                thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,-1.0);//surprise value
+                thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,1.0);//surprise value
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,IDENTIFIER_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
                 thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,(*temp_node));
@@ -3738,6 +3795,7 @@ void epmem_new_episode(agent* thisAgent)
                 epmem_edge.pop();
             }
         }
+        thisAgent->EpMem->epmem_timers->storage_insert_ids->stop();
 
         // all removals
         {
@@ -3745,6 +3803,7 @@ void epmem_new_episode(agent* thisAgent)
             epmem_time_id range_start;
             epmem_time_id range_end;
 
+            thisAgent->EpMem->epmem_timers->storage_remove_constants->start();
             // wme's with constant values
             {
                 epmem_id_removal_map::iterator r;
@@ -3877,7 +3936,7 @@ void epmem_new_episode(agent* thisAgent)
 
                                     //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
-                                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,-1.0);//surprise value
+                                    thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,1.0);//surprise value
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,FLOAT_CONSTANT_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
                                     thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,f_id);
@@ -4171,7 +4230,7 @@ void epmem_new_episode(agent* thisAgent)
 
                         //armed with a surprise value and a freshly-started interval, we can insert a row into the epmem_intervals table.
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(1,now_interval_time_id);//time_id from time index
-                        thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,-1.0);//surprise value
+                        thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_double(2,1.0);//surprise value
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(3,time_counter);//start_time
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(4,FLOAT_CONSTANT_SYMBOL_TYPE);//w_id from master index comes from the type and the type-specific id. The query handles it.
                         thisAgent->EpMem->epmem_stmts_graph->add_interval_data->bind_int(5,f_id);
@@ -4183,7 +4242,9 @@ void epmem_new_episode(agent* thisAgent)
                     }
                 }
             }
+            thisAgent->EpMem->epmem_timers->storage_remove_constants->stop();
 
+            thisAgent->EpMem->epmem_timers->storage_remove_ids->start();
             // wme's with identifier values
             epmem_edge_removal_map::iterator r = thisAgent->EpMem->epmem_edge_removals->begin();
             while (r != thisAgent->EpMem->epmem_edge_removals->end())
@@ -4260,8 +4321,10 @@ void epmem_new_episode(agent* thisAgent)
                 r++;
             }
             thisAgent->EpMem->epmem_edge_removals->clear();
+            thisAgent->EpMem->epmem_timers->storage_remove_ids->stop();
         }
         //The following block of code calculates the surprise for the things that happened this cycle based on what the weights were before. It's a post-hoc "how unexpected was that given what I knew" surprise using smem spread.
+        thisAgent->EpMem->epmem_timers->storage_do_surprise->start();
         {// Let's say there's a maximum of 1 unit of surprise for an unaccounted for transition. This means that something altogether unexpected doesn't have infinite surprise, but O(size-of-context) surprise.
             //First things first, need the collection of things for which there is to be a calculation of surprise -- things that showed up this cycle.
 
@@ -4308,8 +4371,10 @@ void epmem_new_episode(agent* thisAgent)
             {
                 thisAgent->SMem->smem_context_removals->insert(thisAgent->EpMem->epmem_stmts_graph->select_removed_nows->column_int(0));// Currently a set of unsigned ints. need to recheck code //TODO everywhere! for ltis being forced into unsigned, since I'm using signed ones now. (half of almost infinity is almostish infinity -- hoping 64 bits hold out).
             }
-
+            thisAgent->EpMem->epmem_stmts_graph->select_removed_nows->reinitialize();
         }
+        thisAgent->EpMem->epmem_timers->storage_do_surprise->stop();
+        thisAgent->EpMem->epmem_timers->storage_do_edge_updates->start();//expensive//todo
         // The next block of code updates the weights based on what happened this cycle.
         {//Now that the additions and then removals are done, we can update the relation strengths (right now only "before" relations)
             //the logic -- for everything that we do a positive update for, do a negative update for the things that don't show up -- basically copying the existing smem code for this
@@ -4319,20 +4384,32 @@ void epmem_new_episode(agent* thisAgent)
             //for candidate "ands" in later reasoning that will want to make composite symbols, would help to keep track of "not together often, but when together, followed by y" as selective features.
             //when a given left element leaves, you know for sure which potential updates it has. when the right element leaves, you know for sure the update.
             //so, can immediately depreciate all that aren't potential, then mark as having done this (on first right element for a given left). then, for remaining left, just get to them eventually.
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_1->start();
             thisAgent->EpMem->epmem_stmts_graph->insert_potential_before_relations->execute(soar_module::op_reinit);
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_1->stop();
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_2->start();
             thisAgent->EpMem->epmem_stmts_graph->update_unobserved_before_relations->execute(soar_module::op_reinit);
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_2->stop();
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_3->start();
             thisAgent->EpMem->epmem_stmts_graph->update_observed_before_relations->execute(soar_module::op_reinit);
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_3->stop();
             //Before doing these deletes, could use these tables to update smem edges. (don't want to always update all edges, just those changed here.)
             //todo -- this is the place to update edge weights.
 
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4->start();
             epmem_update_spread(thisAgent);
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_4->stop();
             //epmem_update_spread is written such that "finish_updates" needs to happen after, not before.
 
-
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_5->start();
             thisAgent->EpMem->epmem_stmts_graph->finish_updates->execute(soar_module::op_reinit);
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_5->stop();
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_6->start();
             thisAgent->EpMem->epmem_stmts_graph->delete_removed_nows->execute(soar_module::op_reinit);
+            thisAgent->EpMem->epmem_timers->storage_do_edge_updates_6->stop();
             //importantly, the calculation of surprise before these updates depended on the state of metadata before these updates.
         }
+        thisAgent->EpMem->epmem_timers->storage_do_edge_updates->stop();
 
         // add the time id to the epmem_episodes table
         thisAgent->EpMem->epmem_stmts_graph->add_time->bind_int(1, time_counter);

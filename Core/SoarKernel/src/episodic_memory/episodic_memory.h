@@ -209,6 +209,23 @@ class epmem_timer_container: public soar_module::timer_container
     public:
         soar_module::timer* total;
         soar_module::timer* storage;
+        soar_module::timer* storage_store_levels;
+        soar_module::timer* storage_insert_constants;
+        soar_module::timer* storage_insert_ids;
+        soar_module::timer* storage_remove_constants;
+        soar_module::timer* storage_remove_ids;
+        soar_module::timer* storage_do_surprise;
+        soar_module::timer* storage_do_edge_updates;
+        soar_module::timer* storage_do_edge_updates_1;
+        soar_module::timer* storage_do_edge_updates_2;
+        soar_module::timer* storage_do_edge_updates_3;
+        soar_module::timer* storage_do_edge_updates_4;
+        soar_module::timer* storage_do_edge_updates_4_1;
+        soar_module::timer* storage_do_edge_updates_4_2;
+        soar_module::timer* storage_do_edge_updates_4_2_1;
+        soar_module::timer* storage_do_edge_updates_4_3;
+        soar_module::timer* storage_do_edge_updates_5;
+        soar_module::timer* storage_do_edge_updates_6;
         soar_module::timer* ncb_retrieval;
         soar_module::timer* query;
         soar_module::timer* api;

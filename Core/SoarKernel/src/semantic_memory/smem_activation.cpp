@@ -1457,7 +1457,9 @@ void SMem_Manager::add_to_invalidate_from_lti_table(uint64_t invalid_parent)
 
 void SMem_Manager::batch_invalidate_from_lti()
 {
-    if (SQL->trajectory_invalidation_check_for_rows->execute() == soar_module::row)
+    bool exist_rows = SQL->trajectory_invalidation_check_for_rows->execute() == soar_module::row;
+    SQL->trajectory_invalidation_check_for_rows->reinitialize();
+    if (exist_rows)
     {
         SQL->trajectory_invalidate_from_lti_table->execute(soar_module::op_reinit);
         SQL->trajectory_invalidate_from_lti_clear->execute(soar_module::op_reinit);
