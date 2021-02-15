@@ -112,6 +112,7 @@ void smem_statement_container::create_indices()
     add_structure("CREATE INDEX lti_t910 ON smem_likelihood_trajectories (lti_id, lti9) WHERE lti10=0");
     add_structure("CREATE INDEX lti_tid10 ON smem_likelihood_trajectories (lti_id, lti10) WHERE lti10!=0");
     add_structure("CREATE INDEX lti_source ON smem_uncommitted_spread (lti_source)");
+    add_structure("CREATE INDEX recipients ON smem_current_spread (lti_id)");
 }
 
 void smem_statement_container::drop_tables(agent* new_agent)
