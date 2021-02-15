@@ -1031,10 +1031,10 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index (w_id INTEGER PRIMARY KEY AUTOINCREMENT, type INTEGER, w_type_based_id)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_ascii (ascii_num INTEGER PRIMARY KEY, ascii_chr TEXT)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL, is_now BOOLEAN, start_episode_id INTEGER)");//An interval is something at a time, and it may be surprising.
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL, total REAL, weight_norm REAL)");//I have enums for the relation type.
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index_now (w_id INTEGER PRIMARY KEY, start_episode_id INTEGER)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_interval_relations (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL, total REAL, weight_norm REAL, PRIMARY KEY(w_id_left,w_id_right,relation)) WITHOUT ROWID");//I have enums for the relation type.
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_index_now (w_id INTEGER PRIMARY KEY, start_episode_id INTEGER) WITHOUT ROWID");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_temp (w_id INTEGER PRIMARY KEY, time_id INTEGER, start_episode_id INTEGER)");
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_just_added (w_id INTEGER PRIMARY KEY)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_wmes_just_added (w_id INTEGER PRIMARY KEY) WITHOUT ROWID");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_relations_just_added (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_potential_interval_updates (w_id_left INTEGER, w_id_right INTEGER, time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, finished_right BOOLEAN)");//Make this include some form of time data as well (to help provide update magnitude).
     add_structure("CREATE TABLE IF NOT EXISTS epmem_w_id_to_lti_id (w_id INTEGER, lti_id INTEGER, PRIMARY KEY(w_id,lti_id)) WITHOUT ROWID");//the lti identity for any interval associated with w_id.
@@ -1042,15 +1042,15 @@ void epmem_graph_statement_container::create_graph_tables()
 
 void epmem_graph_statement_container::create_graph_indices()
 {//todo organize in two ways -- by the table(s) referenced and by the aspect of memory, the functionality they support
-    add_structure("CREATE INDEX IF NOT EXISTS epmem_wmes_index_now_time_id ON epmem_wmes_index_now (start_episode_id DESC, w_id)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_index_now_time_id ON epmem_wmes_index_now (start_episode_id DESC, w_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_w_id_to_lti_index ON epmem_w_id_to_lti_id (lti_id,w_id)");
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_w_id_now ON epmem_intervals (is_now,w_id)");
-    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_interval_relations_left_right ON epmem_interval_relations (w_id_left,w_id_right)");//, relation, weight)");//when adding more relations, this should only be unique per relation type.
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_interval_relations_left_right ON epmem_interval_relations (w_id_left,w_id_right,relation,weight_norm)");//, relation, weight)");//when adding more relations, this should only be unique per relation type.
     add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_time ON epmem_intervals (time_id)");
     //add_structure("CREATE INDEX IF NOT EXISTS epmem_interval_relations_right_left ON epmem_interval_relations (w_id_right,w_id_left)");
 
-    add_structure("CREATE INDEX IF NOT EXISTS epmem_find_update_index ON epmem_potential_interval_updates (w_id_left,w_id_right,relation) WHERE finished_right");
+    add_structure("CREATE INDEX IF NOT EXISTS epmem_find_update_index ON epmem_potential_interval_updates (w_id_left,w_id_right,relation) WHERE finished_right=1");
     add_structure("CREATE INDEX IF NOT EXISTS epmem_update_hold_up ON epmem_potential_interval_updates (w_id_right) WHERE finished_right=0");
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_potential_update_grouping ON epmem_potential_interval_updates (w_id_left) WHERE finished_right=1");
@@ -1218,13 +1218,13 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add(get_interval_time);
 
     //so, this really becomes a different query //could do a bla-style thing (so that it's not all frequency) or even a maturation constant. would have boost on observation of a relation and time increment on observation of a left. could have a confidence/stickiness param. a million ways to go
-    select_updates = new soar_module::sqlite_statement(new_db, "SELECT * FROM epmem_potential_interval_updates WHERE finished_right ORDER BY w_id_left");
+    select_updates = new soar_module::sqlite_statement(new_db, "SELECT * FROM epmem_potential_interval_updates WHERE finished_right=1 ORDER BY w_id_left");
     add(select_updates);//when this is true, can calculate once per time_id pair the weight. also, can avoid doing a "select" and within the database update the weight and total counts.
     update_observed_before_relations = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_interval_relations (w_id_left,w_id_right,relation,weight,total, weight_norm) "
             "SELECT p.w_id_left, p.w_id_right, p.relation, "
             "(CAST((tr.start_episode_id-tl.start_episode_id) AS REAL)/(tl.end_episode_id-tl.start_episode_id+1.0)+CAST((tr.end_episode_id-tl.end_episode_id) AS REAL)/(tr.end_episode_id-tr.start_episode_id+1.0))/2.0,1.0,(CAST((tr.start_episode_id-tl.start_episode_id) AS REAL)/(tl.end_episode_id-tl.start_episode_id+1.0)+CAST((tr.end_episode_id-tl.end_episode_id) AS REAL)/(tr.end_episode_id-tr.start_episode_id+1.0))/2.0 "
             "FROM epmem_potential_interval_updates p LEFT JOIN epmem_times tl ON p.time_id_left=tl.time_id LEFT JOIN epmem_times tr ON p.time_id_right=tr.time_id WHERE p.finished_right=1 "
-            "ON CONFLICT (w_id_left,w_id_right) DO UPDATE SET weight=weight+excluded.weight,total=total+1.0, weight_norm=(weight+excluded.weight)/(total+1.0)");
+            "ON CONFLICT (w_id_left,w_id_right,relation) DO UPDATE SET weight=weight+excluded.weight,total=total+1.0, weight_norm=(weight+excluded.weight)/(total+1.0)");
     add(update_observed_before_relations);//We need a query that takes the weight associated with a given pair of time intervals and increments the weight in the interval relation between grounded elements
     //We also need a query or trigger before this that, for all of the finished_right=TRUE elements calculates the weight update for that pair of time_ids
     //may instead keep a time id characterization in ram (left, middle, right -> weight)-map and instead of time_ids, keep interval bounds explicitly (as they are already integers).
@@ -1238,9 +1238,9 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     record_lti_id_for_w_id = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_w_id_to_lti_id (w_id, lti_id) VALUES (?,?)");
     add(record_lti_id_for_w_id);
 
-    //todo: is slow because sa version of smem_augmentations doesn't index properly within the join -- needs
-    update_smem_edges = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=ir.weight_norm FROM "
-            "smem_augmentations sa INNER JOIN epmem_interval_relations ir INNER JOIN epmem_potential_interval_updates iu INNER JOIN epmem_w_id_to_lti_id wl INNER JOIN epmem_w_id_to_lti_id wll ON sa.lti_id=wl.lti_id AND wl.lti_id=ir.w_id_left AND sa.value_lti_id=wll.lti_id AND wll.lti_id=ir.w_id_right AND iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right AND sa.value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND iu.finished_right WHERE sa.lti_id=smem_augmentations.lti_id AND smem_augmentations.value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND sa.value_lti_id=smem_augmentations.value_lti_id");
+    //todo: is slow because sa version of smem_augmentations doesn't index properly within the join -- needed to index on the value_constant_s_id within the join. should be good now. still slow, but not horrible.
+    update_smem_edges = new soar_module::sqlite_statement(new_db,"UPDATE smem_augmentations SET edge_weight=ir.weight_norm FROM "//right now, we can identify the row for epmem_interval_relations by index, but the weight_norm comes from the real row, not an index.
+            "epmem_potential_interval_updates iu INNER JOIN epmem_interval_relations ir INNER JOIN epmem_w_id_to_lti_id wll INNER JOIN epmem_w_id_to_lti_id wl INNER JOIN smem_augmentations sa ON iu.w_id_left=ir.w_id_left AND iu.w_id_right=ir.w_id_right AND iu.finished_right=1 AND sa.lti_id=wl.lti_id AND wl.lti_id=ir.w_id_left AND sa.value_lti_id=wll.lti_id AND wll.lti_id=ir.w_id_right AND sa.value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " WHERE smem_augmentations.lti_id=sa.lti_id AND smem_augmentations.value_constant_s_id=" SMEM_AUGMENTATIONS_NULL_STR " AND sa.value_lti_id=smem_augmentations.value_lti_id");
     add(update_smem_edges);//updates all of the changed edge weights within the smem store.//udpated to use the lti_id_stored in the epmem_w_id_to_lti table.
 
 
@@ -1270,7 +1270,7 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     //also going to make an in-memory map that is updated each cycle that associates this-cycle-used time intervals with their time_ids (so that they don't need to be looked up each instance during a cycle, since many elements with share time_ids).
 
     update_interval_surprise = new soar_module::sqlite_statement(new_db, "UPDATE epmem_intervals SET surprise=(1.0-(1.0*sc.kinda_spread/(?*1.0))) FROM epmem_w_id_to_lti_id AS wl INNER JOIN (SELECT sum(num_appearances_i_j/num_appearances) AS kinda_spread, lti_id FROM smem_current_spread GROUP BY lti_id) AS sc ON sc.lti_id=wl.lti_id WHERE epmem_intervals.w_id=wl.w_id");//"UPDATE epmem_intervals SET surprise=? WHERE interval_id=?");//can instead make into a select from now with start_id=actually_just_now joined with smem spread.
-    add(update_interval_surprise);//basically, an update from join between "now" and smem spread.
+    add(update_interval_surprise);//basically, an update from join between "now" and smem spread.//todo is also kinda slow, maybe compare to something that loops externally instead of being wholly in-database.
     //probably want to transform data that's within the smem_current_spread table because it has the raw numbers used in any spread calculation without the weirdness.
 
 

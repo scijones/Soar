@@ -838,12 +838,18 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                     SQL->lti_count_num_appearances_remove->bind_int(1,(*it));
                     SQL->lti_count_num_appearances_remove->execute(soar_module::op_reinit);
                 }
+                timers->spreading_1_1->start();
+
                 trajectory_construction(*it,lti_trajectories);
                 //statistics->expansions->set_value(statistics->expansions->get_value() + 1);
                 //smem_calc_likelihoods_for_det_trajectories(thisAgent, (*it));
+                timers->spreading_1_1->stop();
+                timers->spreading_1_2->start();
 
                 SQL->lti_count_num_appearances_insert->bind_int(1,(*it));
                 SQL->lti_count_num_appearances_insert->execute(soar_module::op_reinit);
+                timers->spreading_1_2->stop();
+
             }
         }
         ////////////////////////////////////////////////////////////////////////////

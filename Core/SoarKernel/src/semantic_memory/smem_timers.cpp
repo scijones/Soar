@@ -49,6 +49,12 @@ smem_timer_container::smem_timer_container(agent* new_agent): soar_module::timer
     add(spreading_wma_3);
     spreading_1 = new smem_timer("spreading-1", thisAgent, soar_module::timer::three);
     add(spreading_1);
+    spreading_1_1 = new smem_timer("spreading-1-1", thisAgent, soar_module::timer::three);
+        add(spreading_1_1);
+        spreading_1_2 = new smem_timer("spreading-1-2", thisAgent, soar_module::timer::three);
+            add(spreading_1_2);
+            spreading_1_3 = new smem_timer("spreading-1-3", thisAgent, soar_module::timer::three);
+                add(spreading_1_3);
     spreading_2 = new smem_timer("spreading-2", thisAgent, soar_module::timer::three);
     add(spreading_2);
     spreading_3 = new smem_timer("spreading-3", thisAgent, soar_module::timer::three);

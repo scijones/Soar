@@ -79,6 +79,7 @@ void smem_statement_container::create_indices()
     add_structure("CREATE UNIQUE INDEX smem_symbols_int_const ON smem_symbols_integer (symbol_value)");
     add_structure("CREATE UNIQUE INDEX smem_symbols_float_const ON smem_symbols_float (symbol_value)");
     add_structure("CREATE UNIQUE INDEX smem_symbols_str_const ON smem_symbols_string (symbol_value)");
+    add_structure("CREATE INDEX smem_recipients ON smem_current_spread (lti_id)");
     add_structure("CREATE INDEX smem_lti_t ON smem_lti (activations_last)");
     add_structure("CREATE INDEX smem_augmentations_parent_attr_val_lti ON smem_augmentations (lti_id, attribute_s_id, value_constant_s_id, value_lti_id, edge_weight)");
     add_structure("CREATE INDEX smem_augmentations_attr_val_lti_cycle ON smem_augmentations (attribute_s_id, value_constant_s_id, value_lti_id, activation_value)");
@@ -87,7 +88,7 @@ void smem_statement_container::create_indices()
     add_structure("CREATE UNIQUE INDEX smem_ct_lti_attr_val ON smem_wmes_lti_frequency (attribute_s_id, value_lti_id)");
     /* The indexes below are for spreading. */
     //the index below is used for forward spread.
-    add_structure("CREATE INDEX smem_augmentations_parent_val_lti ON smem_augmentations (lti_id, value_constant_s_id, value_lti_id, edge_weight)");
+    add_structure("CREATE INDEX smem_augmentations_parent_val_lti ON smem_augmentations (lti_id, value_constant_s_id, value_lti_id, edge_weight)");//todo: used by web_edge to get lti children and edge weights from some lti. need to check if i can avoid using the constant in the index if i check for not-null or something similar on value_lti_id.
     //scijones - I'm not sure, but the below index is for backwards spread, which is no longer supported.
     //add_structure("CREATE INDEX smem_augmentations_backlink ON smem_augmentations (value_lti_id, value_constant_s_id, lti_id)");
     add_structure("CREATE INDEX trajectory_lti ON smem_likelihood_trajectories (lti_id, valid_bit)");
@@ -501,14 +502,14 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
     trajectory_invalidate_from_lti_add = new soar_module::sqlite_statement(new_db,"INSERT OR IGNORE INTO smem_invalid_parents (lti_id) VALUES (?)");
     add(trajectory_invalidate_from_lti_add);
 
-    trajectory_invalidation_check_for_rows = new soar_module::sqlite_statement(new_db,"SELECT lti_id FROM smem_invalid_parents");
+    trajectory_invalidation_check_for_rows = new soar_module::sqlite_statement(new_db,"SELECT lti_id FROM smem_invalid_parents LIMIT 1");
     add(trajectory_invalidation_check_for_rows);
 
     trajectory_invalidate_from_lti_clear = new soar_module::sqlite_statement(new_db,"DELETE FROM smem_invalid_parents");
     add(trajectory_invalidate_from_lti_clear);
 
     trajectory_invalidate_from_lti_table = new soar_module::sqlite_statement(new_db,"UPDATE smem_likelihood_trajectories SET valid_bit=0 WHERE rowid in (SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON smem_likelihood_trajectories.lti_id=smem_invalid_parents.lti_id WHERE lti1!=0 UNION SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON lti1=smem_invalid_parents.lti_id WHERE lti2!=0 UNION SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON lti2=smem_invalid_parents.lti_id WHERE lti3!=0 UNION SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON lti3=smem_invalid_parents.lti_id WHERE lti4!=0 UNION SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON lti4=smem_invalid_parents.lti_id WHERE lti5!=0 UNION SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON lti5=smem_invalid_parents.lti_id WHERE lti6!=0 UNION SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON lti6=smem_invalid_parents.lti_id WHERE lti7!=0 UNION SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON lti7=smem_invalid_parents.lti_id WHERE lti8!=0 UNION SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON lti8=smem_invalid_parents.lti_id WHERE lti9!=0 UNION SELECT smem_likelihood_trajectories.rowid FROM smem_likelihood_trajectories INNER JOIN smem_invalid_parents ON lti9=smem_invalid_parents.lti_id WHERE lti10!=0)");
-    add(trajectory_invalidate_from_lti_table);
+    add(trajectory_invalidate_from_lti_table);//todo -- with upgrades to sqlite's query language, we can now support statements of the form "update ... set ... from", so maybe I don't need this rowid select business. not going to change unless this needs optimization in the future. "if it ain't broke"
 
     //invalidating trajectories containing some lti followed by a particular different lti
     trajectory_invalidate_edge = new soar_module::sqlite_statement(new_db,"UPDATE smem_likelihood_trajectories SET valid_bit=0 WHERE (lti_id=? AND lti1=? AND lti1!=0) OR (lti1=? AND lti2=? AND lti2!=0) OR (lti2=? AND lti3=? AND lti3!=0) OR (lti3=? AND lti4=? AND lti4!=0) OR (lti4=? AND lti5=? AND lti5!=0) OR (lti5=? AND lti6=? AND lti6!=0) OR (lti6=? AND lti7=? AND lti7!=0) OR (lti7=? AND lti8=? AND lti8!=0) OR (lti8=? AND lti9=? AND lti9!=0) OR (lti9=? AND lti10=? AND lti10!=0)");
