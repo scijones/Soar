@@ -98,6 +98,10 @@ typedef struct predefined_sym_struct {
         Symbol*             epmem_sym_next;
         Symbol*             epmem_sym_prev;
         Symbol*             epmem_sym_query;
+        Symbol*             epmem_sym_interval_query;
+        Symbol*             epmem_sym_left;
+        Symbol*             epmem_sym_right;
+        Symbol*             epmem_sym_type;
         Symbol*             epmem_sym_negquery;
         Symbol*             epmem_sym_before;
         Symbol*             epmem_sym_after;

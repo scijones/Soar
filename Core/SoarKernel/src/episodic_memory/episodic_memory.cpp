@@ -3828,6 +3828,18 @@ void epmem_new_episode(agent* thisAgent)
                         Symbol* value = epmem_reverse_hash(thisAgent, value_hash);
 
                         bool did_already = false;
+                        //If i'm going todo change my +/- thing into bins instead, need some kind of easy way to make bins, and ideally shouldn't be too horribly-sensitive to values that are truly close to bin boundaries.
+
+                        //solution aspect 1 -- have multiple out-of-phase bins, pick best bin.
+                        //solution aspect 2 -- have automatic creation of max bin size and min bin size
+                        //solution aspect 3 -- have multiple simultaneous bins (hierarchy as if hierarchical clustering)
+                        //2.1 -- minimum bin size should be bigger than smallest difference between successive values, also bigger than noise magnitude.
+                        //2.2 -- biggest bin size should be smaller than delta between biggest value and smallest value, and as a rule-of-thumb -- divided by 2.
+                        //2.3 -- intermediate bin sizes should be exponential/log.
+                        //noise estimation is equivalent to comparing a given binning to compression of random values (must be distinguishable)
+
+
+
                         //First, we can check if there exists a parent,attr in either potential delta map before doing further processing.
                         if (potential_float_deltas.find(std::pair<int64_t,int64_t>(parent_hash,attr_hash)) != potential_float_deltas.end() && value->symbol_type == FLOAT_CONSTANT_SYMBOL_TYPE)
                         {//I just want to emphasize that the spaghetti here for how to handle floats comes down to "implement some form of discretization/feature-recognition" before storing to epmem.
@@ -3836,6 +3848,10 @@ void epmem_new_episode(agent* thisAgent)
                             //If we have a change, then we can make sure not to treat as an addition or a subtraction and here add to the change table, but also prevent from being added to the remove table.
                             //Things which were added, but not also removed, those will be later treated as final additions for sequitur.
                             double change = delta_it->second.second - value->fc->value; //newly-added value minus the being removed value.
+                            //instead of doing a minus, will do a "are these in the same bin?"
+                            //two ways to proceed -- custom hand-make each bin (should instead do that in roomsworld code)
+                            // or -- automatic through Soar. If automatic, how?
+                            //
 
                             //need to have a check for whether something was an unchanged float for a duration. basically, no "points" for nonchange, but can have ranges of nonchange.
                             if (change > 0.001 || change < -0.001)//need a characterization of sensor noise.//independently from that, in practicality, this also is used to "if" out the case of the val at last change being *exactly* the same.
@@ -3848,7 +3864,7 @@ void epmem_new_episode(agent* thisAgent)
                                     epmem_node_id f_id;
                                     thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->bind_int(1,parent_hash);
                                     thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->bind_int(2,attr_hash);
-                                    thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->bind_int(3,(change>0.0 ? 1 : -1));
+                                    thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->bind_int(3,(change>0.0 ? 1 : -1));//can basically use exactly the same code for most of this when I have binning, but just more "values" than +1, -1.
                                     bool found = thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_float->execute() == soar_module::row;
                                     if (found)
                                     {
@@ -5099,7 +5115,7 @@ bool epmem_gm_mcv_comparator(const epmem_literal* a, const epmem_literal* b)
     return (a->matches.size() < b->matches.size());
 }
 
-epmem_literal* epmem_build_dnf(wme* cue_wme, epmem_wme_literal_map& literal_cache, epmem_literal_set& leaf_literals, epmem_symbol_int_map& symbol_num_incoming, epmem_literal_deque& gm_ordering, int query_type, std::set<Symbol*>& visiting, wme_set& cue_wmes, agent* thisAgent)
+epmem_literal* epmem_build_dnf(wme* cue_wme, epmem_wme_literal_map& literal_cache, epmem_literal_set& leaf_literals, epmem_symbol_int_map& symbol_num_incoming, epmem_literal_deque& gm_ordering, int query_type, std::set<Symbol*>& visiting, wme_set& cue_wmes, agent* thisAgent, Symbol* cue_root = NULL)
 {
     // if the value is being visited, this is part of a loop; return NULL
     // remove this check (and in fact, the entire visiting parameter) if cyclic cues are allowed
@@ -5117,6 +5133,7 @@ epmem_literal* epmem_build_dnf(wme* cue_wme, epmem_wme_literal_map& literal_cach
     Symbol* value = cue_wme->value;
     epmem_literal* literal;
     thisAgent->memoryManager->allocate_with_pool(MP_epmem_literal, &literal);
+    literal->cue = cue_root;
     new(&(literal->parents)) epmem_literal_set();
     new(&(literal->children)) epmem_literal_set();
 
@@ -5166,7 +5183,7 @@ epmem_literal* epmem_build_dnf(wme* cue_wme, epmem_wme_literal_map& literal_cach
             {
                 // check to see if this child forms a cycle
                 // if it does, we skip over it
-                epmem_literal* child = epmem_build_dnf(*wme_iter, literal_cache, leaf_literals, symbol_num_incoming, gm_ordering, query_type, visiting, cue_wmes, thisAgent);
+                epmem_literal* child = epmem_build_dnf(*wme_iter, literal_cache, leaf_literals, symbol_num_incoming, gm_ordering, query_type, visiting, cue_wmes, thisAgent, cue_root);
                 if (child)
                 {
                     child->parents.insert(literal);
@@ -5247,11 +5264,23 @@ bool epmem_register_pedges(epmem_node_id parent, epmem_literal* literal, epmem_p
     if (pedge_iter == pedge_cache->end() || (*pedge_iter).second == NULL)
     {
         int has_value = (literal->child_n_id != EPMEM_NODEID_BAD ? 1 : 0);
+        /*
+         * {
+                "SELECT wc_id, value_s_id, ? FROM epmem_wmes_constant WHERE parent_n_id=? AND attribute_s_id=?",
+                "SELECT wc_id, value_s_id, ? FROM epmem_wmes_constant WHERE parent_n_id=? AND attribute_s_id=? AND value_s_id=?"
+            },
+            {
+                "SELECT wi_id, child_n_id, last_episode_id FROM epmem_wmes_identifier WHERE parent_n_id=? AND attribute_s_id=? AND ?<last_episode_id ORDER BY last_episode_id DESC",
+                "SELECT wi_id, child_n_id, last_episode_id FROM epmem_wmes_identifier WHERE parent_n_id=? AND attribute_s_id=? AND child_n_id=? AND ?<last_episode_id"
+            }
+         */
         soar_module::pooled_sqlite_statement* pedge_sql = thisAgent->EpMem->epmem_stmts_graph->pool_find_edge_queries[is_edge][has_value]->request(thisAgent->EpMem->epmem_timers->query_sql_edge);
+        //don't confuse with pool_find_interval_queries. anyways, this reports the wi_id or the wc_id based on whether the pedge refers to a constant (is_edge false) and whether it's a leaf w.r.t. the query (has_value=false)
+        //is_edge means in the WM graph sense -- is identifier.
         int bind_pos = 1;
         if (!is_edge)
         {
-            pedge_sql->bind_int(bind_pos++, LLONG_MAX);
+            pedge_sql->bind_int(bind_pos++, LLONG_MAX);//for some reason, we select llongmax as the third column when these are constants, so that the last_episode_id becomes that.
         }
         pedge_sql->bind_int(bind_pos++, triple.parent_n_id);
         pedge_sql->bind_int(bind_pos++, triple.attribute_s_id);
@@ -5261,7 +5290,7 @@ bool epmem_register_pedges(epmem_node_id parent, epmem_literal* literal, epmem_p
         }
         if (is_edge)
         {
-            pedge_sql->bind_int(bind_pos++, after);
+            pedge_sql->bind_int(bind_pos++, after);//want the instance such that the last_episode_id is greater than the after.
         }
         if (pedge_sql->execute() == soar_module::row)
         {
@@ -5271,7 +5300,7 @@ bool epmem_register_pedges(epmem_node_id parent, epmem_literal* literal, epmem_p
             child_pedge->sql = pedge_sql;
             new(&(child_pedge->literals)) epmem_literal_set();
             child_pedge->literals.insert(literal);
-            child_pedge->time = child_pedge->sql->column_int(2);
+            child_pedge->time = child_pedge->sql->column_int(2);//the last_episode_id, ordered descending, so they'll go backwards in time as this is called.
             pedge_pq.push(child_pedge);
             (*pedge_cache)[triple] = child_pedge;
             return true;
@@ -5283,12 +5312,12 @@ bool epmem_register_pedges(epmem_node_id parent, epmem_literal* literal, epmem_p
         }
     }
     else
-    {
+    {//we've run into this pedge before and it has a child, so we don't have to do the creation process for it, but maybe we will for a child.
         child_pedge = (*pedge_iter).second;
         if (!child_pedge->literals.count(literal))
         {
             child_pedge->literals.insert(literal);
-            // if the literal is an edge with no specified value, add the literal to all potential pedges
+            // if the literal is an identifier and not a leaf
             if (!literal->is_leaf && literal->child_n_id == EPMEM_NODEID_BAD)
             {
                 bool created = false;
@@ -5299,7 +5328,7 @@ bool epmem_register_pedges(epmem_node_id parent, epmem_literal* literal, epmem_p
                     // make sure we're still looking at the right edge(s)
                     if (child_triple.parent_n_id != triple.parent_n_id || child_triple.attribute_s_id != triple.attribute_s_id)
                     {
-                        break;
+                        break;//seems ugly. is there such a thing as "upper bound"? weird.
                     }
                     epmem_uedge* child_uedge = (*uedge_iter).second;
                     if (child_triple.child_n_id != EPMEM_NODEID_BAD && child_uedge->value_is_id)
@@ -5659,7 +5688,8 @@ bool epmem_graph_match(epmem_literal_deque::iterator& dnf_iter, epmem_literal_de
 }
 
 void epmem_process_query(agent* thisAgent, Symbol* state, Symbol* pos_query, Symbol* neg_query, epmem_time_list& prohibits, epmem_time_id before, epmem_time_id after, wme_set& cue_wmes, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, int level = 3)
-{
+{//the form of interval_query is a list of changes in order, expressed as partially-ordered allen's temporal interval relations.
+    //has to be a graph match, doing a match to the interval query basically in backwards order.
     // a query must contain a positive cue
     if (pos_query == NULL)
     {
@@ -6352,6 +6382,1253 @@ void epmem_process_query(agent* thisAgent, Symbol* state, Symbol* pos_query, Sym
 }
 
 
+//the other way to do this is to completely ignore interval specification for the query itself and directly query for the start and end states of an interval. -- another is to recurse process_query using the temporal interval constraints to set before/afters. (don't bother with savings)
+
+//the left and right symbols are the bounds of the interval. the left is either a "starts" or a "starts-before" (where "starts" means that the supplied cue is the first and "starts-before" wants the memory system to reach before a bit).
+//the right is similar -- the right is either a "ends" or a "ends-after" (where "ends" means that the supplied cue it the last and "ends-after" wants the memory system to reach after a bit).
+//the cue is twofold. First, there is a specification of the state graph, like with an ordinary epmem query. However, instead of matching to an instant, we match to a specification of how it changes over time (which implicitly will also require some matching just to the state)
+//one way to do this -- provide several states, offering a great deal of redundant information
+//another way to do this -- provide a single interval-subsuming state, then provide a separate interval specification that points into this.
+//going to do that second way. So, first, there should be a normal "pos_query" like a normal epmem query, but that should span more than one state.
+    //then, the interval specification is that "starts" "ends" business. just any partial ordering made of allen's temporal interval relations should be valid, but i'm going to stick with either "afters" or "befores", and treat overlaps the same as meets.
+//using that specification, the query can progress very similarly to the existing query code
+// -- find the relevant parts of the state, scan backwards, find leaf matches, but where leaf now also includes things that are pointed at by interval specifications, satisfy literals when things match, unsatisfy when they don't, graph match at end.
+// -- big difference: literals aren't just "a thing exists", but "a thing exists at the right time". (literal unsatisfaction doesn't happen when something disappears, only when the next thing doesn't have the right relation (doesn't show up before thing disappears).
+// -- there's going to be a "current literal set" which is baically the front of the partial ordering. when something goes away, but its successors showed up, that thing is no longer in the current literal set.
+//something to keep in my back pocket for efficiency -- can do a graph match up front on the WMgraph if I know my query is pretty selecting in terms of which portions of the WM graph could likely match. ESPECIALLY if I anticipate a nearly-always-uniquely-constraining subset of state.
+// (instead of subgraph isomorphism, it's really just indexing using treelike addresses) -- depends on query load.
+
+//to simplify, gonna start only allowing perfect graph matches.
+void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Symbol*>* pos_queries,  std::list<Symbol*>* interval_relations, epmem_time_list& prohibits, epmem_time_id before, epmem_time_id after, wme_set& cue_wmes, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, int level = 3) //gonna work on neg_queries later.
+{//interval_relations have constrained structure epmem command -> interval-relation r
+    // r-left-> cue_root, r-right-> cue_root, r -type-> (before/after/etc. a binary relation from left to right, such as "left before right")
+    // a query must contain a positive cue
+    if (pos_queries->size() == 0)
+    {
+        epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_status, thisAgent->symbolManager->soarSymbols.epmem_sym_bad_cmd);
+        return;
+    }
+
+    // before and after, if specified, must be valid relative to each other
+    if (before != EPMEM_MEMID_NONE && after != EPMEM_MEMID_NONE && before <= after)
+    {
+        epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_status, thisAgent->symbolManager->soarSymbols.epmem_sym_bad_cmd);
+        return;
+    }
+
+    if (QUERY_DEBUG >= 1)
+    {
+        std::cout << std::endl << "==========================" << std::endl << std::endl;
+    }
+
+    thisAgent->EpMem->epmem_timers->query->start();
+
+    // sort probibit's
+    if (!prohibits.empty())
+    {
+        std::sort(prohibits.begin(), prohibits.end());
+    }
+
+    // epmem options
+    bool do_graph_match = (thisAgent->EpMem->epmem_params->graph_match->get_value() == on);
+    epmem_param_container::gm_ordering_choices gm_order = thisAgent->EpMem->epmem_params->gm_ordering->get_value();
+
+    // variables needed for cleanup
+    epmem_wme_literal_map literal_cache;
+    epmem_triple_pedge_map pedge_caches[2];
+#ifdef USE_MEM_POOL_ALLOCATORS
+    epmem_triple_uedge_map uedge_caches[2] =
+    {
+        epmem_triple_uedge_map(std::less<epmem_triple>(), soar_module::soar_memory_pool_allocator<std::pair<const epmem_triple, epmem_uedge*> >()),
+        epmem_triple_uedge_map(std::less<epmem_triple>(), soar_module::soar_memory_pool_allocator<std::pair<const epmem_triple, epmem_uedge*> >())
+    };
+    epmem_interval_set interval_cleanup = epmem_interval_set(std::less<epmem_interval*>(), soar_module::soar_memory_pool_allocator<epmem_interval*>());
+#else
+    epmem_triple_uedge_map uedge_caches[2] = {epmem_triple_uedge_map(), epmem_triple_uedge_map()};
+    epmem_interval_set interval_cleanup = epmem_interval_set();
+#endif
+
+    // TODO JUSTIN additional indices
+
+
+
+    // priority queues for interval walk
+    epmem_pedge_pq pedge_pq;
+    epmem_interval_pq interval_pq;
+
+    // variables needed to track satisfiability
+    epmem_symbol_int_map symbol_num_incoming;                 // number of literals with a certain symbol as its value
+    epmem_symbol_node_pair_int_map symbol_node_count;         // number of times a symbol is matched by a node
+
+    // various things about the current and the best episodes
+    epmem_time_id best_interval_end = EPMEM_MEMID_NONE;
+    epmem_time_id best_interval_start = EPMEM_MEMID_NONE;
+    /*double best_score = 0;
+    bool best_graph_matched = false;
+    long int best_cardinality = 0;*/
+    //epmem_literal_node_pair_map best_bindings;
+    /*double current_score = 0;
+    long int current_cardinality = 0;*/
+
+    // To accomodate temporal interval queries, the idea is to expand the semantics associated with cues.
+    // Typically, a cue is "these structures must all be simultaneously present"
+    // I'll continue to hold that as the specification for a single cue, but now we'll have multiple cues and look for an interval satisfying all of those cues.
+    // So, we could have just 3 cues with no temporal intervals and we'll just find the first interval that ends up containing all of those, could even be a single timestep.
+    // but, we can also have a temporal orderings associated with the cues. then, for a given cue, it's not enough to just check satisfiability at a timestamp, but also the relation of that satisfaction to other satisfied cues.
+    // we can do this by scanning backwards, looking for cue satisfaction, and when it happens, then looking for relations involving that cue.
+    // first cue to match marks the end of the interval. last cue to match marks the beginning of the interval. (going backwards in time)
+    // when a cue is first satisfied, first check if that alone violates existing temporal relations
+    // when a cue is unsatisfied, check if that violates existing temporal relations
+    // when the satisfaction of all cues are unchanged, there can be no change in violation/satisfaction of temporal relations.
+    // if all of the cues becomes satisfied and then unsatisfied without ever having violated a relation, then you've done it.
+    // i'm starting with "after" relations only to begin, but any kind of relation could be translated into booleans that trigger when to consider a given potential interval as failed
+    // one exception type -- probably very difficult to do strict "befores" and "afters" instead of "overlaps" and "meets" just because of the potential width of intervals.
+    // how to do a match with "afters" -- when something becomes satisfied, you check two things
+        // 1 - Is this thing supposed to be before something? If so, is that something already satisfied? Or, was it satisfied on the immediately preceeding cycle? Either is fine.
+        // 2 - Is this thing supposed to be after something? If so, take note. That thing better show up.
+    // when something becomes unsatisfied
+    //  // 1 - Is this supposed to be before something? If so, is that thing already unsatisfied? it better be.
+    // //  2 - Is this thing supposed to be after something? If so, that thing better already be here or show up next cycle.
+    // // One thing to help math here -- keep a "last satisfying interval" data for each previous binding -- lets you know what to skip "can't have another before bind to this before/after until another after shows up"
+    // When a query fails -- something that is supposed to have something just before it goes away and after the preceeding cycle is checked -- it still didn't show up.
+    // (A cue is not "really" satisfied until it also satisfies temporal relations that point to the same value_sym as the cue itself.)
+    /*
+     * Problems:
+     *  -- can have something show up multiple times, and only one of those times is the one that fits the temporal interval description -- don't want to invalidate the whole interval until you know it's for sure to-be-scrapped.
+     *   --> for example, the only time you know that a cue that could have satisfied being before something is actually unsatisfied isn't if it goes away while the post is still present, but if another doesn't then show up in preceeding cycles
+     *
+     *   easy way --> have falsification criterea for temporal interval literals where a given use of a satisfying graph match as the satisfaction of the temporal interval relation becomes invalidated -- like a before/after where there is a time gap and the before side wasn't filled -- means that the after side is wrong too.
+     */
+    /* one algorithm, maybe not the right one, but to think about -- find the first match for each supplied cue. return the interval over which that match is true.
+     * bind those interval to each interval relations, see what works.
+     * For those that fail, query for previous instance of problematic intervals (for a before/after, occurs if instead it's a "contains", if there's a gap, or if the order is wrong.
+     * only do one at a time, replacing the "recentmost" interval, defined as
+     *
+     * on before/afters, there's a dependency, where it might be the case that a given after is bad for a given before, but a different earlier after might work. basically, you get a nested for loop, very limited, but still.
+     * could alternatively do a query for all things not on the LHS of any before/after, then have anything with a LHS do a query for each match it achieves. -- for a chain, do a single match, then look for prev, then for prev, then for prev..., then restart with a new "before" at the top if it fails at any point.
+     *
+     * could be more clever about it and keep simultaneous matches and just do a single scan backwards. -- need to keep a "running matches" structure.
+     * yup -- gonna keep a "running matches" pq with most recent matching cue as the sort.
+     * first of the "running matches" to achieve a complete match while scanning backwards wins. rest are discarded.
+     * how to make the running matches structure -- pick an arbitrary "on-a-RHS followed by "not on a LHS" to be the cue that is used for ordering. on each new instance of that cue while scanning back, make a new potential-interval-match structure to put into "running matches".
+     * should make a separate pedge_pq, interval_pq, literals for each cue. -- nah, can have them all pooled, but need to keep score differently, perhaps by having an "instance of cue" score associated with each running match.
+     */
+
+    /*
+     * So, initially, need to create a map from cues to temporal interval relation literals using that cue.
+     * Also, initially create a list of ongoing matches that initially is empty, but that will store a copy of that map for each partial match.
+     * The data structure within "ongoing matches" is not just the map, but the map paired with a score. When that score is at max, that's a complete match. (score is basically a count of satisfied temporal interval relation bindings. will create a dummy binding for things that aren't explicitly temporally related.)
+     */
+
+
+    //should loop over cues first before making interval relation literals:
+
+    std::set<epmem_temporal_literal*> temporal_literals;
+
+    std::multimap<Symbol*,epmem_temporal_literal*> cues_to_temporal_literals;
+    std::set<epmem_ongoing_match*> ongoing_matches;//gonna just have a map pointer, i'll need to manage the deletion. (loop over every match every time a score could change) -- alternatively, could keep master map that spans matches
+    //this map would contain pairings of cues to intervals and a particular ongoing match would just have pointers to that master map. that master map would have a counter for deletion.
+    int max_match_score = 0;//1 for every relation and 1 for cues that aren't involved in a relation.
+            // each appearance of the same arbitrarily selected for this instance of process_interval_query rightmost interval spawns a new ongoing match.
+
+    //loop over the temporal interval relation constraints and create temporal literals for them. for those cues not touched, create dummy temporal intervals.
+    std::list<Symbol*>::iterator interval_relations_it;
+    epmem_wme_list::iterator wme_it;
+    epmem_wme_list* children;
+
+
+    std::set<Symbol*> afters;
+    std::set<Symbol*> befores;
+
+    for (interval_relations_it = interval_relations->begin(); interval_relations_it != interval_relations->end(); interval_relations_it++)
+    {
+        Symbol* left;
+        Symbol* right;
+        int type;
+        children = epmem_get_augs_of_id(*interval_relations_it, get_new_tc_number(thisAgent));
+        epmem_temporal_literal* temporal_literal = new epmem_temporal_literal();
+        //thisAgent->memoryManager->allocate_with_pool(MP_epmem_temporal_literal, &temporal_literal);//probably should just "new" things instead.
+
+        temporal_literals.insert(temporal_literal);
+
+        for (wme_it = children->begin(); wme_it != children->end(); wme_it++)
+        {
+            switch ((*wme_it)->attr)//need to read that this is "left", "right", or "type".
+            {//thisAgent->symbolManager->soarSymbols.epmem_sym_    left/right/type
+                case thisAgent->symbolManager->soarSymbols.epmem_sym_left:
+                    temporal_literal->value_sym_1 = (*wme_it)->value;
+                    befores.insert((*wme_it)->value);
+                    if (afters.find((*wme_it)->value))
+                    {
+                        afters.erase((*wme_it)->value);
+                    }
+                    break;
+                case thisAgent->symbolManager->soarSymbols.epmem_sym_right:
+                    temporal_literal->value_sym_2 = (*wme_it)->value;//need to have checks that these actually point to a valid cue.
+                    if (befores.find((*wme_it)->value) == befores.end())
+                    {
+                        afters.insert((*wme_it)->value);
+                    }
+                    break;
+                case thisAgent->symbolManager->soarSymbols.epmem_sym_type:
+                    //(*wme_it)->value;
+                    temporal_literal->type = (*wme_it)->value->ic->value;//need to check to make this safe later. -- TODO basically there are a lot of bad things that will happen if i don't throw in some "bad_cmd" checks.
+                    assert(temporal_literal->type == BEFORE); //(before == 0 in enums.h, is actually "means" before-overlaps || before-meets, and I can't handle other types yet.)
+                    break;
+            }
+        }
+        temporal_literal->is_exists = false;
+        temporal_literal->satisfied_1 = false;
+        temporal_literal->satisfied_2 = false;
+        temporal_literal->just_deleted = 0;
+        delete children;
+        cues_to_temporal_literals.insert(std::make_pair(temporal_literal->value_sym_1,temporal_literal));
+        cues_to_temporal_literals.insert(std::make_pair(temporal_literal->value_sym_2,temporal_literal));
+    }
+    //for each cue, if it's not already in the cues_to_temporal_literals map, add a dummy literal;
+    std::list<Symbol*>::iterator pos_queries_it;
+
+    std::map<Symbol*,int> individual_cues_current_scores;//and initialize a score of 0.
+
+    for (pos_queries_it = pos_queries->begin(); pos_queries_it != pos_queries->end(); pos_queries_it++)
+    {
+        individual_cues_current_scores[*pos_queries_it] = 0;
+        if (cues_to_temporal_literals.find(*pos_queries_it) == cues_to_temporal_literals.end())
+        {
+            epmem_temporal_literal* temporal_literal = new epmem_temporal_literal();
+            temporal_literal->is_exists = true;
+            temporal_literal->interval_1_right = -1;
+            temporal_literal->interval_1_left = -1;
+            temporal_literal->interval_2_left = -1;
+            temporal_literal->interval_2_right = -1;
+            temporal_literal->satisfied = false;
+            temporal_literal->match_using_this = NULL;
+            temporal_literal->value_sym_2 = NULL;
+            temporal_literal->type = NONE_TYPE;
+            temporal_literal->value_sym_1 = *pos_queries_it;
+            cues_to_temporal_literals.insert(std::make_pair(*pos_queries_it,temporal_literal));
+            temporal_literals.insert(temporal_literal);
+        }
+    }
+
+    max_match_score = temporal_literals.size();
+
+
+    //when a cue shows up, either it can fit into some ongoing match(es) or
+    // -- it can fit into some ongoing match by replacing itself (forking an existing match) -- (especially if I begin to allow distant before/after instead of only meets/overlaps)
+    // -- it can make a new match altogether.
+    //for any of those, subject to further "if it doesn't violate things to do so" (so, for example, if it's a LHS of a before and the RHS isn't satisfied, can't possible work). -- means temporal chains will be efficient because they can't easily fork as easily. -- also means that uniquely-constraining cues are awesome.
+        //(whenever attempting to bind a given instance of a cue to a temporal relation, always going to check that it actually works)
+
+
+
+//The pedge and uedge caches can remain completely shared.
+
+    //however, each cue needs its own set of literals.
+    //cue to root_literal map:
+    std::map<Symbol*,epmem_literal*> cue_to_root_literal_map;
+
+    //cue to literal cache map:
+
+    //cue to visiting map:
+    //with the above three, should be able to build DNF graphs for each cue, separately.
+    //cue to perfect score (for the cue) map
+    //cue to perfect cardinality (for the cue) map
+
+    //literals should know which cues they belong to and so should pedges.
+
+
+//scoring should be associated with ongoing matches
+
+
+
+    //the real question is when to get rid of an overall ongoing match -- and that's when it has some "after" that can no longer be satisfied
+
+
+    //big simplifying assumption that makes this not horrible -- only one instance of a cue can exist at a given time (by defn)
+
+//this means that, when scanning backwards, when a new instance shows up, its old one has already gone. since i'm only doing before/after in a specific way, that means
+    /*
+     * 1 - the new instance that just showed up could be a different after. if so, it should just plain be a new match. do we need to consider preexisting befores? no. they'd either actually be before this or they'd contain this.
+     * this, if it's an after, it's just plain a new potential ongoing match. the other after has its own ongoing match structure that was created.
+     * 2 - the new instance that just showed up is just an exists. it can fork any and all existing matches, but also it's not very informative. one option -- i'll take an implicit semantics of "should be contained within the temporal specification" and thus if there isn't any appearance by the time the "real" interval relations are satisfied, consider it a failure
+     * 3 - the new instance that just showed up is a before. if so, should match to an existing after already in ongoing matches. can't take over the spot for some other before because that before can't still exist and if it's valid, that means its after also finished.
+     *
+     * so, only "exists" and "afters" can potentially make new ongoing matches. specifically, befores cannot (so an instance that is both a before and an after cannot?
+     * the weird case is when an exists show up multiple times during an interval. -- initially going to be arbitrary and just pick the temporally last (first found) (probably has least surprise anyways, naturally will retrieve the rest).
+     * there, so only "afters" can create *new* ongoing matches.
+     */
+
+
+
+    ////just came up with a weird heuristic for retrieval -- when retrieving, retrieve things with a surprise bigger than or equal to the things that matched -- presumably you'd be able to remember those details as well.
+
+    // variables needed for graphmatch
+    //epmem_literal_deque gm_ordering;
+    // variables needed for building the DNF
+    //epmem_literal_set leaf_literals;
+    std::map<Symbol*, epmem_literal_set*> cue_to_leaf_literals;
+    std::map<Symbol*, epmem_literal_deque*> cue_to_gm_ordering;
+
+    if (level > 1)
+    {
+        // build the DNF graph while checking for leaf WMEs
+        std::list<Symbol*>::iterator pos_queries_it;
+        for (pos_queries_it = pos_queries->begin(); pos_queries_it != pos_queries->end(); pos_queries_it++)
+        {//need a root literal for each cue, gonna check to make sure that does the pedge and uedge stuff right.
+
+            epmem_literal_set* set_for_this_cue = new epmem_literal_set();
+            cue_to_leaf_literals[*pos_queries_it] = set_for_this_cue;//todo have to delete later.
+
+            epmem_literal_deque* gm_ordering = new epmem_literal_deque();
+            cue_to_gm_ordering[*pos_queries_it] = gm_ordering;
+
+            epmem_literal* root_literal;
+            thisAgent->memoryManager->allocate_with_pool(MP_epmem_literal, &root_literal);
+            cue_to_root_literal_map[*pos_queries_it] = root_literal;
+
+            root_literal->cue = *pos_queries_it;
+            root_literal->id_sym = NULL;
+            root_literal->value_sym = *pos_queries_it;
+            root_literal->is_neg_q = EPMEM_NODE_POS;
+            root_literal->value_is_id = EPMEM_RIT_STATE_EDGE;
+            root_literal->is_leaf = false;
+            root_literal->attribute_s_id = EPMEM_NODEID_BAD;
+            root_literal->child_n_id = EPMEM_NODEID_ROOT;
+            root_literal->weight = 0.0;
+            new(&(root_literal->parents)) epmem_literal_set();
+            new(&(root_literal->children)) epmem_literal_set();
+#ifdef USE_MEM_POOL_ALLOCATORS
+            new(&(root_literal->matches)) epmem_node_pair_set(std::less<epmem_node_pair>(), soar_module::soar_memory_pool_allocator<epmem_node_pair>(thisAgent));
+#else
+            new(&(root_literal->matches)) epmem_node_pair_set();
+#endif
+            new(&(root_literal->values)) epmem_node_int_map();
+            symbol_num_incoming[*pos_queries_it] = 1;
+            literal_cache[NULL] = root_literal;
+
+            std::set<Symbol*> visiting;
+            visiting.insert(*pos_queries_it);
+            //for (int query_type = EPMEM_NODE_POS; query_type <= EPMEM_NODE_NEG; query_type++)
+            {
+                Symbol* query_root = NULL;
+                //switch (query_type)
+                {
+                //    case EPMEM_NODE_POS:
+                        query_root = *pos_queries_it;
+                //        break;
+//                    case EPMEM_NODE_NEG:
+//                        query_root = neg_query;
+//                        break;
+                }
+                /*if (!query_root)
+                {
+                    continue;
+                }*/
+                epmem_wme_list* children = epmem_get_augs_of_id(query_root, get_new_tc_number(thisAgent));
+                // for each first level WME, build up a DNF
+                for (epmem_wme_list::iterator wme_iter = children->begin(); wme_iter != children->end(); wme_iter++)
+                {//would have to dredge up old cpp knowledge, but i think this will actually modify the relevant stored-the-pointer-in-the-map epmem_literals set by reference. (leaf literals)
+                    epmem_literal* child = epmem_build_dnf(*wme_iter, literal_cache, *(cue_to_leaf_literals[*pos_queries_it]), symbol_num_incoming, *(cue_to_gm_ordering[*pos_queries_it]), EPMEM_NODE_POS, visiting, cue_wmes, thisAgent, *pos_queries_it);//all the literals are formed here, based on the cue structure and treating it as treelike.
+                    //need a different gm_ordering per cue.
+                    //this implicitly assumes that doing all graph matches to the atemporal WM graph is a bad thing to do. -- that it would be more expensive than saving on how many timesteps we inspect while scanning backwards.
+                    //basically, it depends on how aliased the state is over time vs within an instant w.r.t. cues.
+                    if (child)
+                    {
+                        // force all first level literals to have the same id symbol
+                        child->id_sym = *pos_queries_it;
+                        child->parents.insert(root_literal);
+                        root_literal->children.insert(child);
+                    }
+                }
+                delete children;
+            }
+        }
+        //so now, at the end of this, we have the same literals, but they all share a literal cache, but the root literals and leaf literals are indirectly accessible through cues.
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        /// the less hacky version is to do a perfect graph match to the final timestep, then to walk backwards through the interval changes. (still hacky, but less)
+        /// then, if anything fails, do a new perfect graph match with a "before" set to whenever the first perfect match would have no longer applied. (the "next-edge" for one of its bindings)
+        /// potential weirdness -- what if multiple bindings could have matched at that initial match? -- worry about that if it becomes a problem.
+        /// in the meantime, going to accept the skeleton+temporal specification, noting that things without a temporal interval are taken to mean "throughout". (could mean "exists", could be ignored, whatever)
+        /// alternatively, leave the satisfaction the way it is, but change the score business so that a perfect score is only achieved once the whole interval is accounted for.
+        ////////
+        // calculate the highest possible score and cardinality score
+        //double perfect_score = 0;
+        //int perfect_cardinality = 0;
+
+        //std::map<Symbol*,double> cues_to_perfect_scores;
+        std::map<Symbol*,int> cues_to_perfect_cardinalities;
+        std::list<Symbol*>::iterator pos_queries_it;
+        for (pos_queries_it = pos_queries->begin(); pos_queries_it != pos_queries->end(); pos_queries_it++)
+        {
+            for (epmem_literal_set::iterator iter = cue_to_leaf_literals[*pos_queries_it]->begin(); iter != cue_to_leaf_literals[*pos_queries_it]->end(); iter++)
+            {
+                if (!(*iter)->is_neg_q)
+                {
+                    //perfect_score += (*iter)->weight;
+                    if (cues_to_perfect_cardinalities.find(*pos_queries_it) == cues_to_perfect_cardinalities.end())
+                    {
+                        cues_to_perfect_cardinalities[*pos_queries_it] = 1;//pretty sure for my immediate purposes, i can through out one of these. just do cardinality probably.
+                    }
+                    else
+                    {
+                        cues_to_perfect_cardinalities[*pos_queries_it] = cues_to_perfect_cardinalities[*pos_queries_it] + 1;
+                    }
+                }
+            }
+        }
+
+        // set default values for before and after
+        if (before == EPMEM_MEMID_NONE)
+        {
+            before = thisAgent->EpMem->epmem_stats->time->get_value() - 1;
+        }
+        else
+        {
+            before = before - 1; // since before's are strict
+        }
+        if (after == EPMEM_MEMID_NONE)
+        {
+            after = EPMEM_MEMID_NONE;
+        }
+        epmem_time_id current_episode = before;
+        epmem_time_id next_episode;
+
+        // create dummy edges and intervals
+        std::list<Symbol*>::iterator pos_queries_it;
+        for (pos_queries_it = pos_queries->begin(); pos_queries_it != pos_queries->end(); pos_queries_it++)
+        {
+            // insert dummy unique edge and interval end point queries for DNF root
+            // we make an SQL statement just so we don't have to do anything special at cleanup
+            epmem_triple triple = {EPMEM_NODEID_BAD, EPMEM_NODEID_BAD, EPMEM_NODEID_ROOT};
+            epmem_pedge* root_pedge;
+            thisAgent->memoryManager->allocate_with_pool(MP_epmem_pedge, &root_pedge);
+            root_pedge->triple = triple;
+            root_pedge->value_is_id = EPMEM_RIT_STATE_EDGE;
+            new(&(root_pedge->literals)) epmem_literal_set();
+            root_pedge->literals.insert(cue_to_root_literal_map[*pos_queries_it]);//Do I put every root literal here? If so, then it's up to tracking literals to make sure individual cues' satisfaction are tallied correctly. will try that first.
+            root_pedge->sql = thisAgent->EpMem->epmem_stmts_graph->pool_dummy->request();
+            root_pedge->sql->prepare();
+            root_pedge->sql->bind_int(1, LLONG_MAX);
+            root_pedge->sql->execute(soar_module::op_reinit);
+            root_pedge->time = LLONG_MAX;
+            pedge_pq.push(root_pedge);
+            pedge_caches[EPMEM_RIT_STATE_EDGE][triple] = root_pedge;
+
+            epmem_uedge* root_uedge;
+            thisAgent->memoryManager->allocate_with_pool(MP_epmem_uedge, &root_uedge);
+            root_uedge->triple = triple;
+            root_uedge->value_is_id = EPMEM_RIT_STATE_EDGE;
+            root_uedge->activation_count = 0;
+            new(&(root_uedge->pedges)) epmem_pedge_set();
+            root_uedge->intervals = 1;
+            root_uedge->activated = false;
+            uedge_caches[EPMEM_RIT_STATE_EDGE][triple] = root_uedge;
+
+            epmem_interval* root_interval;
+            thisAgent->memoryManager->allocate_with_pool(MP_epmem_interval, &root_interval);
+            root_interval->uedge = root_uedge;
+            root_interval->is_end_point = true;
+            root_interval->sql = thisAgent->EpMem->epmem_stmts_graph->pool_dummy->request();
+            root_interval->sql->prepare();
+            root_interval->sql->bind_int(1, before);
+            root_interval->sql->execute(soar_module::op_reinit);
+            root_interval->time = before;
+            interval_pq.push(root_interval);
+            interval_cleanup.insert(root_interval);
+        }
+
+        if (QUERY_DEBUG >= 1)
+        {
+            epmem_print_retrieval_state(literal_cache, pedge_caches, uedge_caches);
+        }
+
+
+        std::map<Symbol*, std::set<epmem_temporal_literal*>*> cues_to_open_temporal_literal_instances;//just make a new set for each cue and clean up later.
+        std::map<Symbol*, std::set<epmem_temporal_literal*>*> cues_to_temporal_literal_instances;
+        std::map<Symbol*, std::set<epmem_temporal_literal*>*> active_cues_to_active_temporal_literal_instances;
+        std::list<Symbol*>::iterator pos_queries_it;
+        for (pos_queries_it = pos_queries->begin(); pos_queries_it != pos_queries->end(); pos_queries_it++)
+        {
+            cues_to_open_temporal_literal_instances[*pos_queries_it] = new std::set<epmem_temporal_literal*>();
+            cues_to_temporal_literal_instances[*pos_queries_it] = new std::set<epmem_temporal_literal*>();
+            active_cues_to_active_temporal_literal_instances[*pos_queries_it] = new std::set<epmem_temporal_literal*>();
+        }
+        std::set<Symbol*> cues_that_hit_perfect;
+        std::set<Symbol*> cues_that_just_went_away;
+        std::set<Symbol*> cues_that_have_been_perfect;
+        // main loop of interval walk
+        thisAgent->EpMem->epmem_timers->query_walk->start();
+        while (pedge_pq.size() && current_episode > after)//basically, current_episode is decremented in gaps, based on when some aspect of matching to the cue changes (not intermediate cue-agnostic changes).
+        {
+
+            epmem_time_id next_edge;
+            epmem_time_id next_interval;
+
+            bool changed_score = false;
+
+            thisAgent->EpMem->epmem_timers->query_walk_edge->start();
+            next_edge = pedge_pq.top()->time;//the top is the pedge with the highest time. constants have llongmax.
+
+            // process all edges which were last used at this time point
+            while (pedge_pq.size() && (pedge_pq.top()->time == next_edge || pedge_pq.top()->time >= current_episode))//all constant pedges will have time greater than or equal to current episode.
+            {//current episode walks backwards, so "time" being "greater than"
+                epmem_pedge* pedge = pedge_pq.top();
+                pedge_pq.pop();
+                epmem_triple triple = pedge->triple;
+                triple.child_n_id = pedge->sql->column_int(1);
+
+                if (QUERY_DEBUG >= 1)
+                {
+                    std::cout << "  EDGE " << triple.parent_n_id << "-" << triple.attribute_s_id << "-" << triple.child_n_id << std::endl;
+                }
+
+                // create queries for the unique edge children of this partial edge
+                if (pedge->value_is_id)
+                {
+                    bool created = false;
+                    for (epmem_literal_set::iterator literal_iter = pedge->literals.begin(); literal_iter != pedge->literals.end(); literal_iter++)
+                    {
+                        epmem_literal* literal = *literal_iter;
+                        for (epmem_literal_set::iterator child_iter = literal->children.begin(); child_iter != literal->children.end(); child_iter++)
+                        {
+                            created |= epmem_register_pedges(triple.child_n_id, *child_iter, pedge_pq, after, pedge_caches, uedge_caches, thisAgent);
+                        }
+                    }
+                }
+                // TODO JUSTIN what I want to do here is, if there is no children which leads to a leaf, retract everything
+                // I'm not sure how to properly test for this though
+
+                // look for uedge with triple; if none exist, create one
+                // otherwise, link up the uedge with the pedge and consider score changes
+                epmem_triple_uedge_map* uedge_cache = &uedge_caches[pedge->value_is_id];
+                epmem_triple_uedge_map::iterator uedge_iter = uedge_cache->find(triple);
+                if (uedge_iter == uedge_cache->end())
+                {//the pedges are concerned with potentially satisfying a literal using a triple. the uedges are concerned with finding intervals of time corresponding to a triple.
+                    // create a uedge for this
+                    epmem_uedge* uedge;
+                    thisAgent->memoryManager->allocate_with_pool(MP_epmem_uedge, &uedge);
+                    uedge->triple = triple;
+                    uedge->value_is_id = pedge->value_is_id;
+                    uedge->activation_count = 0;
+                    new(&(uedge->pedges)) epmem_pedge_set();
+                    uedge->intervals = 0;
+                    uedge->activated = false;
+                    // create interval queries for this partial edge
+                    bool created = false;
+                    int64_t edge_id = pedge->sql->column_int(0);
+                    for (int interval_type = EPMEM_RANGE_EP; interval_type <= EPMEM_RANGE_POINT; interval_type++)
+                    {
+                        for (int point_type = EPMEM_RANGE_START; point_type <= EPMEM_RANGE_END; point_type++)
+                        {
+                            // pick a timer (any timer)
+                            soar_module::timer* sql_timer = NULL;
+                            switch (interval_type)
+                            {
+                                case EPMEM_RANGE_EP:
+                                    if (point_type == EPMEM_RANGE_START)
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_start_ep;
+                                    }
+                                    else
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_end_ep;
+                                    }
+                                    break;
+                                case EPMEM_RANGE_NOW:
+                                    if (point_type == EPMEM_RANGE_START)
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_start_now;
+                                    }
+                                    else
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_end_now;
+                                    }
+                                    break;
+                                case EPMEM_RANGE_POINT:
+                                    if (point_type == EPMEM_RANGE_START)
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_start_point;
+                                    }
+                                    else
+                                    {
+                                        sql_timer = thisAgent->EpMem->epmem_timers->query_sql_end_point;
+                                    }
+                                    break;
+                            }
+                            // create the SQL query and bind it
+                            // try to find an existing query first; if none exist, allocate a new one from the memory pools
+                            soar_module::pooled_sqlite_statement* interval_sql = NULL;
+                            /*
+                             *  {
+                                    "SELECT (e.start_episode_id - 1) AS start FROM epmem_wmes_constant_range e WHERE e.wc_id=? AND e.start_episode_id<=? ORDER BY e.start_episode_id DESC",
+                                    "SELECT (e.start_episode_id - 1) AS start FROM epmem_wmes_constant_now e WHERE e.wc_id=? AND e.start_episode_id<=? ORDER BY e.start_episode_id DESC",
+                                    "SELECT (e.episode_id - 1) AS start FROM epmem_wmes_constant_point e WHERE e.wc_id=? AND e.episode_id<=? ORDER BY e.episode_id DESC"
+                                },
+                                {
+                                    "SELECT e.end_episode_id AS end FROM epmem_wmes_constant_range e WHERE e.wc_id=? AND e.end_episode_id>0 AND e.start_episode_id<=? ORDER BY e.end_episode_id DESC",
+                                    "SELECT ? AS end FROM epmem_wmes_constant_now e WHERE e.wc_id=? AND e.start_episode_id<=? ORDER BY e.start_episode_id DESC",
+                                    "SELECT e.episode_id AS end FROM epmem_wmes_constant_point e WHERE e.wc_id=? AND e.episode_id<=? ORDER BY e.episode_id DESC"
+                                }
+                            },
+                            {
+                                {
+                                    "SELECT (e.start_episode_id - 1) AS start FROM epmem_wmes_identifier_range e WHERE e.wi_id=? AND e.start_episode_id<=? ORDER BY e.start_episode_id DESC",
+                                    "SELECT (e.start_episode_id - 1) AS start FROM epmem_wmes_identifier_now e WHERE e.wi_id=? AND e.start_episode_id<=? ORDER BY e.start_episode_id DESC",
+                                    "SELECT (e.episode_id - 1) AS start FROM epmem_wmes_identifier_point e WHERE e.wi_id=? AND e.episode_id<=? ORDER BY e.episode_id DESC"
+                                },
+                                {
+                                    "SELECT e.end_episode_id AS end FROM epmem_wmes_identifier_range e WHERE e.wi_id=? AND e.end_episode_id>0 AND e.start_episode_id<=? ORDER BY e.end_episode_id DESC",
+                                    "SELECT ? AS end FROM epmem_wmes_identifier_now e WHERE e.wi_id=? AND e.start_episode_id<=? ORDER BY e.start_episode_id DESC",
+                                    "SELECT e.episode_id AS end FROM epmem_wmes_identifier_point e WHERE e.wi_id=? AND e.episode_id<=? ORDER BY e.episode_id DESC"
+                                }
+                             */
+                            interval_sql = thisAgent->EpMem->epmem_stmts_graph->pool_find_interval_queries[pedge->value_is_id][point_type][interval_type]->request(sql_timer);
+                            int bind_pos = 1;
+                            if (point_type == EPMEM_RANGE_END && interval_type == EPMEM_RANGE_NOW)
+                            {
+                                interval_sql->bind_int(bind_pos++, current_episode);
+                            }
+                            interval_sql->bind_int(bind_pos++, edge_id);
+                            interval_sql->bind_int(bind_pos++, current_episode);
+                            if (interval_sql->execute() == soar_module::row)
+                            {
+                                epmem_interval* interval;
+                                thisAgent->memoryManager->allocate_with_pool(MP_epmem_interval, &interval);
+                                interval->is_end_point = point_type;
+                                interval->uedge = uedge;
+                                // If it's an start point of a range (ie. not a point) and it's before the promo time
+                                // (this is possible if a the promotion is in the middle of a range)
+                                // trim it to the promo time.
+                                // This will only happen if the LTI is promoted in the last interval it appeared in
+                                // (since otherwise the start point would not be before its promotion).
+                                // We don't care about the remaining results of the query
+                                interval->time = interval_sql->column_int(0);
+                                interval->sql = interval_sql;
+                                interval_pq.push(interval);
+                                interval_cleanup.insert(interval);
+                                uedge->intervals++;
+                                created = true;
+                            }
+                            else
+                            {
+                                interval_sql->get_pool()->release(interval_sql);
+                            }
+                        }
+                    }
+                    if (created)
+                    {
+                        uedge->pedges.insert(pedge);
+                        uedge_cache->insert(std::make_pair(triple, uedge));
+                    }
+                    else
+                    {
+                        uedge->pedges.~epmem_pedge_set();
+                        thisAgent->memoryManager->free_with_pool(MP_epmem_uedge, uedge);
+                    }
+                }
+                else
+                {//the uedge has already been created. all that needs doing is associating this pedge.
+                    epmem_uedge* uedge = (*uedge_iter).second;
+                    uedge->pedges.insert(pedge);
+                    if (uedge->activated && uedge->activation_count == 1)
+                    {//whenever a new pedge is associated with a given uedge, time to satisfy the literals associated with those pedges.
+                        for (epmem_literal_set::iterator lit_iter = pedge->literals.begin(); lit_iter != pedge->literals.end(); lit_iter++)
+                        {
+                            epmem_literal* literal = (*lit_iter);//cues_to_perfect_cardinalities[*pos_queries_it]
+                            double current_score = 0;
+                            long int current_cardinality = 0;
+                            changed_score |= epmem_satisfy_literal(literal, triple.parent_n_id, triple.child_n_id, current_score, current_cardinality, symbol_node_count, uedge_caches, symbol_num_incoming);
+                            individual_cues_current_scores[literal->cue] = individual_cues_current_scores[literal->cue] + current_cardinality;
+                            if (individual_cues_current_scores[literal->cue] == cues_to_perfect_cardinalities[literal->cue])
+                            {
+                                cues_that_hit_perfect.insert(literal->cue);
+                            }
+                            //todo probably want to make current score and cardinality instead reference individual_cues_current_scores.
+                        }
+                    }
+                }
+
+                // put the partial edge query back into the queue if there's more
+                // otherwise, reinitialize the query and put it in a pool
+                if (pedge->sql && pedge->sql->execute() == soar_module::row)
+                {
+                    pedge->time = pedge->sql->column_int(2);
+                    pedge_pq.push(pedge);//there's only going to be a limited number of these constants with llongmax in the epmem_wmes_constant table, so they'll end up no longer pushing back at some point.
+                    //since we care about leaf matches first, they all must be processed, but then not so sure about the remaining "edges".
+                }
+                else if (pedge->sql)
+                {
+                    pedge->sql->get_pool()->release(pedge->sql);
+                    pedge->sql = NULL;
+                }
+            }
+            next_edge = (pedge_pq.empty() ? after : pedge_pq.top()->time);
+            thisAgent->EpMem->epmem_timers->query_walk_edge->stop();
+
+            // process all intervals before the next edge arrives //in other words, the next pedge won't show up for awhile, but we created some uedges with intervals that could show up before then.
+            thisAgent->EpMem->epmem_timers->query_walk_interval->start();
+            while (interval_pq.size() && interval_pq.top()->time > next_edge && current_episode > after)
+            {//the next time any uedge's time shows up before the next pedge does, we have a score to settle first. //basically, the idea is that maybe we won't ever need to look at intervals for some pedges, is why it looks like these are split.
+                if (QUERY_DEBUG >= 1)
+                {
+                    std::cout << "EPISODE " << current_episode << std::endl;
+                }
+                // process all interval endpoints at this time step
+                while (interval_pq.size() && interval_pq.top()->time >= current_episode)
+                {
+                    epmem_interval* interval = interval_pq.top();
+                    interval_pq.pop();
+                    epmem_uedge* uedge = interval->uedge;
+                    epmem_triple triple = uedge->triple;
+                    if (QUERY_DEBUG >= 1)
+                    {
+                        std::cout << "  INTERVAL (" << (interval->is_end_point ? "end" : "start") << " at time " << interval->time << "): " << triple.parent_n_id << "-" << triple.attribute_s_id << "-" << triple.child_n_id << std::endl;
+                    }
+                    if (interval->is_end_point)
+                    {//uedge's triple shows up (scanning backwards)
+                        uedge->activated = true;
+                        uedge->activation_count++;
+                        if (uedge->activation_count == 1)
+                        {
+                            for (epmem_pedge_set::iterator pedge_iter = uedge->pedges.begin(); pedge_iter != uedge->pedges.end(); pedge_iter++)
+                            {
+                                epmem_pedge* pedge = *pedge_iter;
+                                for (epmem_literal_set::iterator lit_iter = pedge->literals.begin(); lit_iter != pedge->literals.end(); lit_iter++)
+                                {
+                                    epmem_literal* literal = *lit_iter;
+                                    double current_score = 0;
+                                    long int current_cardinality = 0;
+                                    changed_score |= epmem_satisfy_literal(literal, triple.parent_n_id, triple.child_n_id, current_score, current_cardinality, symbol_node_count, uedge_caches, symbol_num_incoming);
+                                    individual_cues_current_scores[literal->cue] = individual_cues_current_scores[literal->cue] + current_cardinality;
+                                    if (individual_cues_current_scores[literal->cue] == cues_to_perfect_cardinalities[literal->cue])
+                                    {
+                                        cues_that_hit_perfect.insert(literal->cue);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {//uedge's start time showed up, time to remove that triple. that means unsatisfying all literals (and thus looking through all pedges using that triple to satisfy a literal.
+                        uedge->activated = false;
+                        uedge->activation_count--;
+                        for (epmem_pedge_set::iterator pedge_iter = uedge->pedges.begin(); pedge_iter != uedge->pedges.end(); pedge_iter++)
+                        {
+                            epmem_pedge* pedge = *pedge_iter;
+                            for (epmem_literal_set::iterator lit_iter = pedge->literals.begin(); lit_iter != pedge->literals.end(); lit_iter++)
+                            {
+                                double current_score = 0;
+                                long int current_cardinality = 0;
+                                changed_score |= epmem_unsatisfy_literal(*lit_iter, triple.parent_n_id, triple.child_n_id, current_score, current_cardinality, symbol_node_count);//todo make this also set the start-time for the cue in any temporal literals the root for this literal satisfies.
+                                individual_cues_current_scores[(*lit_iter)->cue] = individual_cues_current_scores[(*lit_iter)->cue] + current_cardinality;
+                                //if it's in the perfect score list, take it out!
+                                std::set<Symbol*>::iterator cue_it = cues_that_hit_perfect.find((*lit_iter)->cue);
+                                if (cues_that_have_been_perfect.find((*lit_iter)->cue)!=cues_that_have_been_perfect.end())
+                                {
+                                    cues_that_just_went_away.insert((*lit_iter)->cue);
+                                    cues_that_have_been_perfect.erase((*lit_iter)->cue);
+                                }
+                                if (cue_it != cues_that_hit_perfect.end())
+                                {
+                                    cues_that_hit_perfect.erase(cue_it);
+                                }
+                            }
+                        }
+                    }
+                    // put the interval query back into the queue if there's more and some literal cares
+                    // otherwise, reinitialize the query and put it in a pool
+                    if (interval->sql && interval->sql->execute() == soar_module::row)
+                    {
+                        interval->time = interval->sql->column_int(0);
+                        interval_pq.push(interval);
+                    }
+                    else if (interval->sql)
+                    {
+                        interval->sql->get_pool()->release(interval->sql);
+                        interval->sql = NULL;
+                        uedge->intervals--;
+                        if (uedge->intervals)
+                        {
+                            interval_cleanup.erase(interval);
+                            thisAgent->memoryManager->free_with_pool(MP_epmem_interval, interval);
+                        }
+                        else
+                        {
+                            // TODO JUSTIN retract intervals
+                        }
+                    }
+                }
+                next_interval = (interval_pq.empty() ? after : interval_pq.top()->time);
+                next_episode = (next_edge > next_interval ? next_edge : next_interval);//either an altogether as-yet-unseen satisfaction is gonna happen next or some existing uedge is gonna happen next.
+
+                // update the prohibits list to catch up
+                while (prohibits.size() && prohibits.back() > current_episode)
+                {
+                    prohibits.pop_back();
+                }
+                // ignore the episode if it is prohibited
+                while (prohibits.size() && current_episode > next_episode && current_episode == prohibits.back())
+                {
+                    current_episode--;
+                    prohibits.pop_back();
+                }
+
+                if (QUERY_DEBUG >= 2)
+                {
+                    epmem_print_retrieval_state(literal_cache, pedge_caches, uedge_caches);
+                }
+
+                print_sysparam_trace(thisAgent, TRACE_EPMEM_SYSPARAM, "Considering episode (time, cardinality, score) (%u, %u, %f)\n", static_cast<long long int>(current_episode), current_cardinality, current_score);
+
+                // if
+                // * the current time is still before any new intervals
+                // * and the score was changed in this period
+                // * and the new score is higher than the best score
+                // then save the current time as the best one
+                std::set<epmem_ongoing_match> matches_to_trash;
+                if (current_episode > next_episode && changed_score && (cues_that_hit_perfect.size() > 0 || cues_that_just_went_away.size() > 0))
+                {//now, this will be a for loop. for all of the cues that have a best possible score, try graph matching.
+
+                    //cues_that_just_went_away.insert((*lit_iter)->cue);// gonna make it so that when a cue goes away, pretty much just record keeping. all the interesting stuff happens when it shows up. OTHER THAN when an after has yet to disappear, then a before shows up for it, then than before goes away, but the after didn't go away yet -- that's a big deal.
+                    //means that the before wasn't good and should act like the before never happened.
+                    std::set<Symbol*>::iterator away_it;
+                    for (away_it = cues_that_just_went_away.begin(); away_it != cues_that_just_went_away.end(); away_it++)
+                    {//these are all cues that were graph matches that have had an unsatisfy literal happen.
+                        //need to find the literals in ongoing matches that use this particular match...
+                        ////////only one instance of cue available at a given time -> the ones where the interval has a -1 for the left.//todo is that a reasonable assumption? What about when there are multiple ways to graph match at a given time? answer -- we're not going to worry about it yet.
+
+
+                        //std::multimap<Symbol*, epmem_temporal_literal*> cues_to_temporal_literal_instances
+                        std::set<epmem_temporal_literal*>::iterator active_it;
+                        std::set<epmem_temporal_literal*>::iterator active_begin = active_cues_to_active_temporal_literal_instances[*away_it]->begin();
+                        std::set<epmem_temporal_literal*>::iterator active_end = active_cues_to_active_temporal_literal_instances[*away_it]->end();
+                        for (active_it = active_begin; active_it != active_end; active_it++)
+                        {//all of the literals inside of ongoing matches currently using this cue to satisfy an interval and for which that interval hasn't closed (using the active instance of the cue)
+                            epmem_temporal_literal* active_literal = *active_it;
+                            if (active_literal->value_sym_1 == *away_it)
+                            {//the interval that was active and that closed here was for the before of something.
+                                assert(active_literal->interval_1_left < 0);//it better be the case that if this was active and it was bound to the before, the before doesn't already have a left.
+                                active_literal->interval_1_left = current_episode;
+                                if (active_literal->interval_1_left < active_literal->interval_2_left && active_literal->interval_1_right < active_literal->interval_2_right && active_literal->interval_1_right+1 >= active_literal->interval_2_left)
+                                {//a satisfied temporal literal!
+                                    if (!active_literal->satisfied)
+                                    {//we may have already satisfied this without it having concluded just when it showed up. If we didn't, then we can do it here.//todo I don't think this should actually ever happen.
+                                        active_literal->satisfied = true;
+                                        int score = ++active_literal->match_using_this->match_score;
+                                        if (score == max_match_score)
+                                        {//winner winner chicken dinner!
+
+                                        }
+                                    }
+                                }
+                                else
+                                {//IF AND ONLY IF the before that stopped here didn't work because the after has yet to close can this continue to be an ongoing match. otherwise, this is trash.
+                                    if (active_literal->interval_2_left < 0)
+                                    {//just pretend that before never happened. propogate through all literals using that before within this match.//overall, the match is still fine
+
+                                    } else {//trash the match
+
+                                    }
+
+                                }
+                            }
+                            else if (active_literal->value_sym_2 == *away_it)
+                            {
+                                assert(active_literal->interval_2_left < 0);
+                                //this is an after that just finished. need to make sure it wasn't the case that there was some before that already finished for it. that would be bad.
+                                if (active_literal->interval_1_left != -1)
+                                {//badbad, this is trash now.
+
+                                }
+                                else//the before is still going on, so now this is actually a satisfaction if there is a valid before.
+                                {
+                                    if (active_literal->interval_1_left < active_literal->interval_2_left && active_literal->interval_1_right < active_literal->interval_2_right && active_literal->interval_1_right+1 >= active_literal->interval_2_left)
+                                    {//there was a valid before
+                                        active_literal->satisfied = true;
+                                        int score = ++active_literal->match_using_this->match_score;
+                                        if (score == max_match_score)
+                                        {//winner winner chicken dinner!
+
+                                        }
+                                    }//no else here, could still be fine if a before shows up on the very next timestep.
+                                }
+
+                            }
+                        }
+
+//                        for (ongoing_matches_it = ongoing_matches.begin(); ongoing_matches_it != ongoing_matches.end(); ongoing_matches_it++)//todo instead of a double-for, keep a map directly from cues to set of temporal literals (ptrs) they satisfy (across all ongoing matches) when they have yet to go away. then, have the temporal literals point to the ongoing match they're within.
+//                        {//for each match, find the temporal literals that were using this cue. They are the ones that have a right interval bound, but not a left.
+//                            std::multimap<Symbol*,epmem_temporal_literal*>::iterator temporal_literal_it;
+//                            for (temporal_literal_it = ongoing_matches_it->cues_to_temporal_literals.lower_bound(*away_it); temporal_literal_it = ongoing_matches_it->cues_to_temporal_literals.upper_bound(*away_it); temporal_literal_it++)
+//                            {
+//
+//                            }
+//                        }
+
+                    }//perhaps the biggest thing to figure out is whether the "appearance" of episodic memory is because of architecture changes (literally growing) or because of knowledge changes (crossing a threshold of semantic knowledge of one's history, perhaps).
+
+
+                    // we should graph match if the option is set and all leaf literals are satisfied
+
+                    //basically, this is where we graph match the thing that finally hit all of its leaves and make sure it actually is a graph match. then, if it is, we integrate it into an ongoing match if a suitable one exists or make one if this is a suitable candidate match for starting a new ongoing match.
+                    //then, we stop if this is the final interval for an ongoing match.
+                    std::set<Symbol*>::iterator potential_cue_match_it;
+                    for (potential_cue_match_it = cues_that_hit_perfect.begin(); potential_cue_match_it != cues_that_hit_perfect.end(); potential_cue_match_it++)
+                    {
+                        bool graph_matched = false;
+
+                        {
+                            epmem_literal_deque* gm_ordering = cue_to_gm_ordering[*potential_cue_match_it];
+                            if (gm_order == epmem_param_container::gm_order_undefined)
+                            {
+                                std::sort(gm_ordering->begin(), gm_ordering->end());
+                            }
+                            else if (gm_order == epmem_param_container::gm_order_mcv)
+                            {
+                                std::sort(gm_ordering->begin(), gm_ordering->end(), epmem_gm_mcv_comparator);
+                            }
+                            epmem_literal_deque::iterator begin = gm_ordering->begin();
+                            epmem_literal_deque::iterator end = gm_ordering->end();
+                            epmem_literal_node_pair_map* best_bindings = new epmem_literal_node_pair_map();
+                            //best_bindings.clear();
+                            epmem_node_symbol_map bound_nodes[2];
+                            if (QUERY_DEBUG >= 1)
+                            {
+                                std::cout << "  GRAPH MATCH" << std::endl;
+                                epmem_print_retrieval_state(literal_cache, pedge_caches, uedge_caches);
+                            }
+                            thisAgent->EpMem->epmem_timers->query_graph_match->start();
+                            graph_matched = epmem_graph_match(begin, end, *best_bindings, bound_nodes, thisAgent, 2);
+                            //this is where we can check against temporal interval literals.
+                            if (graph_matched)
+                            {//We actually have a match for one of the cues in this temporal query. Let's start an ongoing match if this doesn't fit in any of the existing ongoing matches.
+
+
+                                cues_that_have_been_perfect.insert(*potential_cue_match_it);
+                                //let's stop and think a second. We have an interval that now actually matches at least for an instant.
+                                //the way it works -- either this fits into an existing match without this interval having already been satisfied or it's an after and can make a new match.   (two exhaustive cases to consider -- there's not already an after present->this just fills it in for now. -- there's already this after present->this must be an alternative match,
+                                //within that second case -- either there was a before associated with that other after and thus this is just a real split or there was not a before associated with that other after and this can't happen because on cessation without a before having filled in that after would have been deleted. thus, only matters in the cases that we get an after and the associated literal was completely satisfied. in those cases, we split, unbinding all literals with the same cues as that literal and also cascading depending on implications (like a before no longer being able to apply because its after was taken away for another literal that was not initially being inpected).
+                                //so, basically, the only hard case is when we encounter an after that doesn't have a free spot in an existing ongoing match. why? because it doesn't always equate to starting fresh, but sometimes requires borrowing what can be borrowed from existing matches.
+                                //########################################easy mode -- all "rightmost" (do not exist as befores) "afters" both fit into existing matches where appropriate and create new ongoing matches even if they fit.#########################################################
+
+                                //so, first, no matter what it is, we look to see if there are valid matches in the existing ongoing matches.
+                                //just be happy and plug it in if so.
+
+                                //std::set<epmem_ongoing_match*>::iterator ongoing_matches_it;
+                                //for (ongoing_matches_it = ongoing_matches.begin(); ongoing_matches_it != ongoing_matches.end(); ongoing_matches_it++)
+                                std::set<epmem_temporal_literal*>::iterator open_literals_it;
+                                std::set<epmem_temporal_literal*> literals_to_remove_from_open;//because the cue filled them in.
+                                for (open_literals_it = cues_to_open_temporal_literal_instances[*potential_cue_match_it]->begin(); cues_to_open_temporal_literal_instances[*potential_cue_match_it]->end(); open_literals_it++)
+                                {//can keep track of just the temporal literals that have open spots and loop over that, then inspect the match after literal satisfaction. -- rather than loop over all ongoing matches
+                                    epmem_temporal_literal* literal_to_match = *open_literals_it;
+                                    literals_to_remove_from_open.insert(literal_to_match); //no matter what, this literal will no longer be able to match to this cue until something else changes that. just don't want to mess up iterators until loop is done.
+                                    if (*potential_cue_match_it == literal_to_match->value_sym_1)//the big mess here could be encapsulated with a "temporal_literal_satisfaction" function that differentially processed by type of interval relation.
+                                    {//it's a before or an exists. if it's an exists, this is easy.
+                                        assert(literal_to_match->interval_1_right == -1);
+                                        literal_to_match->interval_1_right = current_episode;
+                                        if (literal_to_match->is_exists)
+                                        {
+                                            literal_to_match->satisfied = true;
+                                            int score = ++literal_to_match->match_using_this->match_score;
+                                            if (score == max_match_score)
+                                            {
+                                                //We have a winner winner chicken dinner!!!
+                                            }
+                                        }
+                                        else
+                                        {//it's a before, so it's not trivial.
+                                            if (literal_to_match->interval_2_left != -1)
+                                            {//the after part of this is not ongoing. now we just check that indeed, this before that just showed up actually fits.
+                                                if (literal_to_match->interval_2_left - 1 == literal_to_match->interval_1_right)
+                                                {//if the after interval is already fully specified, the only way for this match to work now is if this is a before-meets.
+                                                    //yay, it works, and so this is actually a satisfaction (via before-meets)
+                                                    literal_to_match->satisfied = true;
+                                                    int score = ++literal_to_match->match_using_this->match_score;
+                                                    if (score == max_match_score)
+                                                    {
+                                                        //We have a winner winner chicken dinner!!!
+                                                    }
+                                                }
+                                                else
+                                                {//otherwise there's a gap and this no longer works. have to trash the ongoing.
+                                                    matches_to_trash.insert(literal_to_match->match_using_this);
+                                                }
+                                            }
+                                            else
+                                            {//the after is ongoing and the before just started to overlap. basically, there's no free room in this literal, but it's not satisfied yet either.
+
+                                            }
+                                        }
+
+                                    }
+                                    else
+                                    {//like when an after that didn't start the cue shows up.
+                                        assert(*potential_cue_match_it == literal_to_match->value_sym_2);
+                                        assert(literal_to_match->interval_2_right == -1);
+                                        literal_to_match->interval_2_right = current_episode;
+
+                                    }
+
+
+
+
+                                    //immediately can stop if it completes an ongoing-match. (before for which the after just started/finished a cycle ago)
+
+                                }
+
+                                //we can check if it's a pure after and if so, create a new match for it regardless of whether it fit into any existing matches.
+                                if (afters.find(*potential_cue_match_it) != afters.end())//the only source of new matches
+                                {//is a pure after, make a new ongoing-match as well.
+                                    //temporal_literals is basically a pure untouched set of literals initialized from the cues before I do the walk here. These can be copied for each new ongoing match.
+                                    epmem_ongoing_match* new_match = new epmem_ongoing_match();// needs to keep track of the bindings for the graph matches for later reconstruction. //needs to
+                                    //should have a match score.
+                                    new_match->match_score = 0;//don't actually satisfy any temporal literals with only the after of a before/after relation.
+                                    //std::set<epmem_temporal_literal*>* temporal_literal_copy = new std::set<epmem_temporal_literal*>();//need to actually make real copies of the original ones, so I can't just copy the pointers.
+
+                                    std::set<epmem_temporal_literal*>::iterator temporal_literals_it;
+                                    for (temporal_literals_it = temporal_literals.begin(); temporal_literals_it != temporal_literals.end(); temporal_literals_it++)
+                                    {//if not an is_exists and not the case that the after here is the second sym
+                                        epmem_temporal_literal* literal_copy = new epmem_temporal_literal();
+                                        literal_copy->value_sym_1 = (*temporal_literals_it)->value_sym_1;
+                                        literal_copy->is_exists = (*temporal_literals_it)->is_exists;
+                                        literal_copy->value_sym_2 = (*temporal_literals_it)->value_sym_2;
+                                        literal_copy->satisfied = false;
+                                        literal_copy->type = (*temporal_literals_it)->type;
+                                        literal_copy->match_using_this = new_match;
+                                        new_match->temporal_literals.insert(literal_copy);
+                                        new_match->cues_to_temporal_literals.insert(std::make_pair(literal_copy->value_sym_1,literal_copy));
+                                        new_match->unbound_cues.insert(literal_copy->value_sym_1);
+                                        cues_to_open_temporal_literal_instances[literal_copy->value_sym_1]->insert(literal_copy);
+                                        if (!literal_copy->is_exists)
+                                        {
+                                            new_match->cues_to_temporal_literals.insert(std::make_pair(literal_copy->value_sym_2,literal_copy));
+                                            new_match->unbound_cues.insert(literal_copy->value_sym_2);
+                                            cues_to_open_temporal_literal_instances[literal_copy->value_sym_2]->insert(literal_copy);
+                                        }
+
+
+                                    }
+                                    new_match->unbound_cues.erase(*potential_cue_match_it);
+                                    new_match->best_bindings.insert(std::make_pair(*potential_cue_match_it,best_bindings));
+                                    new_match->match_end = current_episode;
+                                    new_match->match_start = -1;//to indicate it's not yet bound.
+                                    //since this is a pure after, any temporal_literals that this is used in, it's the second symbol. Can fill out information accordingly.
+                                    std::multimap<Symbol*,epmem_temporal_literal*>::iterator this_match_temporal_literals_it;
+                                    for (this_match_temporal_literals_it = new_match->cues_to_temporal_literals.lower_bound(*potential_cue_match_it); this_match_temporal_literals_it != new_match->cues_to_temporal_literals.upper_bound(*potential_cue_match_it); this_match_temporal_literals_it++)
+                                    {
+                                        epmem_temporal_literal* literal_for_which_cue_is_the_after = this_match_temporal_literals_it->second;
+                                        literal_for_which_cue_is_the_after->satisfied = false;
+                                        literal_for_which_cue_is_the_after->interval_2_right = current_episode;
+                                        literal_for_which_cue_is_the_after->interval_2_left = -1;
+                                        literal_for_which_cue_is_the_after->interval_1_left = -1;
+                                        literal_for_which_cue_is_the_after->interval_1_right = -1;
+                                        cues_to_open_temporal_literal_instances[*potential_cue_match_it]->erase(literal_for_which_cue_is_the_after);//the literal is no longer open to this after, given that the after is currently attempting to satisfy it.
+                                        cues_to_temporal_literal_instances[*potential_cue_match_it]->insert(literal_for_which_cue_is_the_after);
+                                        active_cues_to_active_temporal_literal_instances[*potential_cue_match_it]->insert(literal_for_which_cue_is_the_after);
+                                    }
+
+                                }
+
+
+                                //We check which ongoing match this could fit into //could make this into something other than a for-loop if it actually becomes necessary. -- multimap from unmatched cues to potential matches
+//                                bool found_a_fit = false;
+//                                bool is_an_after = false;
+//                                //cues_to_temporal_literals;
+//                                cues_to_temporal_literals;
+//                                std::multimap<Symbol*,epmem_temporal_literal*>::iterator temporal_literals_it;
+//                                for (temporal_literals_it = cues_to_temporal_literals.lower_bound(*potential_cue_match_it); temporal_literals_it != cues_to_temporal_literals.upper_bound(*potential_cue_match_it); temporal_literals_it++)
+//                                {//need to separately iterate over the potentiall-after cues first. basically, double this code. have two "cues_to_temporal_literals", one for afters, one for the rest.
+//                                    if (*potential_cue_match_it == temporal_literals_it->second->value_sym_1)
+//                                    {//matches to a before. go ahead and try it.
+//                                        if (temporal_literals_it->second->satisfied_1)
+//                                        {//already have a match and this is a before, so we do nothing here.
+//
+//                                        }
+//                                        else
+//                                        {
+//                                            if ()
+//                                            {
+//
+//                                            }
+//                                            temporal_literals_it->second->satisfied_1 = true;
+//                                        }
+//                                    }
+//
+//                                }
+//                                std::set<epmem_ongoing_match>::iterator ongoing_matches_it;
+//                                for (ongoing_matches_it = ongoing_matches.begin(); ongoing_matches_it != ongoing_matches.end(); ongoing_matches_it++)
+//                                {
+//
+//                                }
+                            }
+                            thisAgent->EpMem->epmem_timers->query_graph_match->stop();
+                        }
+//                        if (!true || graph_matched)
+//                        {
+//                            best_episode = current_episode;
+//                            best_graph_matched = true;
+//                            current_episode = EPMEM_MEMID_NONE;//todo remember as trigger for making this stop.
+//                            new_king = true;
+//                        }
+                    }
+                }
+                cues_that_hit_perfect.clear();
+                cues_that_just_went_away.clear();
+
+                if (current_episode == EPMEM_MEMID_NONE)
+                {
+                    break;
+                }
+                else
+                {
+                    current_episode = next_episode;
+                }
+            }
+            thisAgent->EpMem->epmem_timers->query_walk_interval->stop();
+        }
+        thisAgent->EpMem->epmem_timers->query_walk->stop();
+
+        // if the best episode is the default, fail
+        // otherwise, put the episode in working memory
+        if (best_episode == EPMEM_MEMID_NONE)
+        {
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_failure, pos_query);
+            if (neg_query)
+            {
+                epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_failure, neg_query);
+            }
+        }
+        else
+        {
+            thisAgent->EpMem->epmem_timers->query_result->start();
+            Symbol* temp_sym;
+            epmem_id_mapping node_map_map;
+            epmem_id_mapping node_mem_map;
+            // cue size
+            temp_sym = thisAgent->symbolManager->make_int_constant(leaf_literals.size());
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_cue_size, temp_sym);
+            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+            // match cardinality
+            temp_sym = thisAgent->symbolManager->make_int_constant(best_cardinality);
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_match_cardinality, temp_sym);
+            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+            // match score
+            temp_sym = thisAgent->symbolManager->make_float_constant(best_score);
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_match_score, temp_sym);
+            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+            // normalized match score
+            temp_sym = thisAgent->symbolManager->make_float_constant(best_score / perfect_score);
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_normalized_match_score, temp_sym);
+            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+            // status
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_success, pos_query);
+            if (neg_query)
+            {
+                epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_success, neg_query);
+            }
+            // give more metadata if graph match is turned on
+            if (true)
+            {
+                // graph match
+                temp_sym = thisAgent->symbolManager->make_int_constant((best_graph_matched ? 1 : 0));
+                epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match, temp_sym);
+                thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+
+                // mapping
+                if (best_graph_matched)
+                {
+                    goal_stack_level level = state->id->epmem_info->result_wme->value->id->level;
+                    // mapping identifier
+                    Symbol* mapping = thisAgent->symbolManager->make_new_identifier('M', level);
+                    epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match_mapping, mapping);
+                    thisAgent->symbolManager->symbol_remove_ref(&mapping);
+
+                    for (epmem_literal_node_pair_map::iterator iter = best_bindings.begin(); iter != best_bindings.end(); iter++)
+                    {
+                        if ((*iter).first->value_is_id)
+                        {
+                            // create the node
+                            temp_sym = thisAgent->symbolManager->make_new_identifier('N', level);
+                            epmem_buffer_add_wme(thisAgent, meta_wmes, mapping, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match_mapping_node, temp_sym);
+                            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
+                            // point to the cue identifier
+                            epmem_buffer_add_wme(thisAgent, meta_wmes, temp_sym, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match_mapping_cue, (*iter).first->value_sym);
+                            // save the mapping point for the episode
+                            node_map_map[(*iter).second.second] = temp_sym;
+                            node_mem_map[(*iter).second.second] = NULL;
+                        }
+                    }
+                }
+            }
+            // reconstruct the actual episode
+            if (level > 2)
+            {
+                epmem_install_memory(thisAgent, state, best_episode, meta_wmes, retrieval_wmes, &node_mem_map);
+            }
+            if (best_graph_matched)
+            {
+                for (epmem_id_mapping::iterator iter = node_mem_map.begin(); iter != node_mem_map.end(); iter++)
+                {
+                    epmem_id_mapping::iterator map_iter = node_map_map.find((*iter).first);
+                    if (map_iter != node_map_map.end() && (*iter).second)
+                    {
+                        epmem_buffer_add_wme(thisAgent, meta_wmes, (*map_iter).second, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved, (*iter).second);
+                    }
+                }
+            }
+            thisAgent->EpMem->epmem_timers->query_result->stop();
+        }
+    }
+
+    // cleanup
+    thisAgent->EpMem->epmem_timers->query_cleanup->start();
+
+    for (epmem_interval_set::iterator iter = interval_cleanup.begin(); iter != interval_cleanup.end(); iter++)
+    {
+        epmem_interval* interval = *iter;
+        if (interval->sql)
+        {
+            interval->sql->get_pool()->release(interval->sql);
+        }
+        thisAgent->memoryManager->free_with_pool(MP_epmem_interval, interval);
+    }
+    for (int type = EPMEM_RIT_STATE_NODE; type <= EPMEM_RIT_STATE_EDGE; type++)
+    {
+        for (epmem_triple_pedge_map::iterator iter = pedge_caches[type].begin(); iter != pedge_caches[type].end(); iter++)
+        {
+            epmem_pedge* pedge = (*iter).second;
+            if (pedge->sql)
+            {
+                pedge->sql->get_pool()->release(pedge->sql);
+            }
+            pedge->literals.~epmem_literal_set();
+            thisAgent->memoryManager->free_with_pool(MP_epmem_pedge, pedge);
+        }
+        for (epmem_triple_uedge_map::iterator iter = uedge_caches[type].begin(); iter != uedge_caches[type].end(); iter++)
+        {
+            epmem_uedge* uedge = (*iter).second;
+            uedge->pedges.~epmem_pedge_set();
+            thisAgent->memoryManager->free_with_pool(MP_epmem_uedge, uedge);
+        }
+    }
+    for (epmem_wme_literal_map::iterator iter = literal_cache.begin(); iter != literal_cache.end(); iter++)
+    {
+        epmem_literal* literal = (*iter).second;
+        literal->parents.~epmem_literal_set();
+        literal->children.~epmem_literal_set();
+        literal->matches.~epmem_node_pair_set();
+        literal->values.~epmem_node_int_map();
+        thisAgent->memoryManager->free_with_pool(MP_epmem_literal, literal);
+    }
+    thisAgent->EpMem->epmem_timers->query_cleanup->stop();
+
+    thisAgent->EpMem->epmem_timers->query->stop();
+}
+
+
 
 
 
@@ -6807,13 +8084,15 @@ bool epmem_consider_new_episode(agent* thisAgent)
     return new_memory;
 }
 
-void inline _epmem_respond_to_cmd_parse(agent* thisAgent, epmem_wme_list* cmds, bool& good_cue, int& path, epmem_time_id& retrieve, Symbol*& next, Symbol*& previous, Symbol*& query, Symbol*& neg_query, epmem_time_list& prohibit, epmem_time_id& before, epmem_time_id& after, wme_set& cue_wmes)
+void inline _epmem_respond_to_cmd_parse(agent* thisAgent, epmem_wme_list* cmds, bool& good_cue, int& path, epmem_time_id& retrieve, Symbol*& next, Symbol*& previous, Symbol*& query, Symbol*& neg_query, epmem_time_list& prohibit, epmem_time_id& before, epmem_time_id& after, wme_set& cue_wmes, std::list<Symbol*>& temporal_queries = NULL, std::list<Symbol*>& interval_relations = NULL)
 {
     cue_wmes.clear();
 
     retrieve = EPMEM_MEMID_NONE;
     next = NULL;
     previous = NULL;
+    temporal_queries = NULL;
+    interval_relations = NULL;
     query = NULL;
     neg_query = NULL;
     prohibit.clear();
@@ -6998,6 +8277,8 @@ void epmem_respond_to_cmd(agent* thisAgent)
     Symbol* neg_query;
     epmem_time_list prohibit;
     epmem_time_id before, after;
+    std::list<Symbol*> pos_queries;
+    std::list<Symbol*> interval_relations;
     bool good_cue;
     int path;
 
@@ -7080,7 +8361,7 @@ void epmem_respond_to_cmd(agent* thisAgent)
         // and there is something on the cue
         if (new_cue && wme_count)
         {
-            _epmem_respond_to_cmd_parse(thisAgent, cmds, good_cue, path, retrieve, next, previous, query, neg_query, prohibit, before, after, cue_wmes);
+            _epmem_respond_to_cmd_parse(thisAgent, cmds, good_cue, path, retrieve, next, previous, query, neg_query, prohibit, before, after, cue_wmes, pos_queries);
 
             ////////////////////////////////////////////////////////////////////////////
             thisAgent->EpMem->epmem_timers->api->stop();
@@ -7136,6 +8417,10 @@ void epmem_respond_to_cmd(agent* thisAgent)
 
                     // add one to the cbr stat
                     thisAgent->EpMem->epmem_stats->cbr->set_value(thisAgent->EpMem->epmem_stats->cbr->get_value() + 1);
+                }
+                else if (path=4)//todo might be higher, have to check.
+                {
+                    epmem_process_interval_query(thisAgent, state, &pos_queries, &interval_relations, prohibit, before, after, cue_wmes, meta_wmes, retrieval_wmes);
                 }
             }
             else

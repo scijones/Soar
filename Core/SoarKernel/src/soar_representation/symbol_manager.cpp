@@ -683,6 +683,10 @@ void Symbol_Manager::create_predefined_symbols()
     soarSymbols.epmem_sym_prev = make_str_constant("previous");
     soarSymbols.epmem_sym_next_query = make_str_constant("next-query");//This is to support a new type of "next" query which retrieves the next episode subject to a constraint.//partially implemented
     soarSymbols.epmem_sym_query = make_str_constant("query");
+    soarSymbols.epmem_sym_query = make_str_constant("interval-query");
+    soarSymbols.epmem_sym_query = make_str_constant("left");
+    soarSymbols.epmem_sym_query = make_str_constant("right");
+    soarSymbols.epmem_sym_query = make_str_constant("type");
     soarSymbols.epmem_sym_negquery = make_str_constant("neg-query");
     soarSymbols.epmem_sym_before = make_str_constant("before");
     soarSymbols.epmem_sym_after = make_str_constant("after");
@@ -870,6 +874,10 @@ void Symbol_Manager::release_predefined_symbols()
     symbol_remove_ref(&(soarSymbols.epmem_sym_prev));
     symbol_remove_ref(&(soarSymbols.epmem_sym_next_query));
     symbol_remove_ref(&(soarSymbols.epmem_sym_query));
+    symbol_remove_ref(&(soarSymbols.epmem_sym_interval_query));
+    symbol_remove_ref(&(soarSymbols.epmem_sym_left));
+    symbol_remove_ref(&(soarSymbols.epmem_sym_right));
+    symbol_remove_ref(&(soarSymbols.epmem_sym_type));
     symbol_remove_ref(&(soarSymbols.epmem_sym_negquery));
     symbol_remove_ref(&(soarSymbols.epmem_sym_begin_query));
     symbol_remove_ref(&(soarSymbols.epmem_sym_before));

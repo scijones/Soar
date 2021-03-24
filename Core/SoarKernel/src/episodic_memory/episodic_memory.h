@@ -556,6 +556,8 @@ typedef struct epmem_literal_struct epmem_literal;
 typedef struct epmem_pedge_struct epmem_pedge;
 typedef struct epmem_uedge_struct epmem_uedge;
 typedef struct epmem_interval_struct epmem_interval;
+typedef struct epmem_temporal_interval_relation_literal_struct epmem_temporal_literal;
+typedef struct epmem_ongoing_match_struct epmem_ongoing_match;
 
 // pairs
 typedef struct std::pair<Symbol*, epmem_literal*> epmem_symbol_literal_pair;
@@ -616,44 +618,80 @@ struct epmem_triple_struct
 struct epmem_literal_struct
 {
     Symbol* id_sym;
-    Symbol* value_sym;
+    Symbol* value_sym;//the symbol on the cue matching to this literal. (e.g. state root to the positive cue root, positive cue root is value_sym)
     int is_neg_q;
-    int value_is_id;
+    int value_is_id;//basically a boolean. 1 if yes. ("1" = EPMEM_RIT_STATE_EDGE)
     bool is_leaf;
     epmem_node_id attribute_s_id;
-    epmem_node_id child_n_id;
+    epmem_node_id child_n_id; //  -- is set to -1 (epmem_nodeid_bad) if an identifier. if a typical value
+    //(not to be confused with leaf, as leaf is a superset of value, since an identifier can be a leaf), then this is set to the epmem hash for that value (constant).
     double weight;
     epmem_literal_set parents;
     epmem_literal_set children;
-    epmem_node_pair_set matches;
+    epmem_node_pair_set matches;//which pedges could satisfy this?
     epmem_node_int_map values;
+    /*epmem_literal_set befores;//the literals that are supposed to come (directly) before this one.//when this literal becomes unsatisfied, if there are befores,
+    //then the score doesn't actually decrease if those befores are satisfied on the -1 cycle or already satisfied.
+    //when a literal is already satisfied, but it is supposed to be before another literal, is bad (even though it's "satisfied")
+    epmem_literal_set afters;*/
+    Symbol* cue;//nice to know when a literal is satisfied, which cue it's satisfying.
 };
+
+struct epmem_temporal_interval_relation_literal_struct
+{
+    Symbol* value_sym_1;//the cue root for this temporal relation literal
+    bool is_exists;//doesn't bind to any explicitly-supplied temporal relation constraints
+    Symbol* value_sym_2;//the other cue root for this temporal relation literal//will be null for the is_exists literals.
+    int interval_1_left;
+    int interval_1_right;
+    int interval_2_left;
+    int interval_2_right;
+    bool satisfied;
+    //int just_deleted;//which symbol only just no longer matches?
+    int type;
+    epmem_ongoing_match* match_using_this;
+};//epmem_temporal_literal
+
+struct epmem_ongoing_match_struct
+{//an "ongoing match" is when at least one cue has a particular binding to an interval during which that cue is present.
+    std::map<Symbol*,epmem_literal_node_pair_map*> best_bindings;//for a given cue, the bindings for a graph match.
+    //std::map<Symbol*,int> individual_cue_scores;
+    int match_score;// When this is equal to the number of temporal relations to satisfy, we did it!
+    //std::map<Symbol*,std::pair<uint64_t,uint64_t>>* cues_to_satisfying_intervals;
+    int match_end;//filled in first, the temporally last timestep of this match.
+    int match_start;//filled in last, the temporally first timestep of this match.
+    std::multimap<Symbol*,epmem_temporal_literal*> cues_to_temporal_literals;
+    std::set<Symbol*> unbound_cues;
+    std::set<epmem_temporal_literal*> temporal_literals;
+};//maybe "episodic memory" is when we become able to conceive of and directly represent the passage of time declaratively as just another relation in semantic memory.
+
 
 struct epmem_pedge_struct
 {
-    epmem_triple triple;
-    int value_is_id;
-    epmem_literal_set literals;
-    soar_module::pooled_sqlite_statement* sql;
+    epmem_triple triple;//what part of the WMG does this correspond to?
+    int value_is_id;//is the value an identifier?
+    epmem_literal_set literals;//what aspects of the cue structure does this potentially correspond to?
+    soar_module::pooled_sqlite_statement* sql;//sql statements asking for the last_episode_id and w*_id
     epmem_time_id time;
+    Symbol* cue;//unused in typical process_query usage, only to keep track of which cue// as long as all of the literals keep track of things, may not need this.
 };
 
 struct epmem_uedge_struct
 {
-    epmem_triple triple;
-    int value_is_id;
-    int activation_count;
-    epmem_pedge_set pedges;
-    int intervals;
-    bool activated;
+    epmem_triple triple;//what part of the WMG does this correspond to?
+    int value_is_id;//is the value an identifier?
+    int activation_count;//How many pedges are currently active (present at the current timestep being swept) using this?
+    epmem_pedge_set pedges;//Which pedges use this?
+    int intervals;//goes up when the first interval shows up, doesn't go back down until last interval goes away (start time of first interval in relevant history)
+    bool activated;//not sure, but I think: activation_count, but bool
 };
 
 struct epmem_interval_struct
 {
-    epmem_uedge* uedge;
-    int is_end_point;
-    soar_module::pooled_sqlite_statement* sql;
-    epmem_time_id time;
+    epmem_uedge* uedge;//a given temporal interval is associated with a given uedge -- this struct is used as "current interval"
+    int is_end_point;//the end_episode_id, so it tells you (when sweeping back) when a given uedge's triple becomes present in memory.
+    soar_module::pooled_sqlite_statement* sql;//look for the next interval and make it current by changing time
+    epmem_time_id time;//the time at which this interval expires
 };
 
 // priority queues and comparison functions

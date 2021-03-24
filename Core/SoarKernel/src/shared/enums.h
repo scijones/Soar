@@ -291,6 +291,7 @@ MP_epmem_literal,
 MP_epmem_pedge,
 MP_epmem_uedge,
 MP_epmem_interval,
+//MP_epmem_temporal_literal,
 MP_constraints,
 MP_action_record,
 MP_chunk_element,
@@ -338,7 +339,8 @@ enum TemporalRelationTypes
     CONTAINS = 4,
     AFTER_OVERLAPS = 5,
     AFTER_MEETS = 6,
-    AFTER = 7
+    AFTER = 7,
+    NONE_TYPE = 8
 };
 
 enum ExplainTraceType
