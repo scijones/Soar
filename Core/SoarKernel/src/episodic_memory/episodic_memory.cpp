@@ -6861,7 +6861,8 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
         std::set<Symbol*> cues_that_have_been_perfect;
         // main loop of interval walk
         thisAgent->EpMem->epmem_timers->query_walk->start();
-        while (pedge_pq.size() && current_episode > after)//basically, current_episode is decremented in gaps, based on when some aspect of matching to the cue changes (not intermediate cue-agnostic changes).
+        bool complete_match = false;
+        while (pedge_pq.size() && current_episode > after && !complete_match)//basically, current_episode is decremented in gaps, based on when some aspect of matching to the cue changes (not intermediate cue-agnostic changes).
         {
 
             epmem_time_id next_edge;
@@ -7046,7 +7047,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                             {
                                 cues_that_hit_perfect.insert(literal->cue);
                             }
-                            //todo probably want to make current score and cardinality instead reference individual_cues_current_scores.
+
                         }
                     }
                 }
@@ -7188,13 +7189,16 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                 // * and the score was changed in this period
                 // * and the new score is higher than the best score
                 // then save the current time as the best one
-                std::set<epmem_ongoing_match> matches_to_trash;
+
+                std::set<epmem_ongoing_match*> matches_to_trash;
                 if (current_episode > next_episode && changed_score && (cues_that_hit_perfect.size() > 0 || cues_that_just_went_away.size() > 0))
                 {//now, this will be a for loop. for all of the cues that have a best possible score, try graph matching.
 
                     //cues_that_just_went_away.insert((*lit_iter)->cue);// gonna make it so that when a cue goes away, pretty much just record keeping. all the interesting stuff happens when it shows up. OTHER THAN when an after has yet to disappear, then a before shows up for it, then than before goes away, but the after didn't go away yet -- that's a big deal.
                     //means that the before wasn't good and should act like the before never happened.
                     std::set<Symbol*>::iterator away_it;
+                    std::set<epmem_ongoing_match*> complete_match_set;
+                    std::queue<std::pair<Symbol*,epmem_ongoing_match*>> cues_to_purge_from_ongoing_matches;
                     for (away_it = cues_that_just_went_away.begin(); away_it != cues_that_just_went_away.end(); away_it++)
                     {//these are all cues that were graph matches that have had an unsatisfy literal happen.
                         //need to find the literals in ongoing matches that use this particular match...
@@ -7220,28 +7224,82 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                         int score = ++active_literal->match_using_this->match_score;
                                         if (score == max_match_score)
                                         {//winner winner chicken dinner!
-
+                                            complete_match_set.insert(active_literal->match_using_this);//if this manages to stay in this set, then we're done! Has to survive further changes within this DC.
                                         }
+
                                     }
                                 }
                                 else
-                                {//IF AND ONLY IF the before that stopped here didn't work because the after has yet to close can this continue to be an ongoing match. otherwise, this is trash.
+                                {//IF AND ONLY IF the before that stopped here didn't work because the after has yet to close can this continue to be an ongoing match. otherwise, this is trash. (basically, we found a contains).
                                     if (active_literal->interval_2_left < 0)
                                     {//just pretend that before never happened. propogate through all literals using that before within this match.//overall, the match is still fine
-
-                                    } else {//trash the match
-
+                                        //could just make a "actually, remove these, oops" set for cues that need to propogate. Then, iterate *again* over matches using those cues. So, this loop is just record-keeping. The next one does the real changes.
+                                        cues_to_purge_from_ongoing_matches.push(std::make_pair(*away_it,active_literal->match_using_this));
+                                        if (active_literal->satisfied)
+                                        {
+                                            active_literal->satisfied = false;
+                                            active_literal->match_using_this->match_score--;
+                                        }
+                                        if (complete_match_set.find(active_literal->match_using_this) != complete_match_set.end())
+                                        {
+                                            complete_match_set.erase(active_literal->match_using_this);
+                                        }
+                                        active_literal->interval_1_left = -1;
+                                        active_literal->interval_1_right = -1;
+                                    } else {//so, the after has closed and the before doesn't line up (a gap). this means that we need to remove the after and before and propogate -- only pure afters cause trash.
+                                        //similar to the above -- the after needs to be removed from other literals where it showed up.
+                                        if (afters.find(*away_it) != afters.end())
+                                        {//that means this is an ongoing match to trash completely.
+                                            matches_to_trash.insert(active_literal->match_using_this);
+                                        }
+                                        else
+                                        {
+                                            cues_to_purge_from_ongoing_matches.push(std::make_pair(*away_it,active_literal->match_using_this));
+                                            cues_to_purge_from_ongoing_matches.push(std::make_pair(active_literal->value_sym_2,active_literal->match_using_this));
+                                        }
+                                        if (active_literal->satisfied)
+                                        {
+                                            active_literal->satisfied = false;
+                                            active_literal->match_using_this->match_score--;
+                                        }
+                                        if (complete_match_set.find(active_literal->match_using_this) != complete_match_set.end())
+                                        {
+                                            complete_match_set.erase(active_literal->match_using_this);
+                                        }
+                                        active_literal->interval_1_left = -1;
+                                        active_literal->interval_1_right = -1;
+                                        active_literal->interval_2_left = -1;
+                                        active_literal->interval_2_right = -1;
                                     }
 
                                 }
                             }
                             else if (active_literal->value_sym_2 == *away_it)
-                            {
+                            {//it was an after for this literal.
                                 assert(active_literal->interval_2_left < 0);
+                                active_literal->interval_2_left = current_episode;
                                 //this is an after that just finished. need to make sure it wasn't the case that there was some before that already finished for it. that would be bad.
                                 if (active_literal->interval_1_left != -1)
-                                {//badbad, this is trash now.
-
+                                {//badbad, but if this wasn't a pure after, then just remove and preserve the ongoing match. propogate through all literals using that after within this match.
+                                    if (complete_match_set.find(active_literal->match_using_this) != complete_match_set.end())
+                                    {
+                                        complete_match_set.erase(active_literal->match_using_this);
+                                    }
+                                    active_literal->satisfied = false;
+                                    active_literal->match_using_this->match_score--;
+                                    active_literal->interval_1_left = -1;
+                                    active_literal->interval_1_right = -1;
+                                    active_literal->interval_2_left = -1;
+                                    active_literal->interval_2_right = -1;
+                                    if (afters.find(*away_it) != afters.end())
+                                    {//that means this is an ongoing match to trash completely.
+                                        matches_to_trash.insert(active_literal->match_using_this);
+                                    }
+                                    else
+                                    {
+                                        cues_to_purge_from_ongoing_matches.push(std::make_pair(*away_it,active_literal->match_using_this));
+                                        cues_to_purge_from_ongoing_matches.push(std::make_pair(active_literal->value_sym_1,active_literal->match_using_this));
+                                    }
                                 }
                                 else//the before is still going on, so now this is actually a satisfaction if there is a valid before.
                                 {
@@ -7251,13 +7309,30 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                         int score = ++active_literal->match_using_this->match_score;
                                         if (score == max_match_score)
                                         {//winner winner chicken dinner!
-
+                                            complete_match_set.insert(active_literal->match_using_this);
                                         }
-                                    }//no else here, could still be fine if a before shows up on the very next timestep.
+                                    }//no else here, could still be fine if a before shows up on the very next timestep.//basically, can't throw the match away until the before shows up to make it obviously wrong.
                                 }
 
                             }
                         }
+
+
+                        //now we iterate over "cues_to_purge_from_ongoing_matches". This can only potentially preserve an ongoing match (having removed what was bad) or we find implications of the initial change that now show this is completely invalid. This can't possibly lead to a complete match.
+                        //should basically do a "while not empty" on "removal implication" queue.
+                        while (!cues_to_purge_from_ongoing_matches.empty())
+                        {
+                            //pop a cue and ongoing match pair.
+                            //loop over every literal using that cue in the ongoing match
+                            //for each literal, check if removing that cue ruins everything (is the removal of an after).
+                            //for each literal where the cue was removed (the interval wasn't already -1'd), push implications again.
+                            //should eventually get to a point where either you've found that this ruins the match and it's trash or every literal is now -1'd for every implication.
+                            //repeat.
+                        }
+
+                        //trash any matches_to_trash.
+
+
 
 //                        for (ongoing_matches_it = ongoing_matches.begin(); ongoing_matches_it != ongoing_matches.end(); ongoing_matches_it++)//todo instead of a double-for, keep a map directly from cues to set of temporal literals (ptrs) they satisfy (across all ongoing matches) when they have yet to go away. then, have the temporal literals point to the ongoing match they're within.
 //                        {//for each match, find the temporal literals that were using this cue. They are the ones that have a right interval bound, but not a left.
@@ -7269,6 +7344,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
 //                        }
 
                     }//perhaps the biggest thing to figure out is whether the "appearance" of episodic memory is because of architecture changes (literally growing) or because of knowledge changes (crossing a threshold of semantic knowledge of one's history, perhaps).
+                    //any ongoing matches to trash will have been trashed by now. ready to loop for satisfaction from new matches.
 
 
                     // we should graph match if the option is set and all leaf literals are satisfied
@@ -7280,160 +7356,193 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                     {
                         bool graph_matched = false;
 
+
+                        epmem_literal_deque* gm_ordering = cue_to_gm_ordering[*potential_cue_match_it];
+                        if (gm_order == epmem_param_container::gm_order_undefined)
                         {
-                            epmem_literal_deque* gm_ordering = cue_to_gm_ordering[*potential_cue_match_it];
-                            if (gm_order == epmem_param_container::gm_order_undefined)
-                            {
-                                std::sort(gm_ordering->begin(), gm_ordering->end());
-                            }
-                            else if (gm_order == epmem_param_container::gm_order_mcv)
-                            {
-                                std::sort(gm_ordering->begin(), gm_ordering->end(), epmem_gm_mcv_comparator);
-                            }
-                            epmem_literal_deque::iterator begin = gm_ordering->begin();
-                            epmem_literal_deque::iterator end = gm_ordering->end();
-                            epmem_literal_node_pair_map* best_bindings = new epmem_literal_node_pair_map();
-                            //best_bindings.clear();
-                            epmem_node_symbol_map bound_nodes[2];
-                            if (QUERY_DEBUG >= 1)
-                            {
-                                std::cout << "  GRAPH MATCH" << std::endl;
-                                epmem_print_retrieval_state(literal_cache, pedge_caches, uedge_caches);
-                            }
-                            thisAgent->EpMem->epmem_timers->query_graph_match->start();
-                            graph_matched = epmem_graph_match(begin, end, *best_bindings, bound_nodes, thisAgent, 2);
-                            //this is where we can check against temporal interval literals.
-                            if (graph_matched)
-                            {//We actually have a match for one of the cues in this temporal query. Let's start an ongoing match if this doesn't fit in any of the existing ongoing matches.
+                            std::sort(gm_ordering->begin(), gm_ordering->end());
+                        }
+                        else if (gm_order == epmem_param_container::gm_order_mcv)
+                        {
+                            std::sort(gm_ordering->begin(), gm_ordering->end(), epmem_gm_mcv_comparator);
+                        }
+                        epmem_literal_deque::iterator begin = gm_ordering->begin();
+                        epmem_literal_deque::iterator end = gm_ordering->end();
+                        epmem_literal_node_pair_map* best_bindings = new epmem_literal_node_pair_map();
+                        //best_bindings.clear();
+                        epmem_node_symbol_map bound_nodes[2];
+                        if (QUERY_DEBUG >= 1)
+                        {
+                            std::cout << "  GRAPH MATCH" << std::endl;
+                            epmem_print_retrieval_state(literal_cache, pedge_caches, uedge_caches);
+                        }
+                        thisAgent->EpMem->epmem_timers->query_graph_match->start();
+                        graph_matched = epmem_graph_match(begin, end, *best_bindings, bound_nodes, thisAgent, 2);
+                        //this is where we can check against temporal interval literals.
+                        if (graph_matched)
+                        {//We actually have a match for one of the cues in this temporal query. Let's start an ongoing match if this doesn't fit in any of the existing ongoing matches.
 
 
-                                cues_that_have_been_perfect.insert(*potential_cue_match_it);
-                                //let's stop and think a second. We have an interval that now actually matches at least for an instant.
-                                //the way it works -- either this fits into an existing match without this interval having already been satisfied or it's an after and can make a new match.   (two exhaustive cases to consider -- there's not already an after present->this just fills it in for now. -- there's already this after present->this must be an alternative match,
-                                //within that second case -- either there was a before associated with that other after and thus this is just a real split or there was not a before associated with that other after and this can't happen because on cessation without a before having filled in that after would have been deleted. thus, only matters in the cases that we get an after and the associated literal was completely satisfied. in those cases, we split, unbinding all literals with the same cues as that literal and also cascading depending on implications (like a before no longer being able to apply because its after was taken away for another literal that was not initially being inpected).
-                                //so, basically, the only hard case is when we encounter an after that doesn't have a free spot in an existing ongoing match. why? because it doesn't always equate to starting fresh, but sometimes requires borrowing what can be borrowed from existing matches.
-                                //########################################easy mode -- all "rightmost" (do not exist as befores) "afters" both fit into existing matches where appropriate and create new ongoing matches even if they fit.#########################################################
+                            cues_that_have_been_perfect.insert(*potential_cue_match_it);
+                            //let's stop and think a second. We have an interval that now actually matches at least for an instant.
+                            //the way it works -- either this fits into an existing match without this interval having already been satisfied or it's an after and can make a new match.   (two exhaustive cases to consider -- there's not already an after present->this just fills it in for now. -- there's already this after present->this must be an alternative match,
+                            //within that second case -- either there was a before associated with that other after and thus this is just a real split or there was not a before associated with that other after and this can't happen because on cessation without a before having filled in that after would have been deleted. thus, only matters in the cases that we get an after and the associated literal was completely satisfied. in those cases, we split, unbinding all literals with the same cues as that literal and also cascading depending on implications (like a before no longer being able to apply because its after was taken away for another literal that was not initially being inpected).
+                            //so, basically, the only hard case is when we encounter an after that doesn't have a free spot in an existing ongoing match. why? because it doesn't always equate to starting fresh, but sometimes requires borrowing what can be borrowed from existing matches.
+                            //########################################easy mode -- all "rightmost" (do not exist as befores) "afters" both fit into existing matches where appropriate and create new ongoing matches even if they fit.#########################################################
 
-                                //so, first, no matter what it is, we look to see if there are valid matches in the existing ongoing matches.
-                                //just be happy and plug it in if so.
+                            //so, first, no matter what it is, we look to see if there are valid matches in the existing ongoing matches.
+                            //just be happy and plug it in if so.
 
-                                //std::set<epmem_ongoing_match*>::iterator ongoing_matches_it;
-                                //for (ongoing_matches_it = ongoing_matches.begin(); ongoing_matches_it != ongoing_matches.end(); ongoing_matches_it++)
-                                std::set<epmem_temporal_literal*>::iterator open_literals_it;
-                                std::set<epmem_temporal_literal*> literals_to_remove_from_open;//because the cue filled them in.
-                                for (open_literals_it = cues_to_open_temporal_literal_instances[*potential_cue_match_it]->begin(); cues_to_open_temporal_literal_instances[*potential_cue_match_it]->end(); open_literals_it++)
-                                {//can keep track of just the temporal literals that have open spots and loop over that, then inspect the match after literal satisfaction. -- rather than loop over all ongoing matches
-                                    epmem_temporal_literal* literal_to_match = *open_literals_it;
-                                    literals_to_remove_from_open.insert(literal_to_match); //no matter what, this literal will no longer be able to match to this cue until something else changes that. just don't want to mess up iterators until loop is done.
-                                    if (*potential_cue_match_it == literal_to_match->value_sym_1)//the big mess here could be encapsulated with a "temporal_literal_satisfaction" function that differentially processed by type of interval relation.
-                                    {//it's a before or an exists. if it's an exists, this is easy.
-                                        assert(literal_to_match->interval_1_right == -1);
-                                        literal_to_match->interval_1_right = current_episode;
-                                        if (literal_to_match->is_exists)
+                            //std::set<epmem_ongoing_match*>::iterator ongoing_matches_it;
+                            //for (ongoing_matches_it = ongoing_matches.begin(); ongoing_matches_it != ongoing_matches.end(); ongoing_matches_it++)
+                            std::set<epmem_temporal_literal*>::iterator open_literals_it;
+                            std::set<epmem_temporal_literal*> literals_to_remove_from_open;//because the cue filled them in.
+                            for (open_literals_it = cues_to_open_temporal_literal_instances[*potential_cue_match_it]->begin(); cues_to_open_temporal_literal_instances[*potential_cue_match_it]->end(); open_literals_it++)
+                            {//can keep track of just the temporal literals that have open spots and loop over that, then inspect the match after literal satisfaction. -- rather than loop over all ongoing matches
+                                epmem_temporal_literal* literal_to_match = *open_literals_it;
+                                literals_to_remove_from_open.insert(literal_to_match); //no matter what, this literal will no longer be able to match to this cue until something else changes that. just don't want to mess up iterators until loop is done.
+                                if (*potential_cue_match_it == literal_to_match->value_sym_1)//the big mess here could be encapsulated with a "temporal_literal_satisfaction" function that differentially processed by type of interval relation.
+                                {//it's a before or an exists. if it's an exists, this is easy.
+                                    assert(literal_to_match->interval_1_right == -1);
+                                    literal_to_match->interval_1_right = current_episode;
+                                    if (literal_to_match->is_exists)
+                                    {
+                                        literal_to_match->satisfied = true;
+                                        int score = ++literal_to_match->match_using_this->match_score;
+                                        if (score == max_match_score)
                                         {
-                                            literal_to_match->satisfied = true;
-                                            int score = ++literal_to_match->match_using_this->match_score;
-                                            if (score == max_match_score)
-                                            {
-                                                //We have a winner winner chicken dinner!!!
+                                            //We have a winner winner chicken dinner!!!
+                                            //now just to see if it sticks around (isn't invalidated by not fitting in somewhere else).
+                                            complete_match_set.insert(literal_to_match->match_using_this);
+                                        }
+                                    }
+                                    else
+                                    {//it's a before, so it's not trivial.
+                                        if (literal_to_match->interval_2_left != -1)
+                                        {//the after part of this is not ongoing. now we just check that indeed, this before that just showed up actually fits.
+                                            if (literal_to_match->interval_2_left - 1 == literal_to_match->interval_1_right)
+                                            {//if the after interval is already fully specified, the only way for this match to work now is if this is a before-meets.
+                                                //yay, it works, and so this is actually a satisfaction (via before-meets)
+                                                literal_to_match->satisfied = true;
+                                                int score = ++literal_to_match->match_using_this->match_score;
+                                                if (score == max_match_score)
+                                                {
+                                                    //We have a winner winner chicken dinner!!!
+                                                    //now just to see if it sticks around (isn't invalidated by not fitting in somewhere else).
+                                                    complete_match_set.insert(literal_to_match->match_using_this);
+                                                }
+
+                                            }
+                                            else
+                                            {//otherwise there's a gap and this no longer works. have to trash the ongoing.
+                                                //matches_to_trash.insert(literal_to_match->match_using_this);//no, just propogate the unsatisfaction. only time trash happens is when a pure after instance is verified to not be able to satisfy its literal(s).
+                                                //We don't actually know another "after" won't show up... right? duh, if it's simultaneous, that's bad. so, the after would already have to be here, so that means we do propogation. both the before and after are bad.
+                                                if (afters.find(*away_it) != afters.end())
+                                                {//that means this is an ongoing match to trash completely.
+                                                    matches_to_trash.insert(literal_to_match->match_using_this);
+                                                }
+                                                else
+                                                {
+                                                    cues_to_purge_from_ongoing_matches.push(std::make_pair(*potential_cue_match_it,literal_to_match->match_using_this));
+                                                    cues_to_purge_from_ongoing_matches.push(std::make_pair(literal_to_match->value_sym_2,literal_to_match->match_using_this));
+                                                }
+                                                if (literal_to_match->satisfied)
+                                                {
+                                                    literal_to_match->satisfied = false;
+                                                    literal_to_match->match_using_this->match_score--;
+                                                }
+                                                if (complete_match_set.find(literal_to_match->match_using_this) != complete_match_set.end())
+                                                {
+                                                    complete_match_set.erase(literal_to_match->match_using_this);
+                                                }
+                                                literal_to_match->interval_1_left = -1;
+                                                literal_to_match->interval_1_right = -1;
+                                                literal_to_match->interval_2_left = -1;
+                                                literal_to_match->interval_2_right = -1;
                                             }
                                         }
                                         else
-                                        {//it's a before, so it's not trivial.
-                                            if (literal_to_match->interval_2_left != -1)
-                                            {//the after part of this is not ongoing. now we just check that indeed, this before that just showed up actually fits.
-                                                if (literal_to_match->interval_2_left - 1 == literal_to_match->interval_1_right)
-                                                {//if the after interval is already fully specified, the only way for this match to work now is if this is a before-meets.
-                                                    //yay, it works, and so this is actually a satisfaction (via before-meets)
-                                                    literal_to_match->satisfied = true;
-                                                    int score = ++literal_to_match->match_using_this->match_score;
-                                                    if (score == max_match_score)
-                                                    {
-                                                        //We have a winner winner chicken dinner!!!
-                                                    }
-                                                }
-                                                else
-                                                {//otherwise there's a gap and this no longer works. have to trash the ongoing.
-                                                    matches_to_trash.insert(literal_to_match->match_using_this);
-                                                }
-                                            }
-                                            else
-                                            {//the after is ongoing and the before just started to overlap. basically, there's no free room in this literal, but it's not satisfied yet either.
+                                        {//the after is ongoing and the before just started to overlap. basically, there's no free room in this literal, but it's not satisfied yet either.
 
-                                            }
                                         }
-
-                                    }
-                                    else
-                                    {//like when an after that didn't start the cue shows up.
-                                        assert(*potential_cue_match_it == literal_to_match->value_sym_2);
-                                        assert(literal_to_match->interval_2_right == -1);
-                                        literal_to_match->interval_2_right = current_episode;
-
                                     }
 
-
-
-
-                                    //immediately can stop if it completes an ongoing-match. (before for which the after just started/finished a cycle ago)
+                                }
+                                else
+                                {//like when an after that didn't start the cue shows up.
+                                    assert(*potential_cue_match_it == literal_to_match->value_sym_2);
+                                    assert(literal_to_match->interval_2_right == -1);
+                                    literal_to_match->interval_2_right = current_episode;
 
                                 }
 
-                                //we can check if it's a pure after and if so, create a new match for it regardless of whether it fit into any existing matches.
-                                if (afters.find(*potential_cue_match_it) != afters.end())//the only source of new matches
-                                {//is a pure after, make a new ongoing-match as well.
-                                    //temporal_literals is basically a pure untouched set of literals initialized from the cues before I do the walk here. These can be copied for each new ongoing match.
-                                    epmem_ongoing_match* new_match = new epmem_ongoing_match();// needs to keep track of the bindings for the graph matches for later reconstruction. //needs to
-                                    //should have a match score.
-                                    new_match->match_score = 0;//don't actually satisfy any temporal literals with only the after of a before/after relation.
-                                    //std::set<epmem_temporal_literal*>* temporal_literal_copy = new std::set<epmem_temporal_literal*>();//need to actually make real copies of the original ones, so I can't just copy the pointers.
-
-                                    std::set<epmem_temporal_literal*>::iterator temporal_literals_it;
-                                    for (temporal_literals_it = temporal_literals.begin(); temporal_literals_it != temporal_literals.end(); temporal_literals_it++)
-                                    {//if not an is_exists and not the case that the after here is the second sym
-                                        epmem_temporal_literal* literal_copy = new epmem_temporal_literal();
-                                        literal_copy->value_sym_1 = (*temporal_literals_it)->value_sym_1;
-                                        literal_copy->is_exists = (*temporal_literals_it)->is_exists;
-                                        literal_copy->value_sym_2 = (*temporal_literals_it)->value_sym_2;
-                                        literal_copy->satisfied = false;
-                                        literal_copy->type = (*temporal_literals_it)->type;
-                                        literal_copy->match_using_this = new_match;
-                                        new_match->temporal_literals.insert(literal_copy);
-                                        new_match->cues_to_temporal_literals.insert(std::make_pair(literal_copy->value_sym_1,literal_copy));
-                                        new_match->unbound_cues.insert(literal_copy->value_sym_1);
-                                        cues_to_open_temporal_literal_instances[literal_copy->value_sym_1]->insert(literal_copy);
-                                        if (!literal_copy->is_exists)
-                                        {
-                                            new_match->cues_to_temporal_literals.insert(std::make_pair(literal_copy->value_sym_2,literal_copy));
-                                            new_match->unbound_cues.insert(literal_copy->value_sym_2);
-                                            cues_to_open_temporal_literal_instances[literal_copy->value_sym_2]->insert(literal_copy);
-                                        }
 
 
-                                    }
-                                    new_match->unbound_cues.erase(*potential_cue_match_it);
-                                    new_match->best_bindings.insert(std::make_pair(*potential_cue_match_it,best_bindings));
-                                    new_match->match_end = current_episode;
-                                    new_match->match_start = -1;//to indicate it's not yet bound.
-                                    //since this is a pure after, any temporal_literals that this is used in, it's the second symbol. Can fill out information accordingly.
-                                    std::multimap<Symbol*,epmem_temporal_literal*>::iterator this_match_temporal_literals_it;
-                                    for (this_match_temporal_literals_it = new_match->cues_to_temporal_literals.lower_bound(*potential_cue_match_it); this_match_temporal_literals_it != new_match->cues_to_temporal_literals.upper_bound(*potential_cue_match_it); this_match_temporal_literals_it++)
+
+
+
+                            }
+                            //todo before we potentially make a new ongoing match, this is a good time to potentially actually declare we have a complete match because something managed to stay in the complete_matche_set.
+
+
+                            //todo this is also a good time to do one of those "propogate over the implications of something being a bad match and potentially invalidate a match completely" loops. - condition on "we didn't find a complete match".
+
+
+                            //we can check if it's a pure after and if so, create a new match for it regardless of whether it fit into any existing matches.
+                            if (afters.find(*potential_cue_match_it) != afters.end() && !complete_match)//the only source of new matches
+                            {//is a pure after, make a new ongoing-match as well.
+                                //temporal_literals is basically a pure untouched set of literals initialized from the cues before I do the walk here. These can be copied for each new ongoing match.
+                                epmem_ongoing_match* new_match = new epmem_ongoing_match();// needs to keep track of the bindings for the graph matches for later reconstruction. //needs to
+                                //should have a match score.
+                                new_match->match_score = 0;//don't actually satisfy any temporal literals with only the after of a before/after relation.
+                                //std::set<epmem_temporal_literal*>* temporal_literal_copy = new std::set<epmem_temporal_literal*>();//need to actually make real copies of the original ones, so I can't just copy the pointers.
+
+                                std::set<epmem_temporal_literal*>::iterator temporal_literals_it;
+                                for (temporal_literals_it = temporal_literals.begin(); temporal_literals_it != temporal_literals.end(); temporal_literals_it++)
+                                {//if not an is_exists and not the case that the after here is the second sym
+                                    epmem_temporal_literal* literal_copy = new epmem_temporal_literal();
+                                    literal_copy->value_sym_1 = (*temporal_literals_it)->value_sym_1;
+                                    literal_copy->is_exists = (*temporal_literals_it)->is_exists;
+                                    literal_copy->value_sym_2 = (*temporal_literals_it)->value_sym_2;
+                                    literal_copy->satisfied = false;
+                                    literal_copy->type = (*temporal_literals_it)->type;
+                                    literal_copy->match_using_this = new_match;
+                                    new_match->temporal_literals.insert(literal_copy);
+                                    new_match->cues_to_temporal_literals.insert(std::make_pair(literal_copy->value_sym_1,literal_copy));
+                                    new_match->unbound_cues.insert(literal_copy->value_sym_1);
+                                    cues_to_open_temporal_literal_instances[literal_copy->value_sym_1]->insert(literal_copy);
+                                    if (!literal_copy->is_exists)
                                     {
-                                        epmem_temporal_literal* literal_for_which_cue_is_the_after = this_match_temporal_literals_it->second;
-                                        literal_for_which_cue_is_the_after->satisfied = false;
-                                        literal_for_which_cue_is_the_after->interval_2_right = current_episode;
-                                        literal_for_which_cue_is_the_after->interval_2_left = -1;
-                                        literal_for_which_cue_is_the_after->interval_1_left = -1;
-                                        literal_for_which_cue_is_the_after->interval_1_right = -1;
-                                        cues_to_open_temporal_literal_instances[*potential_cue_match_it]->erase(literal_for_which_cue_is_the_after);//the literal is no longer open to this after, given that the after is currently attempting to satisfy it.
-                                        cues_to_temporal_literal_instances[*potential_cue_match_it]->insert(literal_for_which_cue_is_the_after);
-                                        active_cues_to_active_temporal_literal_instances[*potential_cue_match_it]->insert(literal_for_which_cue_is_the_after);
+                                        new_match->cues_to_temporal_literals.insert(std::make_pair(literal_copy->value_sym_2,literal_copy));
+                                        new_match->unbound_cues.insert(literal_copy->value_sym_2);
+                                        cues_to_open_temporal_literal_instances[literal_copy->value_sym_2]->insert(literal_copy);
                                     }
 
+
+                                }
+                                new_match->unbound_cues.erase(*potential_cue_match_it);
+                                new_match->best_bindings.insert(std::make_pair(*potential_cue_match_it,best_bindings));
+                                new_match->match_end = current_episode;
+                                new_match->match_start = -1;//to indicate it's not yet bound.
+                                //since this is a pure after, any temporal_literals that this is used in, it's the second symbol. Can fill out information accordingly.
+                                std::multimap<Symbol*,epmem_temporal_literal*>::iterator this_match_temporal_literals_it;
+                                for (this_match_temporal_literals_it = new_match->cues_to_temporal_literals.lower_bound(*potential_cue_match_it); this_match_temporal_literals_it != new_match->cues_to_temporal_literals.upper_bound(*potential_cue_match_it); this_match_temporal_literals_it++)
+                                {
+                                    epmem_temporal_literal* literal_for_which_cue_is_the_after = this_match_temporal_literals_it->second;
+                                    literal_for_which_cue_is_the_after->satisfied = false;
+                                    literal_for_which_cue_is_the_after->interval_2_right = current_episode;
+                                    literal_for_which_cue_is_the_after->interval_2_left = -1;
+                                    literal_for_which_cue_is_the_after->interval_1_left = -1;
+                                    literal_for_which_cue_is_the_after->interval_1_right = -1;
+                                    cues_to_open_temporal_literal_instances[*potential_cue_match_it]->erase(literal_for_which_cue_is_the_after);//the literal is no longer open to this after, given that the after is currently attempting to satisfy it.
+                                    cues_to_temporal_literal_instances[*potential_cue_match_it]->insert(literal_for_which_cue_is_the_after);
+                                    active_cues_to_active_temporal_literal_instances[*potential_cue_match_it]->insert(literal_for_which_cue_is_the_after);
                                 }
 
+                            }
 
-                                //We check which ongoing match this could fit into //could make this into something other than a for-loop if it actually becomes necessary. -- multimap from unmatched cues to potential matches
+
+                            //We check which ongoing match this could fit into //could make this into something other than a for-loop if it actually becomes necessary. -- multimap from unmatched cues to potential matches
 //                                bool found_a_fit = false;
 //                                bool is_an_after = false;
 //                                //cues_to_temporal_literals;
@@ -7463,9 +7572,9 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
 //                                {
 //
 //                                }
-                            }
-                            thisAgent->EpMem->epmem_timers->query_graph_match->stop();
                         }
+                        thisAgent->EpMem->epmem_timers->query_graph_match->stop();
+
 //                        if (!true || graph_matched)
 //                        {
 //                            best_episode = current_episode;
@@ -7478,7 +7587,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                 cues_that_hit_perfect.clear();
                 cues_that_just_went_away.clear();
 
-                if (current_episode == EPMEM_MEMID_NONE)
+                if (current_episode == EPMEM_MEMID_NONE || complete_match)
                 {
                     break;
                 }
@@ -7493,17 +7602,21 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
 
         // if the best episode is the default, fail
         // otherwise, put the episode in working memory
-        if (best_episode == EPMEM_MEMID_NONE)
+
+
+        if (!complete_match)
         {
-            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_failure, pos_query);
-            if (neg_query)
+            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_failure, *(pos_queries->begin()));
+            /*if (neg_query)
             {
                 epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_failure, neg_query);
-            }
+            }*/
         }
         else
-        {
+        {//todo current code is written as if for a single old-school query. what I need now is to basically do what's listed here, but multiple times. Also, for each temporal relation in the original query, can make explicit "before/after" links between retrieved state roots.
+
             thisAgent->EpMem->epmem_timers->query_result->start();
+            //todo for-loop this over query cues.
             Symbol* temp_sym;
             epmem_id_mapping node_map_map;
             epmem_id_mapping node_mem_map;
@@ -7538,8 +7651,8 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                 thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
 
                 // mapping
-                if (best_graph_matched)
-                {
+                if (true)//(best_graph_matched)
+                {//if it's a temporal interval query, it's always a graph match.
                     goal_stack_level level = state->id->epmem_info->result_wme->value->id->level;
                     // mapping identifier
                     Symbol* mapping = thisAgent->symbolManager->make_new_identifier('M', level);
@@ -7583,7 +7696,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
         }
     }
 
-    // cleanup
+    // cleanup //todo hahahahahahahaahahhaa, this is gonna be terrible to do. lots of garbage to clean up.
     thisAgent->EpMem->epmem_timers->query_cleanup->start();
 
     for (epmem_interval_set::iterator iter = interval_cleanup.begin(); iter != interval_cleanup.end(); iter++)
