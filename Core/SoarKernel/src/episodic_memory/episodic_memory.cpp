@@ -6578,9 +6578,11 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
             }
         }
         temporal_literal->is_exists = false;
-        temporal_literal->satisfied_1 = false;
-        temporal_literal->satisfied_2 = false;
-        temporal_literal->just_deleted = 0;
+        temporal_literal->satisfied = false;
+        temporal_literal->interval_1_left = -1;
+        temporal_literal->interval_1_right = -1;
+        temporal_literal->interval_2_left = -1;
+        temporal_literal->interval_2_right = -1;
         delete children;
         cues_to_temporal_literals.insert(std::make_pair(temporal_literal->value_sym_1,temporal_literal));
         cues_to_temporal_literals.insert(std::make_pair(temporal_literal->value_sym_2,temporal_literal));
@@ -6612,6 +6614,10 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
     }
 
     max_match_score = temporal_literals.size();
+
+    //There is now a base copy of the temporal literals that any new ongoing match can copy to make its own literals and that provides a temporal literal match score target.
+
+
 
 
     //when a cue shows up, either it can fit into some ongoing match(es) or
@@ -6846,19 +6852,25 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
         }
 
 
+        epmem_ongoing_match* a_complete_temporal_match = NULL;
+
+
         std::map<Symbol*, std::set<epmem_temporal_literal*>*> cues_to_open_temporal_literal_instances;//just make a new set for each cue and clean up later.
-        std::map<Symbol*, std::set<epmem_temporal_literal*>*> cues_to_temporal_literal_instances;
+        //std::map<Symbol*, std::set<epmem_temporal_literal*>*> cues_to_temporal_literal_instances;
         std::map<Symbol*, std::set<epmem_temporal_literal*>*> active_cues_to_active_temporal_literal_instances;
         std::list<Symbol*>::iterator pos_queries_it;
         for (pos_queries_it = pos_queries->begin(); pos_queries_it != pos_queries->end(); pos_queries_it++)
         {
-            cues_to_open_temporal_literal_instances[*pos_queries_it] = new std::set<epmem_temporal_literal*>();
-            cues_to_temporal_literal_instances[*pos_queries_it] = new std::set<epmem_temporal_literal*>();
+            cues_to_open_temporal_literal_instances[*pos_queries_it] = new std::set<epmem_temporal_literal*>();//when an ongoing match is trashed, have to remove from here as well.
+            //cues_to_temporal_literal_instances[*pos_queries_it] = new std::set<epmem_temporal_literal*>();
             active_cues_to_active_temporal_literal_instances[*pos_queries_it] = new std::set<epmem_temporal_literal*>();
         }
         std::set<Symbol*> cues_that_hit_perfect;
         std::set<Symbol*> cues_that_just_went_away;
         std::set<Symbol*> cues_that_have_been_perfect;
+
+        std::map<epmem_literal_node_pair_map*,int> number_of_binding_uses;
+
         // main loop of interval walk
         thisAgent->EpMem->epmem_timers->query_walk->start();
         bool complete_match = false;
@@ -7198,7 +7210,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                     //means that the before wasn't good and should act like the before never happened.
                     std::set<Symbol*>::iterator away_it;
                     std::set<epmem_ongoing_match*> complete_match_set;
-                    std::queue<std::pair<Symbol*,epmem_ongoing_match*>> cues_to_purge_from_ongoing_matches;
+                    std::set<std::pair<Symbol*,epmem_ongoing_match*>> cues_to_purge_from_ongoing_matches;
                     for (away_it = cues_that_just_went_away.begin(); away_it != cues_that_just_went_away.end(); away_it++)
                     {//these are all cues that were graph matches that have had an unsatisfy literal happen.
                         //need to find the literals in ongoing matches that use this particular match...
@@ -7226,7 +7238,6 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                         {//winner winner chicken dinner!
                                             complete_match_set.insert(active_literal->match_using_this);//if this manages to stay in this set, then we're done! Has to survive further changes within this DC.
                                         }
-
                                     }
                                 }
                                 else
@@ -7234,19 +7245,32 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                     if (active_literal->interval_2_left < 0)
                                     {//just pretend that before never happened. propogate through all literals using that before within this match.//overall, the match is still fine
                                         //could just make a "actually, remove these, oops" set for cues that need to propogate. Then, iterate *again* over matches using those cues. So, this loop is just record-keeping. The next one does the real changes.
-                                        cues_to_purge_from_ongoing_matches.push(std::make_pair(*away_it,active_literal->match_using_this));
+                                        cues_to_purge_from_ongoing_matches.insert(std::make_pair(*away_it,active_literal->match_using_this));
                                         if (active_literal->satisfied)
                                         {
                                             active_literal->satisfied = false;
                                             active_literal->match_using_this->match_score--;
                                         }
+                                        if (number_of_binding_uses[active_literal->match_using_this->best_bindings[*away_it]] == 1)
+                                        {
+
+                                            number_of_binding_uses.erase(active_literal->match_using_this->best_bindings[*away_it]);
+                                            delete active_literal->match_using_this->best_bindings[*away_it];
+                                        }
+                                        else
+                                        {
+                                            number_of_binding_uses[active_literal->match_using_this->best_bindings[*away_it]] = number_of_binding_uses[active_literal->match_using_this->best_bindings[*away_it]] - 1;
+                                        }
+                                        active_literal->match_using_this->best_bindings[*away_it] = NULL;
                                         if (complete_match_set.find(active_literal->match_using_this) != complete_match_set.end())
                                         {
                                             complete_match_set.erase(active_literal->match_using_this);
                                         }
                                         active_literal->interval_1_left = -1;
                                         active_literal->interval_1_right = -1;
-                                    } else {//so, the after has closed and the before doesn't line up (a gap). this means that we need to remove the after and before and propogate -- only pure afters cause trash.
+                                    }
+                                    else
+                                    {//so, the after for this before has closed and the before doesn't line up (a gap). this means that we need to remove the after and before and propogate -- only pure afters cause trash. two orderings in this loop here, the after closed
                                         //similar to the above -- the after needs to be removed from other literals where it showed up.
                                         if (afters.find(*away_it) != afters.end())
                                         {//that means this is an ongoing match to trash completely.
@@ -7254,8 +7278,8 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                         }
                                         else
                                         {
-                                            cues_to_purge_from_ongoing_matches.push(std::make_pair(*away_it,active_literal->match_using_this));
-                                            cues_to_purge_from_ongoing_matches.push(std::make_pair(active_literal->value_sym_2,active_literal->match_using_this));
+                                            cues_to_purge_from_ongoing_matches.insert(std::make_pair(*away_it,active_literal->match_using_this));
+                                            cues_to_purge_from_ongoing_matches.insert(std::make_pair(active_literal->value_sym_2,active_literal->match_using_this));
                                         }
                                         if (active_literal->satisfied)
                                         {
@@ -7266,12 +7290,31 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                         {
                                             complete_match_set.erase(active_literal->match_using_this);
                                         }
+                                        if (number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_1]] == 1)
+                                        {
+                                            number_of_binding_uses.erase(active_literal->match_using_this->best_bindings[active_literal->value_sym_1]);
+                                            delete active_literal->match_using_this->best_bindings[active_literal->value_sym_1];
+                                        }
+                                        else
+                                        {
+                                            number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_1]] = number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_1]] - 1;
+                                        }
+                                        if (number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_2]] == 1)
+                                        {
+                                            number_of_binding_uses.erase(active_literal->match_using_this->best_bindings[active_literal->value_sym_2]);
+                                            delete active_literal->match_using_this->best_bindings[active_literal->value_sym_2];
+                                        }
+                                        else
+                                        {
+                                            number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_2]] = number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_2]] - 1;
+                                        }
+                                        active_literal->match_using_this->best_bindings[active_literal->value_sym_1] = NULL;
+                                        active_literal->match_using_this->best_bindings[active_literal->value_sym_2] = NULL;
                                         active_literal->interval_1_left = -1;
                                         active_literal->interval_1_right = -1;
                                         active_literal->interval_2_left = -1;
                                         active_literal->interval_2_right = -1;
                                     }
-
                                 }
                             }
                             else if (active_literal->value_sym_2 == *away_it)
@@ -7279,12 +7322,36 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                 assert(active_literal->interval_2_left < 0);
                                 active_literal->interval_2_left = current_episode;
                                 //this is an after that just finished. need to make sure it wasn't the case that there was some before that already finished for it. that would be bad.
-                                if (active_literal->interval_1_left != -1)
+                                if (active_literal->interval_1_left != -1)//if the before for this after already finished
                                 {//badbad, but if this wasn't a pure after, then just remove and preserve the ongoing match. propogate through all literals using that after within this match.
                                     if (complete_match_set.find(active_literal->match_using_this) != complete_match_set.end())
                                     {
                                         complete_match_set.erase(active_literal->match_using_this);
                                     }
+                                    if (complete_match_set.find(active_literal->match_using_this) != complete_match_set.end())
+                                    {
+                                        complete_match_set.erase(active_literal->match_using_this);
+                                    }
+                                    if (number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_1]] == 1)
+                                    {
+                                        number_of_binding_uses.erase(active_literal->match_using_this->best_bindings[active_literal->value_sym_1]);
+                                        delete active_literal->match_using_this->best_bindings[active_literal->value_sym_1];
+                                    }
+                                    else
+                                    {
+                                        number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_1]] = number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_1]] - 1;
+                                    }
+                                    if (number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_2]] == 1)
+                                    {
+                                        number_of_binding_uses.erase(active_literal->match_using_this->best_bindings[active_literal->value_sym_2]);
+                                        delete active_literal->match_using_this->best_bindings[active_literal->value_sym_2];
+                                    }
+                                    else
+                                    {
+                                        number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_2]] = number_of_binding_uses[active_literal->match_using_this->best_bindings[active_literal->value_sym_2]] - 1;
+                                    }
+                                    active_literal->match_using_this->best_bindings[active_literal->value_sym_1] = NULL;
+                                    active_literal->match_using_this->best_bindings[active_literal->value_sym_2] = NULL;
                                     active_literal->satisfied = false;
                                     active_literal->match_using_this->match_score--;
                                     active_literal->interval_1_left = -1;
@@ -7297,13 +7364,13 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                     }
                                     else
                                     {
-                                        cues_to_purge_from_ongoing_matches.push(std::make_pair(*away_it,active_literal->match_using_this));
-                                        cues_to_purge_from_ongoing_matches.push(std::make_pair(active_literal->value_sym_1,active_literal->match_using_this));
+                                        cues_to_purge_from_ongoing_matches.insert(std::make_pair(*away_it,active_literal->match_using_this));
+                                        cues_to_purge_from_ongoing_matches.insert(std::make_pair(active_literal->value_sym_1,active_literal->match_using_this));
                                     }
                                 }
                                 else//the before is still going on, so now this is actually a satisfaction if there is a valid before.
                                 {
-                                    if (active_literal->interval_1_left < active_literal->interval_2_left && active_literal->interval_1_right < active_literal->interval_2_right && active_literal->interval_1_right+1 >= active_literal->interval_2_left)
+                                    if (active_literal->interval_1_right < active_literal->interval_2_right && active_literal->interval_1_right+1 >= active_literal->interval_2_left)//left "active_literal->interval_1_left < active_literal->interval_2_left && " out because it's trivially true
                                     {//there was a valid before
                                         active_literal->satisfied = true;
                                         int score = ++active_literal->match_using_this->match_score;
@@ -7311,27 +7378,157 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                         {//winner winner chicken dinner!
                                             complete_match_set.insert(active_literal->match_using_this);
                                         }
-                                    }//no else here, could still be fine if a before shows up on the very next timestep.//basically, can't throw the match away until the before shows up to make it obviously wrong.
+                                    }//no else here, could still be fine if a before shows up on the very next timestep.//basically, can't throw the match away until the before or another instance of the after shows up to make it obviously wrong.
                                 }
-
                             }
                         }
+                        active_cues_to_active_temporal_literal_instances[*away_it]->clear();//no temporal literals can be active for that sucker now because we just closed it out.
 
 
                         //now we iterate over "cues_to_purge_from_ongoing_matches". This can only potentially preserve an ongoing match (having removed what was bad) or we find implications of the initial change that now show this is completely invalid. This can't possibly lead to a complete match.
                         //should basically do a "while not empty" on "removal implication" queue.
+
                         while (!cues_to_purge_from_ongoing_matches.empty())
-                        {
+                        {//after the previous loop, the semantics have changed -- now I know that there aren't further updates to observe within this timestep.
                             //pop a cue and ongoing match pair.
+                            std::pair<Symbol*,epmem_ongoing_match*> top;
+                            top.first = cues_to_purge_from_ongoing_matches.begin()->first;
+                            top.second = cues_to_purge_from_ongoing_matches.begin()->second;
+
                             //loop over every literal using that cue in the ongoing match
-                            //for each literal, check if removing that cue ruins everything (is the removal of an after).
-                            //for each literal where the cue was removed (the interval wasn't already -1'd), push implications again.
-                            //should eventually get to a point where either you've found that this ruins the match and it's trash or every literal is now -1'd for every implication.
-                            //repeat.
+                            std::multimap<Symbol*,epmem_temporal_literal*>::iterator literal_it;
+                            for (literal_it = top.second->cues_to_temporal_literals.lower_bound(top.first); literal_it != top.second->cues_to_temporal_literals.upper_bound(top.first) && matches_to_trash.count(literal_it->second->match_using_this) != 0; literal_it++)
+                            {//for each literal, check if removing that cue ruins everything (is the removal of an after). (only one literal may have been falsified, but all need removal of that cue.
+                                if (literal_it->second->satisfied)
+                                {
+                                    literal_it->second->match_using_this->match_score--;
+                                    literal_it->second->satisfied = false;
+                                }
+                                /*if (afters.find() != afters.end())
+                                {//if the cue was an after, it would have led to trash in the loop before. otherwise, we can actually catch it before propogation within the below else.
+
+                                }
+                                else*/
+                                {//push implications
+                                    if (top.first == literal_it->second->value_sym_1 && (literal_it->second->interval_1_left >-1 || literal_it->second->interval_1_right >-1))
+                                    {//the removal of the cue is the removal of a before that hasn't already been cleared.
+                                        //can it be cleared?
+                                        //if there is already no after, just clear this before.
+                                        literal_it->second->interval_1_left = -1;
+                                        literal_it->second->interval_1_right = -1;
+                                        cues_to_open_temporal_literal_instances[literal_it->second->value_sym_1]->insert(literal_it->second);
+                                        if (literal_it->second->interval_2_right == -1)
+                                        {
+
+                                        }
+                                        else if (literal_it->second->interval_2_left != -1)
+                                        {//if the after is done, then the implication is that the after must *also* be removed from this match.
+                                            //First, if it's a pure after, done.
+                                            if (afters.find(literal_it->second->value_sym_2) != afters.end())
+                                            {
+                                                matches_to_trash.insert(literal_it->second->match_using_this);
+                                            }
+                                            else
+                                            {//if it's not a pure after, just clear and then propogate.
+                                                cues_to_open_temporal_literal_instances[literal_it->second->value_sym_2]->insert(literal_it->second);
+                                                literal_it->second->interval_2_left = -1;
+                                                literal_it->second->interval_2_right = -1;
+                                                if (literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2] != NULL)
+                                                {//need to remove as a binding for this ongoing match
+                                                    if (number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2]] == 1)
+                                                    {
+                                                        number_of_binding_uses.erase(literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2]);
+                                                        delete literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2];
+                                                    }
+                                                    else
+                                                    {
+                                                        number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2]] = number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2]] - 1;
+                                                    }
+                                                    literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2] = NULL;
+                                                }
+                                                cues_to_purge_from_ongoing_matches.insert(std::make_pair(literal_it->second->value_sym_2, literal_it->second->match_using_this));
+                                            }
+                                        }// (if there's an after and it's still ongoing, nothing needs to be done about it.)
+                                    }
+                                    else if (literal_it->second->interval_2_left >-1 || literal_it->second->interval_2_right >-1)
+                                    {//the removal of the cue is the removal of an after that hasn't already been cleared, but was already a cue to be cleared.
+                                        literal_it->second->interval_2_left = -1;
+                                        literal_it->second->interval_2_right = -1
+                                        cues_to_open_temporal_literal_instances[literal_it->second->value_sym_2]->insert(literal_it->second);;
+                                        if (literal_it->second->interval_1_right > -1)
+                                        {//if there is any before for this, it also needs to go and propogate.
+                                            if (afters.find(literal_it->second->value_sym_1) != afters.end())
+                                            {
+                                                matches_to_trash.insert(literal_it->second->match_using_this);
+                                            }
+                                            else
+                                            {
+                                                cues_to_open_temporal_literal_instances[literal_it->second->value_sym_1]->insert(literal_it->second);
+                                                literal_it->second->interval_1_left = -1;
+                                                literal_it->second->interval_1_right = -1;
+                                                if (literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1] != NULL)
+                                                {//need to remove as a binding for this ongoing match
+                                                    if (number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1]] == 1)
+                                                    {
+                                                        number_of_binding_uses.erase(literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1]);
+                                                        delete literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1];
+                                                    }
+                                                    else
+                                                    {
+                                                        number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1]] = number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1]] - 1;
+                                                    }
+                                                    literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1] = NULL;
+                                                }
+                                                cues_to_purge_from_ongoing_matches.insert(std::make_pair(literal_it->second->value_sym_1, literal_it->second->match_using_this));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            cues_to_purge_from_ongoing_matches.erase(top);//if we redundantly inserted it, it just gets removed. nice.
                         }
 
-                        //trash any matches_to_trash.
+                        //trash any matches_to_trash. -- means removing anything from other containers -- like containers for the literals of that ongoing match and like containers for the match itself. -- also means deleting the match, which was "new"'d
+                        std::set<epmem_ongoing_match*>::iterator trash_it;
+                        for (trash_it = matches_to_trash.begin(); trash_it != matches_to_trash.end; trash_it++)
+                        {//for each match, trash that match!
+                            epmem_ongoing_match* match_ptr = *trash_it;
+                            std::multimap<Symbol*,epmem_temporal_literal*>::iterator cue_lit_it;
+                            for (cue_lit_it = match_ptr->cues_to_temporal_literals.begin(); cue_lit_it != match_ptr->cues_to_temporal_literals.end(); cue_lit_it++)
+                            {
+                                std::map<Symbol*, std::set<epmem_temporal_literal*>*>::iterator remove_ref_it = active_cues_to_active_temporal_literal_instances.find(cue_lit_it->first);
+                                remove_ref_it->second->erase(cue_lit_it->second);
+                                remove_ref_it = cues_to_open_temporal_literal_instances.find(cue_lit_it->first);
+                                remove_ref_it->second->erase(cue_lit_it->second);
+                            }
+                            std::set<epmem_temporal_literal*>::iterator literal_it;
+                            for (literal_it = match_ptr->temporal_literals.begin(); literal_it != match_ptr->temporal_literals.end(); literal_it++)
+                            {
+                                delete *literal_it;
+                            }
+                            std::map<Symbol*,epmem_literal_node_pair_map*>::iterator binding_it;
+                            for (binding_it = match_ptr->best_bindings.begin(); binding_it != match_ptr->best_bindings.end(); binding_it++)
+                            {//need another damn set that tracks usage of a given cue match across ongoing matches. ref counters are fun.
+                                //decrement the ref counter, then delete if it's zero.
+                                if (binding_it->second != NULL)
+                                {
+                                    int current_num = number_of_binding_uses[binding_it->second];
+                                    if (current_num == 1)
+                                    {
+                                        delete binding_it->second;
+                                        number_of_binding_uses.erase(binding_it->second);
+                                    }
+                                    else
+                                    {
+                                        number_of_binding_uses[binding_it->second] = current_num - 1;
+                                    }
+                                }
+                            }
 
+
+                            delete match_ptr;
+                        }
+                        matches_to_trash.clear;
 
 
 //                        for (ongoing_matches_it = ongoing_matches.begin(); ongoing_matches_it != ongoing_matches.end(); ongoing_matches_it++)//todo instead of a double-for, keep a map directly from cues to set of temporal literals (ptrs) they satisfy (across all ongoing matches) when they have yet to go away. then, have the temporal literals point to the ongoing match they're within.
@@ -7343,7 +7540,10 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
 //                            }
 //                        }
 
-                    }//perhaps the biggest thing to figure out is whether the "appearance" of episodic memory is because of architecture changes (literally growing) or because of knowledge changes (crossing a threshold of semantic knowledge of one's history, perhaps).
+                    }
+                    cues_that_just_went_away.clear();
+
+                    //perhaps the biggest thing to figure out is whether the "appearance" of episodic memory is because of architecture changes (literally growing) or because of knowledge changes (crossing a threshold of semantic knowledge of one's history, perhaps).
                     //any ongoing matches to trash will have been trashed by now. ready to loop for satisfaction from new matches.
 
 
@@ -7369,6 +7569,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                         epmem_literal_deque::iterator begin = gm_ordering->begin();
                         epmem_literal_deque::iterator end = gm_ordering->end();
                         epmem_literal_node_pair_map* best_bindings = new epmem_literal_node_pair_map();
+
                         //best_bindings.clear();
                         epmem_node_symbol_map bound_nodes[2];
                         if (QUERY_DEBUG >= 1)
@@ -7379,8 +7580,11 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                         thisAgent->EpMem->epmem_timers->query_graph_match->start();
                         graph_matched = epmem_graph_match(begin, end, *best_bindings, bound_nodes, thisAgent, 2);
                         //this is where we can check against temporal interval literals.
+                        number_of_binding_uses[best_bindings] = 0;
                         if (graph_matched)
                         {//We actually have a match for one of the cues in this temporal query. Let's start an ongoing match if this doesn't fit in any of the existing ongoing matches.
+
+
 
 
                             cues_that_have_been_perfect.insert(*potential_cue_match_it);
@@ -7407,6 +7611,12 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                     literal_to_match->interval_1_right = current_episode;
                                     if (literal_to_match->is_exists)
                                     {
+                                        active_cues_to_active_temporal_literal_instances[literal_to_match->value_sym_1]->insert(literal_to_match);
+                                        if (literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] == NULL)
+                                        {
+                                            literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] = best_bindings;
+                                            number_of_binding_uses[best_bindings] = number_of_binding_uses[best_bindings] + 1
+                                        }
                                         literal_to_match->satisfied = true;
                                         int score = ++literal_to_match->match_using_this->match_score;
                                         if (score == max_match_score)
@@ -7423,6 +7633,12 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                             if (literal_to_match->interval_2_left - 1 == literal_to_match->interval_1_right)
                                             {//if the after interval is already fully specified, the only way for this match to work now is if this is a before-meets.
                                                 //yay, it works, and so this is actually a satisfaction (via before-meets)
+                                                if (literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] == NULL)
+                                                {
+                                                    literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] = best_bindings;
+                                                    number_of_binding_uses[best_bindings] = number_of_binding_uses[best_bindings] + 1
+                                                }
+                                                active_cues_to_active_temporal_literal_instances[literal_to_match->value_sym_1]->insert(literal_to_match);
                                                 literal_to_match->satisfied = true;
                                                 int score = ++literal_to_match->match_using_this->match_score;
                                                 if (score == max_match_score)
@@ -7433,7 +7649,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                                 }
 
                                             }
-                                            else
+                                            else//the novelty here is that we also have to get rid of an after that is currently treated as though it was working.
                                             {//otherwise there's a gap and this no longer works. have to trash the ongoing.
                                                 //matches_to_trash.insert(literal_to_match->match_using_this);//no, just propogate the unsatisfaction. only time trash happens is when a pure after instance is verified to not be able to satisfy its literal(s).
                                                 //We don't actually know another "after" won't show up... right? duh, if it's simultaneous, that's bad. so, the after would already have to be here, so that means we do propogation. both the before and after are bad.
@@ -7443,8 +7659,8 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                                 }
                                                 else
                                                 {
-                                                    cues_to_purge_from_ongoing_matches.push(std::make_pair(*potential_cue_match_it,literal_to_match->match_using_this));
-                                                    cues_to_purge_from_ongoing_matches.push(std::make_pair(literal_to_match->value_sym_2,literal_to_match->match_using_this));
+                                                    cues_to_purge_from_ongoing_matches.insert(std::make_pair(*potential_cue_match_it,literal_to_match->match_using_this));
+                                                    cues_to_purge_from_ongoing_matches.insert(std::make_pair(literal_to_match->value_sym_2,literal_to_match->match_using_this));
                                                 }
                                                 if (literal_to_match->satisfied)
                                                 {
@@ -7455,6 +7671,17 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                                 {
                                                     complete_match_set.erase(literal_to_match->match_using_this);
                                                 }
+                                                if (number_of_binding_uses[literal_to_match->match_using_this->best_bindings[literal_to_match->value_sym_2]] == 1)
+                                                {
+
+                                                    number_of_binding_uses.erase(literal_to_match->match_using_this->best_bindings[literal_to_match->value_sym_2]);
+                                                    delete literal_to_match->match_using_this->best_bindings[literal_to_match->value_sym_2];
+                                                }
+                                                else
+                                                {
+                                                    number_of_binding_uses[literal_to_match->match_using_this->best_bindings[literal_to_match->value_sym_2]] = number_of_binding_uses[literal_to_match->match_using_this->best_bindings[literal_to_match->value_sym_2]] - 1;
+                                                }
+                                                literals_to_remove_from_open.erase(literal_to_match);
                                                 literal_to_match->interval_1_left = -1;
                                                 literal_to_match->interval_1_right = -1;
                                                 literal_to_match->interval_2_left = -1;
@@ -7462,8 +7689,24 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                             }
                                         }
                                         else
-                                        {//the after is ongoing and the before just started to overlap. basically, there's no free room in this literal, but it's not satisfied yet either.
-
+                                        {//the after is potentially ongoing and the before just started to overlap. basically, there's no free room in this literal, but it's not satisfied yet either.
+                                            //there better be an after already started or else this before is borked. check if not the case
+                                            if (literal_to_match->interval_2_right == -1)
+                                            {//there's no after for this before, so the before is no good.
+                                                literal_to_match->interval_1_right = -1;
+                                                literals_to_remove_from_open.erase(literal_to_match);
+                                                cues_to_purge_from_ongoing_matches.insert(std::make_pair(*potential_cue_match_it,literal_to_match->match_using_this));
+                                            }
+                                            else
+                                            {
+                                                //do need to do record keeping just on actually putting in this before.
+                                                if (literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] == NULL)
+                                                {
+                                                    literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] = best_bindings;
+                                                    number_of_binding_uses[best_bindings] = number_of_binding_uses[best_bindings] + 1;
+                                                }
+                                                active_cues_to_active_temporal_literal_instances[literal_to_match->value_sym_1]->insert(literal_to_match);
+                                            }
                                         }
                                     }
 
@@ -7473,19 +7716,135 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                     assert(*potential_cue_match_it == literal_to_match->value_sym_2);
                                     assert(literal_to_match->interval_2_right == -1);
                                     literal_to_match->interval_2_right = current_episode;
+                                    active_cues_to_active_temporal_literal_instances[literal_to_match->value_sym_2]->insert(literal_to_match);
+                                    if (literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] == NULL)
+                                    {
+                                        literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] = best_bindings;
+                                        number_of_binding_uses[best_bindings] = number_of_binding_uses[best_bindings] + 1;
+                                    }
 
                                 }
 
-
-
-
-
-
                             }
-                            //todo before we potentially make a new ongoing match, this is a good time to potentially actually declare we have a complete match because something managed to stay in the complete_matche_set.
+                            //loop over literals_to_remove_from_open and remove them from cues_to_open_temporal_literal_instances (the set in the value of the map).
+                            std::set<epmem_temporal_literal*>::iterator literals_to_remove_it;
+                            for (literals_to_remove_it = literals_to_remove_from_open.begin(); literals_to_remove_it != literals_to_remove_from_open.end(); literals_to_remove_it++)
+                            {
+                                cues_to_open_temporal_literal_instances[*potential_cue_match_it]->erase(*literals_to_remove_it);
+                            }
+                            literals_to_remove_from_open.clear();
+
+                            //todo before we potentially make a new ongoing match, this is a good time to potentially actually declare we have a complete match because something managed to stay in the complete_matche_set. (don't have to worry about propogation, because something would have been invalidated, even if not everything would have been.
+                            //std::set<epmem_ongoing_match*>::iterator a_match_it;
+                            if (complete_match_set.size() > 0)
+                            {
+                                //a_match_it = complete_match_set.begin();//arbitrarily picking the first one as the match we're gonna actually use.
+                                a_complete_temporal_match = *(complete_match_set.begin());
+                                complete_match = true;
+                            }
 
 
                             //todo this is also a good time to do one of those "propogate over the implications of something being a bad match and potentially invalidate a match completely" loops. - condition on "we didn't find a complete match".
+                            //right now, i have it just as a copy/paste of the before version, which was based on stuff blinking out, not blinking in. i think the instantaneous temporal logic may propogate the same either way. need to check tomorrow on fresh caffeine.
+                            while (!complete_match && !cues_to_purge_from_ongoing_matches.empty())//the big difference in this loop is that the things that are being removed are being removed because an addition caused invalidation.
+                            {//after the previous loop, the semantics have changed -- now I know that there aren't further updates to observe within this timestep.
+                                //pop a cue and ongoing match pair.
+                                std::pair<Symbol*,epmem_ongoing_match*> top;
+                                top.first = cues_to_purge_from_ongoing_matches.begin()->first;
+                                top.second = cues_to_purge_from_ongoing_matches.begin()->second;
+
+                                //loop over every literal using that cue in the ongoing match
+                                std::multimap<Symbol*,epmem_temporal_literal*>::iterator literal_it;
+                                for (literal_it = top.second->cues_to_temporal_literals.lower_bound(top.first); literal_it != top.second->cues_to_temporal_literals.upper_bound(top.first) && matches_to_trash.count(literal_it->second->match_using_this) != 0; literal_it++)
+                                {//for each literal, check if removing that cue ruins everything (is the removal of an after). (only one literal may have been falsified, but all need removal of that cue.
+                                    if (literal_it->second->satisfied)
+                                    {
+                                        literal_it->second->match_using_this->match_score--;
+                                        literal_it->second->satisfied = false;
+                                    }
+                                    /*if (afters.find() != afters.end())
+                                    {//if the cue was an after, it would have led to trash in the loop before. otherwise, we can actually catch it before propogation within the below else.
+
+                                    }
+                                    else*/
+                                    {//push implications
+                                        if (top.first == literal_it->second->value_sym_1 && (literal_it->second->interval_1_left >-1 || literal_it->second->interval_1_right >-1))
+                                        {//the removal of the cue is the removal of a before that hasn't already been cleared.
+                                            //can it be cleared?
+                                            //if there is already no after, just clear this before.
+                                            literal_it->second->interval_1_left = -1;
+                                            literal_it->second->interval_1_right = -1;
+                                            cues_to_open_temporal_literal_instances[literal_it->second->value_sym_1]->insert(literal_it->second);
+                                            if (literal_it->second->interval_2_right == -1)
+                                            {
+
+                                            }
+                                            else if (literal_it->second->interval_2_left != -1)
+                                            {//if the after is done, then the implication is that the after must *also* be removed from this match.
+                                                //First, if it's a pure after, done.
+                                                if (afters.find(literal_it->second->value_sym_2) != afters.end())
+                                                {
+                                                    matches_to_trash.insert(literal_it->second->match_using_this);
+                                                }
+                                                else
+                                                {//if it's not a pure after, just clear and then propogate.
+                                                    cues_to_open_temporal_literal_instances[literal_it->second->value_sym_2]->insert(literal_it->second);
+                                                    literal_it->second->interval_2_left = -1;
+                                                    literal_it->second->interval_2_right = -1;
+                                                    if (literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2] != NULL)
+                                                    {//need to remove as a binding for this ongoing match
+                                                        if (number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2]] == 1)
+                                                        {
+                                                            number_of_binding_uses.erase(literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2]);
+                                                            delete literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2];
+                                                        }
+                                                        else
+                                                        {
+                                                            number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2]] = number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2]] - 1;
+                                                        }
+                                                        literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_2] = NULL;
+                                                    }
+                                                    cues_to_purge_from_ongoing_matches.insert(std::make_pair(literal_it->second->value_sym_2, literal_it->second->match_using_this));
+                                                }
+                                            }// (if there's an after and it's still ongoing, nothing needs to be done about it.)
+                                        }
+                                        else if (literal_it->second->interval_2_left >-1 || literal_it->second->interval_2_right >-1)
+                                        {//the removal of the cue is the removal of an after that hasn't already been cleared, but was already a cue to be cleared.
+                                            literal_it->second->interval_2_left = -1;
+                                            literal_it->second->interval_2_right = -1
+                                            cues_to_open_temporal_literal_instances[literal_it->second->value_sym_2]->insert(literal_it->second);;
+                                            if (literal_it->second->interval_1_right > -1)
+                                            {//if there is any before for this, it also needs to go and propogate.
+                                                if (afters.find(literal_it->second->value_sym_1) != afters.end())
+                                                {
+                                                    matches_to_trash.insert(literal_it->second->match_using_this);
+                                                }
+                                                else
+                                                {
+                                                    cues_to_open_temporal_literal_instances[literal_it->second->value_sym_1]->insert(literal_it->second);
+                                                    literal_it->second->interval_1_left = -1;
+                                                    literal_it->second->interval_1_right = -1;
+                                                    if (literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1] != NULL)
+                                                    {//need to remove as a binding for this ongoing match
+                                                        if (number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1]] == 1)
+                                                        {
+                                                            number_of_binding_uses.erase(literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1]);
+                                                            delete literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1];
+                                                        }
+                                                        else
+                                                        {
+                                                            number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1]] = number_of_binding_uses[literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1]] - 1;
+                                                        }
+                                                        literal_it->second->match_using_this->best_bindings[literal_it->second->value_sym_1] = NULL;
+                                                    }
+                                                    cues_to_purge_from_ongoing_matches.insert(std::make_pair(literal_it->second->value_sym_1, literal_it->second->match_using_this));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                cues_to_purge_from_ongoing_matches.erase(top);
+                            }
 
 
                             //we can check if it's a pure after and if so, create a new match for it regardless of whether it fit into any existing matches.
@@ -7535,7 +7894,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                     literal_for_which_cue_is_the_after->interval_1_left = -1;
                                     literal_for_which_cue_is_the_after->interval_1_right = -1;
                                     cues_to_open_temporal_literal_instances[*potential_cue_match_it]->erase(literal_for_which_cue_is_the_after);//the literal is no longer open to this after, given that the after is currently attempting to satisfy it.
-                                    cues_to_temporal_literal_instances[*potential_cue_match_it]->insert(literal_for_which_cue_is_the_after);
+                                    //cues_to_temporal_literal_instances[*potential_cue_match_it]->insert(literal_for_which_cue_is_the_after);
                                     active_cues_to_active_temporal_literal_instances[*potential_cue_match_it]->insert(literal_for_which_cue_is_the_after);
                                 }
 
@@ -7572,6 +7931,11 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
 //                                {
 //
 //                                }
+                        }
+                        else
+                        {
+                            number_of_binding_uses.erase(best_bindings);
+                            delete best_bindings;
                         }
                         thisAgent->EpMem->epmem_timers->query_graph_match->stop();
 
@@ -7620,22 +7984,6 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
             Symbol* temp_sym;
             epmem_id_mapping node_map_map;
             epmem_id_mapping node_mem_map;
-            // cue size
-            temp_sym = thisAgent->symbolManager->make_int_constant(leaf_literals.size());
-            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_cue_size, temp_sym);
-            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
-            // match cardinality
-            temp_sym = thisAgent->symbolManager->make_int_constant(best_cardinality);
-            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_match_cardinality, temp_sym);
-            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
-            // match score
-            temp_sym = thisAgent->symbolManager->make_float_constant(best_score);
-            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_match_score, temp_sym);
-            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
-            // normalized match score
-            temp_sym = thisAgent->symbolManager->make_float_constant(best_score / perfect_score);
-            epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_normalized_match_score, temp_sym);
-            thisAgent->symbolManager->symbol_remove_ref(&temp_sym);
             // status
             epmem_buffer_add_wme(thisAgent, meta_wmes, state->id->epmem_info->result_wme->value, thisAgent->symbolManager->soarSymbols.epmem_sym_success, pos_query);
             if (neg_query)
@@ -7696,7 +8044,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
         }
     }
 
-    // cleanup //todo hahahahahahahaahahhaa, this is gonna be terrible to do. lots of garbage to clean up.
+    //todo  cleanup //todo hahahahahahahaahahhaa, this is gonna be terrible to do. lots of garbage to clean up. temporal literals, the original ones and the ones in ongoing matches. the ongoing matches themselves. the bindings, the sets created for being pointed at as values within maps... so much.
     thisAgent->EpMem->epmem_timers->query_cleanup->start();
 
     for (epmem_interval_set::iterator iter = interval_cleanup.begin(); iter != interval_cleanup.end(); iter++)

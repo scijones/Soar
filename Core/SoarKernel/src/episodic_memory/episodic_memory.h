@@ -638,7 +638,7 @@ struct epmem_literal_struct
 };
 
 struct epmem_temporal_interval_relation_literal_struct
-{
+{//a binding should be associated with a the left or right of a literal.
     Symbol* value_sym_1;//the cue root for this temporal relation literal
     bool is_exists;//doesn't bind to any explicitly-supplied temporal relation constraints
     Symbol* value_sym_2;//the other cue root for this temporal relation literal//will be null for the is_exists literals.
@@ -646,6 +646,8 @@ struct epmem_temporal_interval_relation_literal_struct
     int interval_1_right;
     int interval_2_left;
     int interval_2_right;
+    //epmem_literal_node_pair_map* binding_1;
+    //epmem_literal_node_pair_map* binding_2;
     bool satisfied;
     //int just_deleted;//which symbol only just no longer matches?
     int type;
