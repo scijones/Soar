@@ -620,10 +620,10 @@ struct epmem_literal_struct
     Symbol* id_sym;
     Symbol* value_sym;//the symbol on the cue matching to this literal. (e.g. state root to the positive cue root, positive cue root is value_sym)
     int is_neg_q;
-    int value_is_id;//basically a boolean. 1 if yes. ("1" = EPMEM_RIT_STATE_EDGE)
+    int value_is_id;//basically a boolean. 1 if yes. ("1" = EPMEM_RIT_STATE_EDGE) //all constants are leaves, but some identifiers are leaves as well.
     bool is_leaf;
     epmem_node_id attribute_s_id;
-    epmem_node_id child_n_id; //  -- is set to -1 (epmem_nodeid_bad) if an identifier. if a typical value
+    epmem_node_id child_n_id; //  -- is set to -1 (epmem_nodeid_bad) if an identifier. if a typical value -- double check - i think i'm wrong.
     //(not to be confused with leaf, as leaf is a superset of value, since an identifier can be a leaf), then this is set to the epmem hash for that value (constant).
     double weight;
     epmem_literal_set parents;
@@ -644,7 +644,7 @@ struct epmem_temporal_interval_relation_literal_struct
     Symbol* value_sym_2;//the other cue root for this temporal relation literal//will be null for the is_exists literals.
     int interval_1_left;
     int interval_1_right;
-    int interval_2_left;
+    int interval_2_left;//todo lol, i think i'm off-by-one on all of the lefts throughout the interval matching function.
     int interval_2_right;
     //epmem_literal_node_pair_map* binding_1;
     //epmem_literal_node_pair_map* binding_2;
