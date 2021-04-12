@@ -1284,6 +1284,9 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add_epmem_wmes = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_index (type, w_type_based_id) VALUES (?,?)");
     add(add_epmem_wmes);
 
+    find_epmem_wmes = new soar_module::sqlite_statement(new_db, "SELECT w_id FROM epmem_wmes_index WHERE type=? AND w_type_based_id=?");
+    add(find_epmem_wmes);
+
 
     add_epmem_wmes_constant_now = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_constant_now (wc_id,start_episode_id) VALUES (?,?)");
     add(add_epmem_wmes_constant_now);
@@ -4610,7 +4613,31 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start
     //K.I.S.S.
     std::set<std::tuple<epmem_node_id,epmem_node_id,epmem_node_id>> visited_identifiers;
 
+//for each triple we install, we'll be able to look up the surprise.
+    /*
+     * so, given the parent,attr,val triple and type, we can find the w*_id. with that and the type, we can get the w_id. with the w_id and the time for the interval, we can get the surprise from epmem_intervals.
+     * we get the "type" (beyond constant/identifier) through: thisAgent->EpMem->epmem_stmts_common->hash_get_type->bind_int(1, s_id_lookup);
+        soar_module::exec_result res = thisAgent->EpMem->epmem_stmts_common->hash_get_type->execute();
+        (void)res; // quells compiler warning
+        assert(res == soar_module::row);
+        sym_type = static_cast<byte>(thisAgent->EpMem->epmem_stmts_common->hash_get_type->column_int(0));
+        thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
+        and then a switch on string, int, float. when doing constants.
+        while we're already getting the surprise, can also get the start episode id and make sure to get all time_ids for matches to that interval-loc (not just *the* match) during the retrieved big-interval.
+     */
+    double lowest_surprise = 2;//surprise is between 0 and 1.
+    double surprise;
 
+    //We should collect w_ids as we loop, because the right thing to construct after this is all intervals using those w_ids and that have times between (overlap) the start and end for the match above the surprise of the lowest match.
+
+    //two queries. the first joins and basically asks for all of the time_ids that could possibly work here that also are paired with eligible w_ids in the interval table. from that we have a minimum surprise.
+    //Then, we do another also using the same kind of "all time_ids that could work", but instead of constraining the w_ids driectly, we bound by surprise. means that we want indices by time_id then by w_id and time_id then by surprise on the interval table.
+    //so, in the below, I need to collect w_ids.
+    //can do so here in a set or by temp table.
+    std::set<int64_t> w_ids;
+
+    std::map< epmem_node_id, std::pair< Symbol*, bool > > ids;
+    ids[ EPMEM_NODEID_ROOT ] = std::make_pair(retrieved_header, true);
     //now that the roots are in there, we can just loop over the set and keep adding things to the state.
     while (!literals_to_build.empty())//doing it this way because of the possibility of literal re-use. probably inefficient. who cares.
     {
@@ -4620,7 +4647,7 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start
         bool is_constant_wme = !literal_to_build->value_is_id;
 
         epmem_node_id attr_id = literal_to_build->attribute_s_id;
-        epmem_node_id value_id = literal_to_build->child_n_id;
+        epmem_node_id value_id = literal_to_build->child_n_id;//todo WHAT IS THIS DOING WHEN IT'S A CONSTANT. WHERE DOES IT COME FROM AND WHAT IS IT? (related to below todo)
 
         epmem_node_pair* pair_for_bound_literal = interval_match->best_bindings[literal_to_build->cue][literal_to_build];
         epmem_node_id parent_id = pair_for_bound_literal->first;
@@ -4646,27 +4673,85 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start
             }
         }
 
+        //if I've done this right the structures these need to attach to should already be on the state by the time these show up because of depth-based adding to a FIFO. The only weirdness is they could already be there, which has been checked.
+        //the w_id is accessible through the epmem_wmes_index table using type, w_type_based_id, w_id.
         if (is_constant_wme && !already_visited)
         {//add a constant
-
+            //this means finding the symbol for the parent that has already been added to the state and then attaching this attr/val pair.
+            Symbol* parent_symbol = id_record[parent_id];
+            Symbol* attr_symbol = epmem_reverse_hash(thisAgent, attr_id);
+            Symbol* val_symbol = epmem_reverse_hash(thisAgent,value_id);
+            epmem_buffer_add_wme(thisAgent, retrieval_wmes, parent_symbol, attr_symbol, val_symbol);
+            thisAgent->symbolManager->symbol_remove_ref(&attr_symbol);
+            thisAgent->symbolManager->symbol_remove_ref(&val_symbol);
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(1,val_symbol->symbol_type);
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(2,value_id);//////////////////////#########################3 //todo //badbad //this is probably CHECK the value_s_id, and I really need the wc_id (of some type). point is, i think this is wrong.
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->execute();
+            w_ids.insert(thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->column_int(0));
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->reinitialize();
         }
         if (!is_constant_wme && !already_visited)
         {//add an identifier
-
+            Symbol* parent_symbol = id_record[parent_id];
+            Symbol* attr_symbol = epmem_reverse_hash(thisAgent, attr_id);
+            _epmem_install_id_wme(thisAgent, parent_symbol, attr_symbol, &(ids), value_id, NULL, id_record, retrieval_wmes);
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(1,IDENTIFIER_SYMBOL_TYPE);
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(2,value_id);
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->execute();
+            w_ids.insert(thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->column_int(0));
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->reinitialize();
         }
-
-        //Symbol* attr = epmem_reverse_hash(thisAgent, literal_to_build->attribute_s_id);//gotta remove ref for this.
-
-
-
-        //every literal is a wme is an attr-val pair. We check for whether the wme has been created. if not, we create it.
-        //we add children if they haven't already been added.
-        //it's fine to err on the side of too-many ifs/qualifications for addition.
-
-        //attr = epmem_reverse_hash(thisAgent, some attr_s_id
-        //epmem_install_id_wme(thisAgent, id_p->second.first, orphan->attribute, &(ids), orphan->child_n_id, orphan->child_lti_id, id_record, retrieval_wmes);
-        //std::map< epmem_node_id, std::pair< Symbol*, bool > > ids;// my bool won't be like the one in install_memory. this will be about value/identifier. probably rename to vertices.
     }
+    //now we have the structure built on the state and we have the w_ids and we have bounds for time_ids. we can now create intervals that point to that state. will worry about augmentation with even more state and even more intervals after.
+    //the first thing we do is just make a temp table with all of the intervals matching to the w_ids we've found and that also match to eligible time_ids (based on the bounds passed to this).
+    //can find the time_ids directly from bounds. (strictly between union overlap left union overlap right).
+    //can enter the w_ids into a temp table.
+    //can return a list of intervals based on those.
+
+
+    //then, can do secondary. find the time_ids directly from bounds, get all above a threshold of surprise.
+    //get w_ids from that and build structure as needed
+    //iterate list of intervals once structure is in place.
+
+    //can put all relevant interval_ids throughout into temp table.
+
+    //for interval relations beyond those that are the cue, can ask for each type among the interval ids retrieved (just before for now).
+    //report those as well.
+
+
+    //where does the rule's knowledge of the path structure to put to the epmem link come from?
+    //in other words, there are currently-available paths literally on the state. other than those, how can a path be used as a cue?
+
+
+
+//    //get the intervals for the leaf literals.
+//    std::map<Symbol*, epmem_literal_set*>::iterator cue_to_leaf_literals_it;
+//    for (cue_to_leaf_literals_it = cue_to_leaf_literals.begin(); cue_to_leaf_literals_it != cue_to_leaf_literals.end(); cue_to_leaf_literals_it++)
+//    {//
+//        epmem_temporal_literal* some_interval_literal_for_this_leaf = interval_match->cues_to_temporal_literals.lower_bound(cue_to_leaf_literals_it->first)->second;
+//        bool is_first = some_interval_literal_for_this_leaf->value_sym_1 == cue_to_leaf_literals_it->first;
+//        int64_t left_side;
+//        int64_t right_side;
+//        if (is_first)
+//        {
+//            left_side = some_interval_literal_for_this_leaf->interval_1_left;
+//            right_side = some_interval_literal_for_this_leaf->interval_1_right;
+//        }
+//        else
+//        {
+//            left_side = some_interval_literal_for_this_leaf->interval_2_left;
+//            right_side = some_interval_literal_for_this_leaf->interval_2_right;
+//        }//now, everything has a left and right.
+//    }
+
+    //at this point, ideally the WMG necessary to put the temporal interval relation data into WM is now present. We'll also want to add additional intervals above a level of surprise, but those will be in a manner similar to these.
+    //aha, one feature I may install at some point is instead of actually retrieving the structure itself, retrieve just the temporal interval match with lti for the wm graph location, and then have that lti be either architecturally or smem indexible in such a way that the path can be optionally retrieved.
+    //duh, easy way -- just by being associated with having matched the cue, you have a path. then, all you'd ever want to really reconstruct is whatever you need to elaborate with additional unmatched-but-above-threshold intervals.
+    //basically, up till now, except for maybe elaborating some of the relational structure, the only additional info is a boolean (yes it existed or no it didn't match).
+    //the only new information *is* from those other intervals, just like in ordinary reconstruction, you elaborate the instant.
+
+//is any LTI going to every possibly be more than either *direct address to I/O stuff*, *WMG path*, *temporal relation structure (like a rhythm)*, *compositions by explicitly relations between those*? (might end up with an ontogeny of ltis.)
+
 
 
     /*for (cue_to_map_it = interval_match->best_bindings.begin(); cue_to_map_it != interval_match->best_bindings.end(); cue_to_map_it++)
@@ -7023,7 +7108,8 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
         // main loop of interval walk
         thisAgent->EpMem->epmem_timers->query_walk->start();
         bool complete_match = false;
-        while (pedge_pq.size() && current_episode > after && !complete_match)//basically, current_episode is decremented in gaps, based on when some aspect of matching to the cue changes (not intermediate cue-agnostic changes).
+        bool finished_up_complete_match = false;
+        while (pedge_pq.size() && current_episode > after && !finished_up_complete_match)//basically, current_episode is decremented in gaps, based on when some aspect of matching to the cue changes (not intermediate cue-agnostic changes).
         {
 
             epmem_time_id next_edge;
@@ -7376,18 +7462,20 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                             if (active_literal->value_sym_1 == *away_it)
                             {//the interval that was active and that closed here was for the before of something.
                                 assert(active_literal->interval_1_left < 0);//it better be the case that if this was active and it was bound to the before, the before doesn't already have a left.
-                                active_literal->interval_1_left = current_episode;
+                                active_literal->interval_1_left = current_episode + 1;
                                 if (active_literal->interval_1_left < active_literal->interval_2_left && active_literal->interval_1_right < active_literal->interval_2_right && active_literal->interval_1_right+1 >= active_literal->interval_2_left)
                                 {//a satisfied temporal literal!
                                     if (!active_literal->satisfied)
-                                    {//we may have already satisfied this without it having concluded just when it showed up. If we didn't, then we can do it here.//todo I don't think this should actually ever happen.
+                                    {//we may have already satisfied this without it having concluded just when it showed up. If we didn't, then we can do it here.//todo I don't think this should actually ever happen.//changed so now this *is* *exactly* how a complete match finishes.
                                         active_literal->satisfied = true;
                                         int score = ++active_literal->match_using_this->match_score;
-                                        if (score == max_match_score)
-                                        {//winner winner chicken dinner!
-                                            complete_match_set.insert(active_literal->match_using_this);//if this manages to stay in this set, then we're done! Has to survive further changes within this DC.
-                                        }
+
                                     }
+                                    if (score == max_match_score)
+                                    {//winner winner chicken dinner!
+                                        complete_match_set.insert(active_literal->match_using_this);//if this manages to stay in this set, then we're done! Has to survive further changes within this DC.
+                                        active_literal->match_using_this->match_start = current_episode + 1;//this was a before that just went away and it's the final match for the set, ..... so that's the match_start.
+                                    }//likely good to actually force matches to end here rather than not collecting this info. in other words, while we might know for sure we have a match before this point, it's still good to record when the earliest before starts and call that the match.
                                 }
                                 else
                                 {//IF AND ONLY IF the before that stopped here didn't work because the after has yet to close can this continue to be an ongoing match. otherwise, this is trash. (basically, we found a contains).
@@ -7469,7 +7557,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                             else if (active_literal->value_sym_2 == *away_it)
                             {//it was an after for this literal.
                                 assert(active_literal->interval_2_left < 0);
-                                active_literal->interval_2_left = current_episode;
+                                active_literal->interval_2_left = current_episode + 1;
                                 //this is an after that just finished. need to make sure it wasn't the case that there was some before that already finished for it. that would be bad.
                                 if (active_literal->interval_1_left != -1)//if the before for this after already finished
                                 {//badbad, but if this wasn't a pure after, then just remove and preserve the ongoing match. propogate through all literals using that after within this match.
@@ -7521,12 +7609,17 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                 {
                                     if (active_literal->interval_1_right < active_literal->interval_2_right && active_literal->interval_1_right+1 >= active_literal->interval_2_left)//left "active_literal->interval_1_left < active_literal->interval_2_left && " out because it's trivially true
                                     {//there was a valid before
-                                        active_literal->satisfied = true;
+                                        if (!active_literal->satisfied)
+                                        {
+                                            active_literal->satisfied = true;
+                                            ++active_literal->match_using_this->match_score;
+                                        }
+                                        /*active_literal->satisfied = true;
                                         int score = ++active_literal->match_using_this->match_score;
                                         if (score == max_match_score)
                                         {//winner winner chicken dinner!
                                             complete_match_set.insert(active_literal->match_using_this);
-                                        }
+                                        }*///this was valid, but i'm instead forcing the processing to go through until the before also gets satisfied.
                                     }//no else here, could still be fine if a before shows up on the very next timestep.//basically, can't throw the match away until the before or another instance of the after shows up to make it obviously wrong.
                                 }
                             }
@@ -7764,16 +7857,21 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                         if (literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] == NULL)
                                         {
                                             literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] = best_bindings;
-                                            number_of_binding_uses[best_bindings] = number_of_binding_uses[best_bindings] + 1
+                                            number_of_binding_uses[best_bindings] = number_of_binding_uses[best_bindings] + 1;
                                         }
-                                        literal_to_match->satisfied = true;
+                                        if (!literal_to_match->satisfied)
+                                        {
+                                            literal_to_match->satisfied = true;
+                                            ++literal_to_match->match_using_this->match_score;
+                                        }
+                                        /*literal_to_match->satisfied = true;
                                         int score = ++literal_to_match->match_using_this->match_score;
                                         if (score == max_match_score)
                                         {
                                             //We have a winner winner chicken dinner!!!
                                             //now just to see if it sticks around (isn't invalidated by not fitting in somewhere else).
                                             complete_match_set.insert(literal_to_match->match_using_this);
-                                        }
+                                        }*/
                                     }
                                     else
                                     {//it's a before, so it's not trivial.
@@ -7785,17 +7883,22 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                                                 if (literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] == NULL)
                                                 {
                                                     literal_to_match->match_using_this->best_bindings[*potential_cue_match_it] = best_bindings;
-                                                    number_of_binding_uses[best_bindings] = number_of_binding_uses[best_bindings] + 1
+                                                    number_of_binding_uses[best_bindings] = number_of_binding_uses[best_bindings] + 1;
                                                 }
                                                 active_cues_to_active_temporal_literal_instances[literal_to_match->value_sym_1]->insert(literal_to_match);
-                                                literal_to_match->satisfied = true;
+                                                if (!literal_to_match->satisfied)
+                                                {
+                                                    literal_to_match->satisfied = true;
+                                                    ++literal_to_match->match_using_this->match_score;
+                                                }
+                                                /*literal_to_match->satisfied = true;
                                                 int score = ++literal_to_match->match_using_this->match_score;
                                                 if (score == max_match_score)
                                                 {
                                                     //We have a winner winner chicken dinner!!!
                                                     //now just to see if it sticks around (isn't invalidated by not fitting in somewhere else).
                                                     complete_match_set.insert(literal_to_match->match_using_this);
-                                                }
+                                                }*/
 
                                             }
                                             else//the novelty here is that we also have to get rid of an after that is currently treated as though it was working.
@@ -7885,12 +7988,12 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
 
                             //todo before we potentially make a new ongoing match, this is a good time to potentially actually declare we have a complete match because something managed to stay in the complete_matche_set. (don't have to worry about propogation, because something would have been invalidated, even if not everything would have been.
                             //std::set<epmem_ongoing_match*>::iterator a_match_it;
-                            if (complete_match_set.size() > 0)
+                            if (complete_match_set.size() > 0 && !complete_match)
                             {
                                 //a_match_it = complete_match_set.begin();//arbitrarily picking the first one as the match we're gonna actually use.
                                 a_complete_temporal_match = *(complete_match_set.begin());
                                 complete_match = true;
-                                a_complete_temporal_match->match_end = current_episode;
+                                //a_complete_temporal_match->match_start = current_episode+1;
                             }
 
 
@@ -8183,9 +8286,9 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
             }
             //the above has put on some of the meta for the graph match stuff. Like with the previous use of epmem_install_memory, this install_interval will create retrieval structures and log in the node_mem_map the child_n_id (or child_s_id, I suppose) so that the loop below can still work for showing the graph match.
             //what also needs to be done and what will be done within install_interval is a similar correspondence between leaves and interval relation cues.
-            epmem_install_interval(thisAgent, )//std::map<Symbol*, epmem_literal_set*> cue_to_leaf_literals;; ///// or maybe std::map<Symbol*,epmem_literal*> cue_to_root_literal_map;
-
-            /*if (true)
+            //epmem_install_interval(thisAgent, )//std::map<Symbol*, epmem_literal_set*> cue_to_leaf_literals;; ///// or maybe std::map<Symbol*,epmem_literal*> cue_to_root_literal_map;
+            epmem_install_interval(thisAgent, state, a_complete_temporal_match->match_start, a_complete_temporal_match->match_end, a_complete_temporal_match, meta_wmes, retrieval_wmes, &node_mem_map, cue_to_leaf_literals, cue_to_root_literal_map);
+            if (true)
             {
                 for (epmem_id_mapping::iterator iter = node_mem_map.begin(); iter != node_mem_map.end(); iter++)
                 {
@@ -8195,7 +8298,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                         epmem_buffer_add_wme(thisAgent, meta_wmes, (*map_iter).second, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved, (*iter).second);
                     }
                 }
-            }*/
+            }
             thisAgent->EpMem->epmem_timers->query_result->stop();
         }
     }
