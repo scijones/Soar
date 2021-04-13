@@ -1038,12 +1038,16 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_relations_just_added (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_potential_interval_updates (w_id_left INTEGER, w_id_right INTEGER, time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, finished_right BOOLEAN)");//Make this include some form of time data as well (to help provide update magnitude).
     add_structure("CREATE TABLE IF NOT EXISTS epmem_w_id_to_lti_id (w_id INTEGER, lti_id INTEGER, PRIMARY KEY(w_id,lti_id)) WITHOUT ROWID");//the lti identity for any interval associated with w_id.
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_w_id (w_id INTEGER PRIMARY KEY) WITHOUT ROWID)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_interval_relations (interval_id INTEGER, w_id INTEGER, start_episode_id INTEGER, end_episode_id INTEGER, PRIMARY KEY(start_episode_id, end_episode_id, interval_id, w_id))");
 }
 
 void epmem_graph_statement_container::create_graph_indices()
 {//todo organize in two ways -- by the table(s) referenced and by the aspect of memory, the functionality they support
-    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_index_now_time_id ON epmem_wmes_index_now (start_episode_id DESC, w_id)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_index_now_time_id ON epmem_wmes_index_now (start_episode_id DESC, interval_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_w_id_to_lti_index ON epmem_w_id_to_lti_id (lti_id,w_id)");
+
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_temp_interval_end_start ON epmem_temp_interval_relations (end_episode_id,start_episode_id,interval_id,w_id)");
 
     add_structure("CREATE INDEX IF NOT EXISTS epmem_intervals_w_id_now ON epmem_intervals (is_now,w_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_interval_relations_left_right ON epmem_interval_relations (w_id_left,w_id_right,relation,weight_norm)");//, relation, weight)");//when adding more relations, this should only be unique per relation type.
@@ -1184,6 +1188,28 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     }
 
     //generally, anything that needs the "OR IGNORE" to actually work is being inefficient, at the least.
+
+    add_temp_w_id = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_temp_w_id VALUES (?)");
+    add(add_temp_w_id);
+
+    list_temp_w_id = new soar_module::sqlite_statement(new_db, "SELECT w_id FROM epmem_temp_w_id");
+    add(list_temp_w_id);
+
+    delete_temp_w_id = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_temp_w_id");
+    add(delete_temp_w_id);
+
+    //epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL
+    find_matched_intervals = new soar_module::sqlite_statement(new_db, "SELECT i.surprise FROM epmem_intervals i JOIN epmem_times t ON t.time_id=i.time_id JOIN epmem_temp_w_id w ON w.w_id=i.w_id WHERE (t.start_episode_id >= ? AND t.end_episode_id =< ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) ORDER BY i.surprise DESC LIMIT 1");
+    add(find_matched_intervals);
+
+    buffer_above_surprise_during_interval = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_temp_interval_relations (interval_id, w_id, start_episode_id, end_episode_id) SELECT i.w_id, t.start_episode_id, t.end_episode_id FROM epmem_intervals i JOIN epmem_times t ON i.w_id=t.w_id AND i.surprise >= ? WHERE (t.start_episode_id >= ? AND t.end_episode_id =< ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?)");
+    add(buffer_above_surprise_during_interval);
+
+    delete_epmem_temp_interval_relations = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_temp_interval_relations");
+    add(delete_epmem_temp_interval_relations);
+
+    find_befores_for_match = new soar_module::sqlite_statement(new_db, "SELECT l.interval_id, r.interval_id, l.w_id, r.w_id FROM epmem_temp_interval_relations l JOIN epmem_temp_interval_relations r ON l.start_episode_id < r.start_episode_id AND l.end_episode_id < r.end_episode_id AND l.end_episode_id+1 >= r.start_episode_id");
+    add(find_befores_for_match);
 
     add_time = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_episodes (episode_id) VALUES (?)");
     add(add_time);
@@ -4706,7 +4732,114 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start
     //the first thing we do is just make a temp table with all of the intervals matching to the w_ids we've found and that also match to eligible time_ids (based on the bounds passed to this).
     //can find the time_ids directly from bounds. (strictly between union overlap left union overlap right).
     //can enter the w_ids into a temp table.
-    //can return a list of intervals based on those.
+    //can return a list of intervals based on those. (record lowest surprise)
+    std::set<int64_t>::iterator w_id_it;
+    for (w_id_it = w_ids.begin(); w_id_it != w_ids.end(); w_id_it++)
+    {
+        thisAgent->EpMem->epmem_stmts_graph->add_temp_w_id->bind_int(1,*w_id_it);
+        thisAgent->EpMem->epmem_stmts_graph->add_temp_w_id->execute(soar_module::op_reinit);
+    }
+    //SELECT i.w_id, i.time_id, i.surprise FROM epmem_intervals i JOIN epmem_times t ON t.time_id=i.time_id JOIN epmem_temp_w_id w ON w.w_id=i.w_id
+    //WHERE (t.start_episode_id >= ? AND t.end_episode_id <= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?
+    //since i'm going to reuse it, going to go ahead and make a buffer table that saves those time_ids... never mind. sqlite's cache should ideally do something good here and i can always come back and optimize as needed. OPTIMIZE LATER.
+
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(1,start);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(2,end);//between
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(3,end);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(4,end);//straddle end
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(5,start);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(6,start);//straddle start
+    //int64_t w_id;
+    //int64_t time_id;
+    //double surprise;
+    double lowest_surprise;// = 2;
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->execute();
+    lowest_surprise = thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->column_double(0);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->reinitialize();
+
+
+    //going to get all of the intervals above the lowest surprise of any matching interval that fall within-inclusive-not-strict of the match bound. going to buffer those in a temp table. then, can use that table to compute all before-meets and before-overlaps with a query. that's what gets constructed.
+    //probably, in case of additional queries wanting more info about it, should keep buffered table with the big set of intervals and such around.
+
+
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_double(1,lowest_surprise);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(2,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(3,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(4,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(5,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(6,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(7,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->execute(soar_module::op_reinit);
+    //all of the intervals and their w_ids and their start and end times should be in epmem_temp_interval_relations
+
+    std::set<int64_t> visited_intervals;
+    //We only need to create a given interval once. it has a given underlying w_id that may occur over several intervals. it's kinda like each interval is an instance and that w_id is basically an lti, which is why we have a w_id<->lti_id table.
+
+    int64_t left_interval;
+    int64_t right_interval;
+    int64_t left_w_id;
+    int64_t right_w_id;
+    //std::list<std::pair<int64_t,int64_t>> befores_to_make;
+    std::map<int64_t,Symbol*> interval_symbol_by_id;
+    std::map<int64_t,int64_t> interval_id_to_w_id;
+    std::set<int64_t> w_ids_to_make;
+    while (thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->execute() == soar_module::row)
+    {//this is left interval, right interval, left w_id, right w_id for all before relations among intervals above a threshold of surprise (as determined by the buffer table). (this is just getting all befores based on that table).
+        left_interval = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(0);
+        right_interval = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(1);
+        left_w_id = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(2);
+        right_w_id = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(3);
+        //befores_to_make.push_back(std::make_pair(left_interval,right_interval));
+        if (visited_intervals.find(left_interval) == visited_intervals.end())
+        {//can actually make the symbol here for real, using the retrieval header. it will be what has other befores potentially attached to it and should index into w_ids. we can do the befores here, but have to wait in case the w_ids haven't been added yet.
+            Symbol* new_interval = thisAgent->symbolManager->make_new_identifier('I', result_header->id->level);
+            interval_symbol_by_id[left_interval] = new_interval;
+            epmem_buffer_add_wme(thisAgent, retrieval_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved_interval, new_interval);
+            thisAgent->symbolManager->symbol_remove_ref(&new_interval);
+            interval_id_to_w_id[left_interval] = left_w_id;
+        }
+        if (visited_intervals.find(right_interval) == visited_intervals.end())
+        {
+            Symbol* new_interval = thisAgent->symbolManager->make_new_identifier('I', result_header->id->level);
+            interval_symbol_by_id[right_interval] = new_interval;
+            epmem_buffer_add_wme(thisAgent, retrieval_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved_interval, new_interval);
+            thisAgent->symbolManager->symbol_remove_ref(&new_interval);
+            interval_id_to_w_id[right_interval] = right_w_id;
+        }
+        if (id_record->find(left_w_id) == id_record->end())
+        {
+            w_ids_to_make.insert(left_w_id);
+        }
+        if (id_record->find(right_w_id) == id_record->end())
+        {
+            w_ids_to_make.insert(right_w_id);
+        }
+        epmem_buffer_add_wme(thisAgent, retrieval_wmes, interval_symbol_by_id[left_interval], thisAgent->symbolManager->soarSymbols.epmem_sym_before, interval_symbol_by_id[right_interval]);
+    }
+    thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->reinitialize();
+    thisAgent->EpMem->epmem_stmts_graph->delete_epmem_temp_interval_relations->execute(soar_module::op_reinit);
+    //the intervals and their relations should exist now, but I need to add pointers to w_ids and the w_ids that aren't already there.
+    //I don't know what skeleton to hang w_ids onto because some may not exist (due to low surprise) and some may span completely through the interval. In other words, there's skeleton that just plain may not line up
+    //if this is all expensive, also find to just do the reasoning w.r.t. intervals, store the lti-ids with them, and also have some rule match thing that lets you compare underlying lti_id to a working memory element's epmem_id.
+
+//one ugly hack would be that if you put a special character before an interval-id, it wouldn't just match to the lti_id, but it would be a stand-in for that w_id in current working memory (would match like you had a valid path to it).
+//the idea is that it's hard to actually use an interval without having some way to associate that interval with a location in the working memory graph. right now, i'll go ahead and commit to full reconstruction of the smeared WMG, though, and index into that.
+    //so, you'd put on the LHS of the rule "dereference the location implied by the lti for the symbol here", using it as a pointer, and the underlying rulewould translate it to the relevant location, but the problem is.... would have to arbitrarily pick a path.
+
+    //for a given w*_id, there is a parent, so if nothing else, you can recurse until state root, and you should find a collision either at state root or before.
+
+    //could add even more w_ids to a temp table and look for all (don't worry about surprise) w_ids relevant to that interval at all.
+    //then, index into the relevant ones with their intervals
+    //then, for a given w_id, note that an interval touched it, and also propogate this up to parents until state root. anything on a path to an interval is logged.
+    //then, remove those not either directly touched or on a path to an interval (extraneous).
+
+    //can basically do with maps and a helper function.
+
+    thisAgent->EpMem->epmem_stmts_graph->delete_temp_w_id->execute(soar_module::op_reinit);
+
+    //could consider the latent structure of the rete itself.
+
+
 
 
     //then, can do secondary. find the time_ids directly from bounds, get all above a threshold of surprise.

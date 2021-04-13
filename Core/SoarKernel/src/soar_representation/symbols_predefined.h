@@ -70,6 +70,7 @@ typedef struct predefined_sym_struct {
         Symbol*             epmem_sym_result;
 
         Symbol*             epmem_sym_retrieved;
+        Symbol*             epmem_sym_retrieved_interval;
         Symbol*             epmem_sym_status;
         Symbol*             epmem_sym_match_score;
         Symbol*             epmem_sym_cue_size;

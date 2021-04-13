@@ -336,6 +336,13 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
         soar_module::sqlite_statement* delete_brand_new_adds;
         soar_module::sqlite_statement* delete_brand_new_relation_adds;
         soar_module::sqlite_statement* finish_updates;
+        soar_module::sqlite_statement* add_temp_w_id;
+        soar_module::sqlite_statement* list_temp_w_id;
+        soar_module::sqlite_statement* delete_temp_w_id;
+        soar_module::sqlite_statement* find_matched_intervals;
+        soar_module::sqlite_statement* buffer_above_surprise_during_interval;
+        soar_module::sqlite_statement* find_befores_for_match;
+        soar_module::sqlite_statement* delete_epmem_temp_interval_relations;
 
         //
 

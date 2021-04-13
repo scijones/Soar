@@ -657,6 +657,7 @@ void Symbol_Manager::create_predefined_symbols()
     soarSymbols.epmem_sym_result = make_str_constant("result");
 
     soarSymbols.epmem_sym_retrieved = make_str_constant("retrieved");
+    soarSymbols.epmem_sym_retrieved_interval = make_str_constant("retrieved-interval");
     soarSymbols.epmem_sym_status = make_str_constant("status");
     soarSymbols.epmem_sym_match_score = make_str_constant("match-score");
     soarSymbols.epmem_sym_cue_size = make_str_constant("cue-size");
@@ -849,6 +850,7 @@ void Symbol_Manager::release_predefined_symbols()
     symbol_remove_ref(&(soarSymbols.epmem_sym_result));
 
     symbol_remove_ref(&(soarSymbols.epmem_sym_retrieved));
+    symbol_remove_ref(&(soarSymbols.epmem_sym_retrieved_interval));
     symbol_remove_ref(&(soarSymbols.epmem_sym_status));
     symbol_remove_ref(&(soarSymbols.epmem_sym_match_score));
     symbol_remove_ref(&(soarSymbols.epmem_sym_cue_size));
