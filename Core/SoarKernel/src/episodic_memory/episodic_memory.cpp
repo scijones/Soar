@@ -4826,7 +4826,7 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start
 //the idea is that it's hard to actually use an interval without having some way to associate that interval with a location in the working memory graph. right now, i'll go ahead and commit to full reconstruction of the smeared WMG, though, and index into that.
     //so, you'd put on the LHS of the rule "dereference the location implied by the lti for the symbol here", using it as a pointer, and the underlying rulewould translate it to the relevant location, but the problem is.... would have to arbitrarily pick a path.
 
-    //for a given w*_id, there is a parent, so if nothing else, you can recurse until state root, and you should find a collision either at state root or before.
+    //for a given w*_id, there is a parent, so if nothing else, you can recurse until state root, and you should find a collision either at state root or before. -- is dumb because not all of the parents are present during that interval.
 
     //could add even more w_ids to a temp table and look for all (don't worry about surprise) w_ids relevant to that interval at all.
     //then, index into the relevant ones with their intervals
@@ -4834,6 +4834,23 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start
     //then, remove those not either directly touched or on a path to an interval (extraneous).
 
     //can basically do with maps and a helper function.
+
+    //can get all the w_ids for the big interval. that's fine. can get all the intervals above a level of surprise, that's fine. can I get paths to those intervals? (those paths are a subset of the w_ids, because the paths had to exist during that interval). "exist during" is an important query.
+    //because I'm interested in parents, I can assume type identifier, and use the epmem_wmes_index and epmem_wmes_identifier tables to get parent_n_ids. So, a given constant leaf will have a wc_id. that wc_id will have a parent_n_id. There will exist a w_id during the the interval corresponding
+    //to a wi_id during the interval for which the wi_id's child_n_id is the parent_n_id of that interval. (should retrieve all that exist during the interval).
+
+    //problem is that a given path may be an illusion of the smear.
+    //so, a given interval has a w_id and a time_id. that allows retrieval of all other time_ids that contain that interval's time_id. (it must be the case that parents contain children).
+    //given only the time_ids that contain that time_id, find w_ids from interval table. given only those w_ids, find parents. parents of those parents will already also be in the set of "contains that time_id"
+    //so, can just creates paths. (may fork, but will be temporally-consistent)
+    //alternatively, don't worry about trying to have the smear show some kind of temporal consistency and reconstruct whether something was present using additional interval relations.
+
+    //to know that a given path was a valid thing to test in the state based on previous experience, the agent would have to inspect intervals for things like temporal contains... let's do the path route for now.
+
+    //so every retrieved interval is basically treated like a state root. whose single leaf is the "real" interval? ugh. "Don't let good be the enemy of done".
+    //every interval is for a given WME. (attr-val). means that all the paths that lead to the parent for that WME are all valid paths for that WME.
+
+    //AHA, this is a great time for me to pick which way to go based on the kind of action modelling that I believe needs to occur supported by this knowledge.
 
     thisAgent->EpMem->epmem_stmts_graph->delete_temp_w_id->execute(soar_module::op_reinit);
 
