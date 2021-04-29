@@ -995,7 +995,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
     ////////////////////////////////////////////////////////////////////////////
     smem_context_removals->clear();
     double prev_base;
-    double raw_prob;
+    double raw_prob = 0.0;
     double additional;
     double offset;
     bool still_exists;
@@ -1289,7 +1289,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                 {
                     offset = (settings->spreading_baseline->get_value())/baseline_denom;//(settings->spreading_limit->get_value());///database_denom_max
                 }
-                additional = (raw_prob > offset ? raw_prob : offset);//(log(raw_prob)-log(offset));//This is a hack to prevent bad values for low wma spread.//additional = (raw_prob > offset ? raw_prob : offset+offset*.1);//(log(raw_prob)-log(offset));//This is a hack to prevent bad values for low wma spread.
+                additional = raw_prob;//(raw_prob > offset ? raw_prob : offset);//(log(raw_prob)-log(offset));//This is a hack to prevent bad values for low wma spread.//additional = (raw_prob > offset ? raw_prob : offset+offset*.1);//(log(raw_prob)-log(offset));//This is a hack to prevent bad values for low wma spread.
                 spread = (spread == 0 ? additional : additional+spread);//Now, we've adjusted the activation according to this new addition.
                 ////////////////////////////////////////////////////////////////////////////
                 timers->spreading_7_2_5->stop();
@@ -1302,7 +1302,7 @@ void SMem_Manager::calc_spread(std::set<uint64_t>* current_candidates, bool do_m
                 uint64_t num_edges = SQL->act_lti_child_ct_get->column_int(0);
 
                 SQL->act_lti_child_ct_get->reinitialize();
-                double modified_spread = (log(spread)-log(offset));
+                double modified_spread = (spread >=offset ? (log(spread)-log(offset)) : 0.0);//(log(spread)-log(offset));
                 double new_base;
                 if (static_cast<double>(prev_base)==static_cast<double>(SMEM_ACT_LOW) || static_cast<double>(prev_base) == 0)
                 {//used for base-level - thisAgent->smem_max_cycle - We assume that the memory was accessed at least "age of the agent" ago if there is no record.
