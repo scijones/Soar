@@ -1040,6 +1040,7 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_w_id_to_lti_id (w_id INTEGER, lti_id INTEGER, PRIMARY KEY(w_id,lti_id)) WITHOUT ROWID");//the lti identity for any interval associated with w_id.
     add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_w_id (w_id INTEGER PRIMARY KEY) WITHOUT ROWID)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_interval_relations (interval_id INTEGER, w_id INTEGER, start_episode_id INTEGER, end_episode_id INTEGER, PRIMARY KEY(start_episode_id, end_episode_id, interval_id, w_id))");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_parent_superset (interval_id INTEGER, w_id INTEGER, start_episode_id INTEGER, end_episode_id INTEGER, PRIMARY KEY(start_episode_id, end_episode_id, interval_id, w_id))");
 }
 
 void epmem_graph_statement_container::create_graph_indices()
@@ -1199,11 +1200,25 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     add(delete_temp_w_id);
 
     //epmem_intervals (interval_id INTEGER PRIMARY KEY AUTOINCREMENT, w_id INTEGER, time_id INTEGER, surprise REAL
-    find_matched_intervals = new soar_module::sqlite_statement(new_db, "SELECT i.surprise FROM epmem_intervals i JOIN epmem_times t ON t.time_id=i.time_id JOIN epmem_temp_w_id w ON w.w_id=i.w_id WHERE (t.start_episode_id >= ? AND t.end_episode_id =< ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) ORDER BY i.surprise DESC LIMIT 1");
+    find_matched_intervals = new soar_module::sqlite_statement(new_db, "SELECT i.surprise FROM epmem_intervals i JOIN epmem_times t ON t.time_id=i.time_id JOIN epmem_temp_w_id w ON w.w_id=i.w_id WHERE (t.start_episode_id >= ? AND t.end_episode_id <= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) ORDER BY i.surprise DESC LIMIT 1");
     add(find_matched_intervals);
 
-    buffer_above_surprise_during_interval = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_temp_interval_relations (interval_id, w_id, start_episode_id, end_episode_id) SELECT i.w_id, t.start_episode_id, t.end_episode_id FROM epmem_intervals i JOIN epmem_times t ON i.w_id=t.w_id AND i.surprise >= ? WHERE (t.start_episode_id >= ? AND t.end_episode_id =< ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?)");
+    buffer_above_surprise_during_interval = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_temp_interval_relations (interval_id, w_id, start_episode_id, end_episode_id) SELECT i.interval_id, i.w_id, t.start_episode_id, t.end_episode_id FROM epmem_intervals i INNER JOIN epmem_times t ON i.time_id=t.time_id AND i.surprise >= ? WHERE (t.start_episode_id >= ? AND t.end_episode_id =< ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?)");
     add(buffer_above_surprise_during_interval);
+
+    buffer_throughout_interval = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_temp_parent_superset (interval_id, w_id, start_episode_id, end_episode_id, parent_n_id, attribute_s_id, value_s_id, child_n_id) SELECT i.interval_id, i.w_id, t.start_episode_id, t.end_episode_id,0,0,0,0 FROM epmem_intervals i INNER JOIN epmem_times t ON i.w_id=t.w_id WHERE (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id = -1)");
+    add(buffer_throughout_interval);
+
+    elaborate_identifiers_buffer_throughout_interval = new soar_module::sqlite_statement(new_db, "UPDATE epmem_temp_parent_superset SET parent_n_id=info.parent_n_id,attribute_s_id=info.parent_n_id,value_s_id=-1,child_n_id=info.child_n_id FROM (SELECT parent_n_id,attribute_s_id,child_n_id,w_id FROM epmem_wmes_identifier i INNER JOIN epmem_wmes_index d ON i.wi_id=d.w_type_based_id WHERE d.type=1) AS info WHERE info.w_id=epmem_temp_parent_superset.w_id");
+    add(elaborate_identifiers_buffer_throughout_interval);
+    elaborate_constants_buffer_throughout_interval = new soar_module::sqlite_statement(new_db, "UPDATE epmem_temp_parent_superset SET parent_n_id=info.parent_n_id,attribute_s_id=info.parent_n_id,value_s_id=info.value_s_id,child_n_id=-1 FROM (SELECT parent_n_id,attribute_s_id,value_s_id,w_id FROM epmem_wmes_constant c INNER JOIN epmem_wmes_index d ON c.wi_id=d.w_type_based_id WHERE d.type!=1) AS info WHERE info.w_id=epmem_temp_parent_superset.w_id");
+    add(elaborate_constants_buffer_throughout_interval);
+
+    select_potential_intervals_to_retrieve = new soar_module::sqlite_statement(new_db, "SELECT tir.interval_id, tir.w_id, tir.start_episode_id, tir.end_episode_id, tps.parent_n_id, tps.attribute_s_id, tps.value_s_id, tps.child_n_id FROM epmem_temp_interval_relations tir INNER JOIN epmem_temp_parent_superset tps ON tir.interval_id=tps.interval_id");
+    add(select_potential_intervals_to_retrieve);
+
+    select_parents = new soar_module::sqlite_statement(new_db, "SELECT * FROM epmem_temp_parent_superset WHERE child_n_id=? AND start_episode_id<=? AND end_episode_id>=?");
+    add(select_parents);
 
     delete_epmem_temp_interval_relations = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_temp_interval_relations");
     add(delete_epmem_temp_interval_relations);
@@ -4581,42 +4596,333 @@ inline void _epmem_install_id_wme(agent* thisAgent, Symbol* parent, Symbol* attr
         }
 }
 
-void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start, epmem_time_id end, epmem_ongoing_match* interval_match, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_id_mapping* id_record, std::map<Symbol*, epmem_literal_set*>& cue_to_leaf_literals, std::map<Symbol*,epmem_literal*>& cue_to_root_literal_map)//agent* thisAgent, Symbol* state, epmem_time_id start, epmem_time_id end, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_id_mapping* id_record = NULL)
-{//eventually, your parent, if you avoid already-visited parents, is going to end up being the state, hallowed be thy root.
-    //We have bindings to the actual cues used to find intervals. We don't need to actually reconstruct full episodes. We have a before/after boundary for the interval to be retrieved. SO, we can build the bindings, make the itnerval relations for those, then also look for other intervals between those retrieved, and report those with big surprise.
-    //"big" can mean bigger than smallest found by cues.
-    //can have a single shared skeleton for all.
-    //can't copy nearly as much as expected from install_memory, but don't have to support (at first) as a command available from the agent, and only treat as helper function.
-    //what I really need is the unified skeleton, spanning all the time of the interval. This is the union of the bindings for the matches, first.
-    //then, after those are present, you get the rest of the intervals between the start and end time above a threshold and include them as well.
-    //together, you end up with full event model.
-    //alternatively, can get the full skeleton including additional intervals in one big union. given two indices, how easy to identify intervals above thresh!??! ->let's see.
-    //"surprise" is really surprise of the *value-at-the-location-in-the-WMG*. means that the leaves matched in the original query are the w*_ids for which we want the initial surprise.
-    //so, to start, I need the bound times of the interval to retrieve, and the binding/surprise/w_id stuff for the actual matches, and really I just need the lowest surprise of those. but the big thing is knowing the w_id or w*_id for the matched leaf values.
 
-    //alright, the way the bindings work, I may as well write a bit more of this from scratch. basically, I have the cues, and all I really need to make things work is to have some w*_id for the value match used for a cue.
+void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbol_triple_list& meta_wmes, std::map<Symbol*,epmem_literal*>& cue_to_root_literal_map,
+        epmem_ongoing_match* interval_match, symbol_triple_list& retrieval_wmes, epmem_time_id start, epmem_time_id end)
+{
+    //todo dummy bool that lets me do code folding in eclipse. remove before committing. Likely, each code fold could actually be a function.
+    bool code_fold = true;
 
-    //arguments, then: need the start and end, need the bindings (just pass the whole ongoing match), need maybe some already-complete mapping stuff, but maybe not. (could do it here).
-    //the idea is that the bindings tell you what actual skeleton to build to index into for a given interval relation match.
-
-    // get the ^result header for this state
+    //Get the link symbol onto which retrieval results are placed.
     Symbol* result_header = state->id->epmem_info->result_wme->value;
-    // create a new ^retrieved header for this result
-    Symbol* retrieved_header;
-    retrieved_header = thisAgent->symbolManager->make_new_identifier('R', result_header->id->level);
-    if (id_record)
+
+    //For each cue, do the typical old-school epmem match-to-cue retrieval for each query in the original interval query.
+    std::set<int64_t> w_ids;//As the cue matches are constructed, this records the w_ids associated with individual features used in the construction. This helps later interval-based event reconstruction.
+    std::queue<epmem_literal*> literals_to_build;//the fifo used for creating the cue match by depth from cue root.
+    std::map<Symbol*,epmem_literal*>::iterator root_literal_it;
+    for (root_literal_it = cue_to_root_literal_map.begin(); root_literal_it != cue_to_root_literal_map.begin(); root_literal_it++)
     {
-        (*id_record)[ EPMEM_NODEID_ROOT ] = retrieved_header;
+        literals_to_build.push(root_literal_it->second);//start with the cue root's literal as the basis for building.
+        Symbol* retrieved_header;//Make a new retrieved_header for this cue.
+        retrieved_header = thisAgent->symbolManager->make_new_identifier('R', result_header->id->level);
+        epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved, retrieved_header);
+        thisAgent->symbolManager->symbol_remove_ref(&retrieved_header);
+        std::map< epmem_node_id, std::pair< Symbol*, bool > > ids;//this is for later use with _epmem_install_id_wme. I believe it helps with ensuring re-use when appropriate.
+        ids[ EPMEM_NODEID_ROOT ] = std::make_pair(retrieved_header, true);//the root is already constructed as the retrieved_header.
+
+        while(!literals_to_build.empty())//as long as a child has yet to be processed, keep going.
+        {
+            epmem_literal* literal_to_build = literals_to_build.front();//fifo makes breadth-first construction easy.
+            literals_to_build.pop();
+
+            bool is_constant_valued = !literal_to_build->value_is_id;
+
+            epmem_node_id attr_id = literal_to_build->attribute_s_id;
+            epmem_node_id value_id = literal_to_build->child_n_id;//this is a s_id kind of thing when constant valued. think the s_id column in epmem_symbols_float and the like.
+
+            epmem_node_pair* pair_for_bound_literal = interval_match->best_bindings[literal_to_build->cue][literal_to_build];//in the graph match, how was this literal bound?
+            epmem_node_id parent_id = pair_for_bound_literal->first;//Everything has an id parent.
+
+            Symbol* parent_symbol = ids[parent_id];//there's always going to be a symbol for the parent already.
+            Symbol* attr_symbol = epmem_reverse_hash(thisAgent, attr_id);//the attribute is easy enough to get a symbol for.
+            //id_record is used when additional construction is performed to map the graph match to the cue on the wmem state. In other words, id_record gets passed back by argument and just does record keeping. I don't need it here (yet).
+            epmem_id_mapping* id_record = NULL;//making this explicit in case I change my mind later.
+            if (is_constant_valued)
+            {
+                Symbol* val_symbol = epmem_reverse_hash(thisAgent, value_id);
+                epmem_buffer_add_wme(thisAgent, retrieval_wmes, parent_symbol, attr_symbol, val_symbol);
+                thisAgent->symbolManager->symbol_remove_ref(&val_symbol);
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->bind_int(1,parent_id);
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->bind_int(2,attr_id);
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->bind_int(3,value_id);
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->execute();//Find the wc_id for this constant-valued triple.
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(1,val_symbol->symbol_type);//I disallow matching to floats with any of this, so this should be fine.
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(2,thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->column_int(0));
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->reinitialize();//we used the wc_id to find the w_id. (interval id general across ids and constants.)
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->execute();
+                w_ids.insert(thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->column_int(0));
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->reinitialize();
+            }
+            else
+            {
+                _epmem_install_id_wme(thisAgent, parent_symbol, attr_symbol, &(ids), value_id, NULL, id_record, retrieval_wmes);
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(1,IDENTIFIER_SYMBOL_TYPE);
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(2,value_id);
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->execute();//later optimization can instead batch these after the while-loop.
+                w_ids.insert(thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->column_int(0));//the w_id could be used to provide an lti for the identifier.
+                thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->reinitialize();
+            }
+            thisAgent->symbolManager->symbol_remove_ref(&attr_symbol);
+        }
+        //even if I don't actually put the full graph-match correspondence onto the result link for each cue, should still at least indicate which retrieved root corresponds to which cue root.
+        Symbol* mapping = thisAgent->symbolManager->make_new_identifier('M', result_header->id->level);
+        epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match_mapping, mapping);
+        thisAgent->symbolManager->symbol_remove_ref(&mapping);
+        epmem_buffer_add_wme(thisAgent, meta_wmes, mapping, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match_mapping_node, retrieved_header);
+        epmem_buffer_add_wme(thisAgent, meta_wmes, mapping, thisAgent->symbolManager->soarSymbols.epmem_sym_graph_match_mapping_cue, root_literal_it->first);//the cue root.
+    }
+    /* Now, the above doesn't really provide much information. All it really does is establish that there was a match.
+     * TODO It could, if I adjusted it, have ltis corresponding to WMG locations. That way, there would be a way to match cue-matched graph-matching representation above to intervals below.
+     * For now, I'm leaving it and moving on to the interval-based reconstruction of the state.
+     */
+
+    //Buffer all of the w_ids (interval identities) encountered as graph-matches to the cue structures into a temp table.
+    std::set<int64_t>::iterator w_id_it;
+    for (w_id_it = w_ids.begin(); w_id_it != w_ids.end(); w_id_it++)
+    {
+        thisAgent->EpMem->epmem_stmts_graph->add_temp_w_id->bind_int(1,*w_id_it);
+        thisAgent->EpMem->epmem_stmts_graph->add_temp_w_id->execute(soar_module::op_reinit);
     }
 
-    epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved, retrieved_header);
-    thisAgent->symbolManager->symbol_remove_ref(&retrieved_header);
+    double lowest_surprise;
+    //Find the lowest surprise value among all of the intervals for those w_ids that match to cues during the matching span of time. (What was the least surprising in what matched?)
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(1,start);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(2,end);//between
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(3,end);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(4,end);//straddle end
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(5,start);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(6,start);//straddle start
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->execute();
+    lowest_surprise = thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->column_double(0);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->reinitialize();
+
+    //Find **all** WMG intervals above that threshold of surprise present within the matching span of time.
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_double(1,lowest_surprise);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(2,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(3,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(4,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(5,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(6,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(7,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->execute(soar_module::op_reinit);
+    //all of the intervals and their w_ids and their start and end times should now be in epmem_temp_interval_relations
+
+    //prune out any interval whose value is a parent of something else in the set. (no need to make a separate interval egospace path for parents that just plain temporally contain children.
+    //the comments here are the planning sort that need to be removed when I start doing things the right way:
+    /*
+     * another way to prune -- prune anything that's a parent of anything else. by looking up all parents. a somewhatlikeahaikuthing:
+     * cache the first level parents.
+     * recur until root.
+     * then, only the leaves remain.
+     *
+     * aha, if it's a parent of something in there, we'll need it anyways when constructing path to leaf, so it doesn't hurt to just go ahead and do that first. they'll be needed anyways.
+     * then, just do the actual path construction on wmem after. but, once all parents of everything have paths backward to root, easy to check "is this a parent" before construction.
+     * unless someone creates a deliberately deep wmem structure, should be fine.
+     *
+     * the first thing that's needed is "what is my parent?", given interval_id, w_id, start_episode_id, end_episode_id.
+     * a "parent" here is something that not only points within egospace to the child, but that also "contains" or "exacts" in time the child. only possible way this could correspond
+     * somehow to not just being a traditional space parent is if ... not sure how.
+     *
+     * Prune any interval whose value is a parent of anything else in the set. Note that multi-valued attributes can likely screw this all up.
+     *for all of the constants, find the w_ids of their identifier parents. remove those from epmem_temp_interval_relations if they exist. //"where exists" is ugly sqlite. could provide a flag and then delete where flag.
+     *  the parents' w_ids of all constants: suppose this is in a new temp table as the set of all identifier parents of constants: select c.parent_n_id from epmem_temp_interval_relations t INNER JOIN epmem_wmes_index w INNER JOIN epmem_wmes_constant c ON w.w_id=t.w_id AND c.wc_id=w.w_type_based_id WHERE w_type_based_id != " IDENTIFIER_SYMBOL_TYPE "
+     *      where there are wi_ids with child_n_ids matching those parent_n_ids and those wi_ids are in the buffer:
+     *
+     *for all of the identifiers, find the w_ids of their identifier parents, remove those from epmem_temp_interval_relations if they exist.
+     *SELECT w_id FROM epmem_wmes_index JOIN epmem_temp_interval_relations ON w_id
+     *
+     *Let's do the easy way first, twice, once for constants, once for identifiers: For every w_id, find the w*_id and get the triple: parent_n_id, attribute_s_id, child_n_id/value_s_id.
+     *that triple is the real thing that existed at that time corresponding to both the time and place the w_id represents. now, that parent_n_id is the child_n_id of many things perhaps,
+     *but only some wi_ids with that parent_n_id as the child_n_id that may have been the support during the time of the original w_id.
+     *means that the eligibility pool for parents is basically "anything that started before the end and didn't end before the start as well as anything that ended after the start and didn't start after the end.
+     *
+     *alright, can get a parent_n_id no matter what for each w_id in the temp buffer table.
+     *given a parent_n_id, can look for all intervals with that parent_n_id as child_n_id.
+     * for all wi_id triples (w_ids of i type) where that child_n_id exists, only want the ones where the start of the interval was before inclusive the end and the end was not strictlybeforeexclusive the start.
+     * for those wi_ids that meet this, what semantics do i want on the state? could have something like "as long as there exists some chain from the root to this through this structure."
+     * otherwise, could have different temporal representation for each path. alright, consider the example of an object within the left hand gripper and a locality-based scene graph. when the object changes hands, it's the same object, and any match through either the left hand path or the right hand path should still have the semantics of matching to the same object.
+     * */
+
+
+    //to make this more efficient, buffer_throughout_interval doesn't threshold by surprise and allows a bigger pool to provide all possible parents while limiting the set of wi_ids considered during queries to epmem_wmes_identifier
+    thisAgent->EpMem->epmem_stmts_graph->buffer_throughout_interval->bind_int(1,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_throughout_interval->bind_int(2,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_throughout_interval->bind_int(3,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_throughout_interval->execute(soar_module::op_reinit);
+    //now, we attach the parent_n_id, attribute_s_id, child_n_id/value_s_id information for every interval within the span of time.
+    thisAgent->EpMem->epmem_stmts_graph->elaborate_identifiers_buffer_throughout_interval->execute(soar_module::op_reinit);
+    thisAgent->EpMem->epmem_stmts_graph->elaborate_constants_buffer_throughout_interval->execute(soar_module::op_reinit);
+    //for each interval_id in the epmem_temp_interval_relations table, use a map from interval_id to both path and w_id. record all w_ids of parents as they become path.
+    //later, reconstruct only those interval_ids that did not end up as parents along paths
+    std::map<int64_t,std::set<std::list<std::pair<int64_t,int64_t>>*>*> interval_leaf_to_path;//don't need the value, having w_id will let us check for constant/identifier value later.
+    //basically, all of the paths to the leaf will be lists in a set associated with that leaf. can merge them later because symbol tracking will use the w_id/lti business.
+    std::set<int64_t> parental_intervals;
+    //for each entry in the epmem_temp_interval_relation table  (those intervals within the relevant big interval that were above a threshold of surprise):
+    while (thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->execute() == soar_module::row)
+    {// interval_id, w_id, start_episode_id, end_episode_id, parent_n_id, attribute_s_id, value_s_id, child_n_id
+        int64_t leaf_interval_id = thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(0);
+        int64_t interval_path_w_id = thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(1);
+        int64_t interval_start = thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(2);
+        int64_t interval_end = thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(3);
+        int64_t parent_n_id = thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(4);
+        int64_t attribute_s_id = thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(5);
+        int64_t value_s_id = -1;
+        int64_t child_n_id = -1;
+        bool constant_leaf = (thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(7) == -1);
+        if (constant_leaf)
+        {
+            value_s_id = thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(6);
+        }
+        else
+        {
+            child_n_id = thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(7);
+        }
+        std::list<std::pair<int64_t,int64_t>>* path_list = new std::list<std::pair<int64_t,int64_t>>();
+        path_list->emplace_front(std::make_pair(interval_path_w_id,attribute_s_id));
+        std::set<std::list<std::pair<int64_t,int64_t>>*>* path_lists_set = new std::set<std::list<std::pair<int64_t,int64_t>>*>();
+        path_lists_set->insert(path_list);//gotta figure this shit out, but basically, gonna selectively append and also gonna have multiple lists where branching happens. can merge later.
+        interval_leaf_to_path[leaf_interval_id] = path_lists_set;//crap, can potentially have multiple paths when defined this way...
+        //todo need a set of lists, will deep copy the list when needed for multiple paths to interval.
+
+        //This particular interval-to-potentially-retrieve needs a path.
+        //no matter what, this interval has some parent_n_id. No matter what, there will be an instance in the epmem_temp_parent_superset table where the parent_n_id here is a child.
+        //we want any and all of such instances whenin there is temporal overlap with this interval_id.
+        std::set<int64_t> visited_interval_ids;
+        std::queue<int64_t> parents_to_process;//todo
+        if (parent_n_id != EPMEM_NODEID_ROOT)
+        {
+            parents_to_process.push(parent_n_id);
+        }
+        int64_t current_parent;
+        //need something that means something along the lines of "if the parent isn't the state root, then keep going, and that will also determine initial population of parents_to_process.
+        while(!parents_to_process.empty())//the processing here continues until state root.
+        {
+            current_parent = parents_to_process.front(); parents_to_process.pop();
+            thisAgent->EpMem->epmem_stmts_graph->select_parents->bind_int(1,current_parent);
+            thisAgent->EpMem->epmem_stmts_graph->select_parents->bind_int(2,interval_end);
+            thisAgent->EpMem->epmem_stmts_graph->select_parents->bind_int(3,interval_start);
+            while (thisAgent->EpMem->epmem_stmts_graph->select_parents->execute() == soar_module::row)
+            {
+                //check that the interval hasn't already been gotten to within this path somehow. NOT THE SAME AS parental_intervals. more like a subset of that just for this path routine
+
+                //add to the local visitation and the global vitation.
+
+                //all the parents that got this far create an append based on their attribute and w_id. //later, during construction, will only create new identifier symbols when the w_id's lti doesn't already have a symbol for that path.
+
+
+                //we also log the interval_ids of those path parents as parents. We will not actually end up constructing them.
+
+                //if the retrieved parent isn't the state root, we'll add it to the queue.
+                if ()
+                {
+
+                }
+            }
+            thisAgent->EpMem->epmem_stmts_graph->select_parents->reinitialize();
+        }
+    }
+    //remove all of the parental_intervals from the epmem_temp_interval_relation_table.
+    //create intervals and paths for remaining intervals. this step and the below step can be ordered as convenient.
+    //create relations between those intervals.
 
 
 
+
+    //we only need to create a given interval's ego-space path once. it has a given underlying w_id that may occur over several time intervals. It's kinda like each time interval appearance is an instance and that the w_id is basically an lti, which is why we have a w_id<->lti_id table.
+    //std::set<int64_t> parental_intervals;//the thing that happens when there is more than one instance is just that there are additional temporal relations to the same path.
+
+}
+
+//This function will build interval symbols, relations between interval symbols, and paths that specify those intervals' locations in the WMG. Path symbols that may correspond to the same place in working memory are not shared across intervals, but have the same underlying lti.
+// It is as if each interval is a separate state root.
+void epmem_install_interval_easier(agent* thisAgent, Symbol* state, epmem_time_id start, epmem_time_id end, epmem_ongoing_match* interval_match, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_id_mapping* id_record, std::map<Symbol*, epmem_literal_set*>& cue_to_leaf_literals, std::map<Symbol*,epmem_literal*>& cue_to_root_literal_map)//agent* thisAgent, Symbol* state, epmem_time_id start, epmem_time_id end, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_id_mapping* id_record = NULL)
+//agent* thisAgent
+//Symbol* state
+//epmem_time_id start
+//epmem_time_id end
+//epmem_ongoing_match* interval_match //(the matching interval struct containing data about the match)
+//symbol_triple_list& meta_wmes
+//symbol_triple_list& retrieval_wmes
+//epmem_id_mapping* id_record
+//std::map<Symbol*, epmem_literal_set*>& cue_to_leaf_literals
+//std::map<Symbol*,epmem_literal*>& cue_to_root_literal_map)
+{
     //not ready for the full version:
     assert(interval_match != NULL);
     assert(id_record != NULL);
+
+    //Create the symbol onto which retrieval results are placed.
+    Symbol* result_header = state->id->epmem_info->result_wme->value;
+    Symbol* retrieved_header;
+    retrieved_header = thisAgent->symbolManager->make_new_identifier('R', result_header->id->level);
+//    if (id_record)
+//    {
+//        (*id_record)[ EPMEM_NODEID_ROOT ] = retrieved_header;
+//    }
+    epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved, retrieved_header);
+    thisAgent->symbolManager->symbol_remove_ref(&retrieved_header);
+
+    //Two stages:
+        //The first stage loops over the cues and builds up the historical state that was found to satisfy each cue, separately. If there are three cues, there are three historical states. This is like the current retrieval functionality, but done multiple times.
+        //The second stage loops over all individual feature intervals to retrieve and retrieves the interval's path.
+            //The second stage, once all intervals have had their supporting state retrieved, then also includes a subset of the temporal interval relations between those intervals.
+
+    //Stage one:
+    //  Loop over the cues_to_temporal_literals in the interval_match. On the first appearance of a given cue, represent with a new retrieved symbol. This is the state root for satisfying that cue onto which the graph match will be retrieved.
+    //  for all appearances, not just the first, going to have a temporal relation. There can be at most one temporal relation between two different cues. Make a map for this. On the first appearance of a given relation, create that relation on the retrieval link as well.
+    //  (Always check that on a new cue, the relation isn't already there from a previous one.)
+    //  (fine to loop twice to make sure the cues are there first before doing the relations.)
+    //  This provides the cue match. The graph matches that are the satisfaction of individual cues for some intervals will be retrieved and the relations between those intervals will be retrieved. However, this does not fully populate the retrieval with historical information and is more just the verification of a match.
+    //  Stage two is the real "event model".
+    //  all bindings used/needed for this stage can be inspected for their surprise and that can provide the threshold needed below.
+
+
+    //Stage two:
+    //loop over all individual feature intervals.
+    //gonna erase this wall-o-text comment after I figure things out:
+    /*
+     * There's this problem where a given leaf may have parents that need to be retrieved, and basically it's better to not retrieve them separately as well.
+     * Instead, it would be nice to just kinda leave them implicitly defined as "contains" w.r.t. children.
+     * So, I should loop over leaves, specifically, and not all to-be-retrieved state. Then, the path to a leaf basically gives the needed parent info.
+     * Alright, so basically, another way to put it is that being a parent of something that's going to be retrieved disqualifies you from being retrieved.
+     * Now, as for edge cases -- could have the path way above change while maintaining continuous support for leaf. would be good to treat as separate intervals.
+     * anyways, first version will ignore edge cases and will just retrieve paths to leaves.
+     */
+    //Stage two, first part:
+    // for each cue, there is a set as per the cue_to_leaf_literals map that lets us get the leaf literals for a given cue. WRONG. LEAF HERE REFERS TO LEAF OF A CUE, NOT OF A TO-BE-RETRIEVED INTERVAL.
+    // INSTEAD, assume a minimal surprise value already exists by the time we get here. We have a start time, an end time, and a minimum surprise. From that, we just get all intervals. Then, prune out any interval whose value is a parent of something else in the set.
+    // then, construct paths to those remaining triples.
+    //This is the set of all intervals above a given level of surprise.
+//    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_double(1,lowest_surprise);
+//    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(2,start);
+//    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(3,end);
+//    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(4,end);
+//    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(5,end);
+//    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(6,start);
+//    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(7,start);
+//    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->execute(soar_module::op_reinit);
+    // After the above query is complete, all of the intervals and their w_ids and their start and end times should be in epmem_temp_interval_relations.
+    // In that table, need to prune out the things that are parents of anything else in there.
+    // All of the before/after relations for the above are found with find_befores_for_match. After the pruning, this can provide the temporal relations describing the event.
+    // Use delete_epmem_temp_interval_relations later to clear.
+    // also, consider returning the temporal relations of those intervals with temporal adjacency to cue-matched intervals (composites).
+    // that's the big reason there are two stages -- composite cues vs individual interval features.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     //incrementally build the skeleton
     //for each cue, queue up the bindings.
     //std::map<Symbol*,epmem_literal_node_pair_map*>::iterator cue_to_map_it;
@@ -4651,7 +4957,7 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start
         and then a switch on string, int, float. when doing constants.
         while we're already getting the surprise, can also get the start episode id and make sure to get all time_ids for matches to that interval-loc (not just *the* match) during the retrieved big-interval.
      */
-    double lowest_surprise = 2;//surprise is between 0 and 1.
+    //double lowest_surprise = 2;//surprise is between 0 and 1.
     double surprise;
 
     //We should collect w_ids as we loop, because the right thing to construct after this is all intervals using those w_ids and that have times between (overlap) the start and end for the match above the surprise of the lowest match.
@@ -4716,6 +5022,408 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start
             w_ids.insert(thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->column_int(0));
             thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->reinitialize();
         }
+        if (!is_constant_wme && !already_visited)
+        {//add an identifier
+            Symbol* parent_symbol = id_record[parent_id];
+            Symbol* attr_symbol = epmem_reverse_hash(thisAgent, attr_id);
+            _epmem_install_id_wme(thisAgent, parent_symbol, attr_symbol, &(ids), value_id, NULL, id_record, retrieval_wmes);
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(1,IDENTIFIER_SYMBOL_TYPE);
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(2,value_id);
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->execute();
+            w_ids.insert(thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->column_int(0));
+            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->reinitialize();
+        }
+    }
+    //now we have the structure built on the state and we have the w_ids and we have bounds for time_ids. we can now create intervals that point to that state. will worry about augmentation with even more state and even more intervals after.
+    //the first thing we do is just make a temp table with all of the intervals matching to the w_ids we've found and that also match to eligible time_ids (based on the bounds passed to this).
+    //can find the time_ids directly from bounds. (strictly between union overlap left union overlap right).
+    //can enter the w_ids into a temp table.
+    //can return a list of intervals based on those. (record lowest surprise)
+    std::set<int64_t>::iterator w_id_it;
+    for (w_id_it = w_ids.begin(); w_id_it != w_ids.end(); w_id_it++)
+    {
+        thisAgent->EpMem->epmem_stmts_graph->add_temp_w_id->bind_int(1,*w_id_it);
+        thisAgent->EpMem->epmem_stmts_graph->add_temp_w_id->execute(soar_module::op_reinit);
+    }
+    //SELECT i.w_id, i.time_id, i.surprise FROM epmem_intervals i JOIN epmem_times t ON t.time_id=i.time_id JOIN epmem_temp_w_id w ON w.w_id=i.w_id
+    //WHERE (t.start_episode_id >= ? AND t.end_episode_id <= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?
+    //since i'm going to reuse it, going to go ahead and make a buffer table that saves those time_ids... never mind. sqlite's cache should ideally do something good here and i can always come back and optimize as needed. OPTIMIZE LATER.
+
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(1,start);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(2,end);//between
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(3,end);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(4,end);//straddle end
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(5,start);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->bind_int(6,start);//straddle start
+    //int64_t w_id;
+    //int64_t time_id;
+    //double surprise;
+    double lowest_surprise;// = 2;
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->execute();
+    lowest_surprise = thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->column_double(0);
+    thisAgent->EpMem->epmem_stmts_graph->find_matched_intervals->reinitialize();
+
+
+    //going to get all of the intervals above the lowest surprise of any matching interval that fall within-inclusive-not-strict of the match bound. going to buffer those in a temp table. then, can use that table to compute all before-meets and before-overlaps with a query. that's what gets constructed.
+    //probably, in case of additional queries wanting more info about it, should keep buffered table with the big set of intervals and such around.
+
+
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_double(1,lowest_surprise);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(2,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(3,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(4,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(5,end);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(6,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->bind_int(7,start);
+    thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->execute(soar_module::op_reinit);
+    //all of the intervals and their w_ids and their start and end times should be in epmem_temp_interval_relations
+
+    std::set<int64_t> visited_intervals;
+    //We only need to create a given interval once. it has a given underlying w_id that may occur over several intervals. it's kinda like each interval is an instance and that w_id is basically an lti, which is why we have a w_id<->lti_id table.
+
+    int64_t left_interval;
+    int64_t right_interval;
+    int64_t left_w_id;
+    int64_t right_w_id;
+    //std::list<std::pair<int64_t,int64_t>> befores_to_make;
+    std::map<int64_t,Symbol*> interval_symbol_by_id;
+    std::map<int64_t,int64_t> interval_id_to_w_id;
+    std::set<int64_t> w_ids_to_make;
+    while (thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->execute() == soar_module::row)
+    {//this is left interval, right interval, left w_id, right w_id for all before relations among intervals above a threshold of surprise (as determined by the buffer table). (this is just getting all befores based on that table).
+        left_interval = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(0);
+        right_interval = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(1);
+        left_w_id = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(2);
+        right_w_id = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(3);
+        //befores_to_make.push_back(std::make_pair(left_interval,right_interval));
+        if (visited_intervals.find(left_interval) == visited_intervals.end())
+        {//can actually make the symbol here for real, using the retrieval header. it will be what has other befores potentially attached to it and should index into w_ids. we can do the befores here, but have to wait in case the w_ids haven't been added yet.
+            Symbol* new_interval = thisAgent->symbolManager->make_new_identifier('I', result_header->id->level);
+            interval_symbol_by_id[left_interval] = new_interval;
+            epmem_buffer_add_wme(thisAgent, retrieval_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved_interval, new_interval);
+            thisAgent->symbolManager->symbol_remove_ref(&new_interval);
+            interval_id_to_w_id[left_interval] = left_w_id;
+        }
+        if (visited_intervals.find(right_interval) == visited_intervals.end())
+        {
+            Symbol* new_interval = thisAgent->symbolManager->make_new_identifier('I', result_header->id->level);
+            interval_symbol_by_id[right_interval] = new_interval;
+            epmem_buffer_add_wme(thisAgent, retrieval_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved_interval, new_interval);
+            thisAgent->symbolManager->symbol_remove_ref(&new_interval);
+            interval_id_to_w_id[right_interval] = right_w_id;
+        }
+        if (id_record->find(left_w_id) == id_record->end())
+        {
+            w_ids_to_make.insert(left_w_id);
+        }
+        if (id_record->find(right_w_id) == id_record->end())
+        {
+            w_ids_to_make.insert(right_w_id);
+        }
+        epmem_buffer_add_wme(thisAgent, retrieval_wmes, interval_symbol_by_id[left_interval], thisAgent->symbolManager->soarSymbols.epmem_sym_before, interval_symbol_by_id[right_interval]);
+    }
+    thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->reinitialize();
+    thisAgent->EpMem->epmem_stmts_graph->delete_epmem_temp_interval_relations->execute(soar_module::op_reinit);
+    //the intervals and their relations should exist now, but I need to add pointers to w_ids and the w_ids that aren't already there.
+    //I don't know what skeleton to hang w_ids onto because some may not exist (due to low surprise) and some may span completely through the interval. In other words, there's skeleton that just plain may not line up
+    //if this is all expensive, also find to just do the reasoning w.r.t. intervals, store the lti-ids with them, and also have some rule match thing that lets you compare underlying lti_id to a working memory element's epmem_id.
+
+//one ugly hack would be that if you put a special character before an interval-id, it wouldn't just match to the lti_id, but it would be a stand-in for that w_id in current working memory (would match like you had a valid path to it).
+//the idea is that it's hard to actually use an interval without having some way to associate that interval with a location in the working memory graph. right now, i'll go ahead and commit to full reconstruction of the smeared WMG, though, and index into that.
+    //so, you'd put on the LHS of the rule "dereference the location implied by the lti for the symbol here", using it as a pointer, and the underlying rulewould translate it to the relevant location, but the problem is.... would have to arbitrarily pick a path.
+
+    //for a given w*_id, there is a parent, so if nothing else, you can recurse until state root, and you should find a collision either at state root or before. -- is dumb because not all of the parents are present during that interval.
+
+    //could add even more w_ids to a temp table and look for all (don't worry about surprise) w_ids relevant to that interval at all.
+    //then, index into the relevant ones with their intervals
+    //then, for a given w_id, note that an interval touched it, and also propogate this up to parents until state root. anything on a path to an interval is logged.
+    //then, remove those not either directly touched or on a path to an interval (extraneous).
+
+    //can basically do with maps and a helper function.
+
+    //can get all the w_ids for the big interval. that's fine. can get all the intervals above a level of surprise, that's fine. can I get paths to those intervals? (those paths are a subset of the w_ids, because the paths had to exist during that interval). "exist during" is an important query.
+    //because I'm interested in parents, I can assume type identifier, and use the epmem_wmes_index and epmem_wmes_identifier tables to get parent_n_ids. So, a given constant leaf will have a wc_id. that wc_id will have a parent_n_id. There will exist a w_id during the the interval corresponding
+    //to a wi_id during the interval for which the wi_id's child_n_id is the parent_n_id of that interval. (should retrieve all that exist during the interval).
+
+    //problem is that a given path may be an illusion of the smear.
+    //so, a given interval has a w_id and a time_id. that allows retrieval of all other time_ids that contain that interval's time_id. (it must be the case that parents contain children).
+    //given only the time_ids that contain that time_id, find w_ids from interval table. given only those w_ids, find parents. parents of those parents will already also be in the set of "contains that time_id"
+    //so, can just creates paths. (may fork, but will be temporally-consistent)
+    //alternatively, don't worry about trying to have the smear show some kind of temporal consistency and reconstruct whether something was present using additional interval relations.
+
+    //to know that a given path was a valid thing to test in the state based on previous experience, the agent would have to inspect intervals for things like temporal contains... let's do the path route for now.
+
+    //so every retrieved interval is basically treated like a state root. whose single leaf is the "real" interval? ugh. "Don't let good be the enemy of done".
+    //every interval is for a given WME. (attr-val). means that all the paths that lead to the parent for that WME are all valid paths for that WME.
+
+    //AHA, this is a great time for me to pick which way to go based on the kind of action modelling that I believe needs to occur supported by this knowledge.
+
+    thisAgent->EpMem->epmem_stmts_graph->delete_temp_w_id->execute(soar_module::op_reinit);
+
+    //could consider the latent structure of the rete itself.
+
+
+
+
+    //then, can do secondary. find the time_ids directly from bounds, get all above a threshold of surprise.
+    //get w_ids from that and build structure as needed
+    //iterate list of intervals once structure is in place.
+
+    //can put all relevant interval_ids throughout into temp table.
+
+    //for interval relations beyond those that are the cue, can ask for each type among the interval ids retrieved (just before for now).
+    //report those as well.
+
+
+    //where does the rule's knowledge of the path structure to put to the epmem link come from?
+    //in other words, there are currently-available paths literally on the state. other than those, how can a path be used as a cue?
+
+
+
+//    //get the intervals for the leaf literals.
+//    std::map<Symbol*, epmem_literal_set*>::iterator cue_to_leaf_literals_it;
+//    for (cue_to_leaf_literals_it = cue_to_leaf_literals.begin(); cue_to_leaf_literals_it != cue_to_leaf_literals.end(); cue_to_leaf_literals_it++)
+//    {//
+//        epmem_temporal_literal* some_interval_literal_for_this_leaf = interval_match->cues_to_temporal_literals.lower_bound(cue_to_leaf_literals_it->first)->second;
+//        bool is_first = some_interval_literal_for_this_leaf->value_sym_1 == cue_to_leaf_literals_it->first;
+//        int64_t left_side;
+//        int64_t right_side;
+//        if (is_first)
+//        {
+//            left_side = some_interval_literal_for_this_leaf->interval_1_left;
+//            right_side = some_interval_literal_for_this_leaf->interval_1_right;
+//        }
+//        else
+//        {
+//            left_side = some_interval_literal_for_this_leaf->interval_2_left;
+//            right_side = some_interval_literal_for_this_leaf->interval_2_right;
+//        }//now, everything has a left and right.
+//    }
+
+    //at this point, ideally the WMG necessary to put the temporal interval relation data into WM is now present. We'll also want to add additional intervals above a level of surprise, but those will be in a manner similar to these.
+    //aha, one feature I may install at some point is instead of actually retrieving the structure itself, retrieve just the temporal interval match with lti for the wm graph location, and then have that lti be either architecturally or smem indexible in such a way that the path can be optionally retrieved.
+    //duh, easy way -- just by being associated with having matched the cue, you have a path. then, all you'd ever want to really reconstruct is whatever you need to elaborate with additional unmatched-but-above-threshold intervals.
+    //basically, up till now, except for maybe elaborating some of the relational structure, the only additional info is a boolean (yes it existed or no it didn't match).
+    //the only new information *is* from those other intervals, just like in ordinary reconstruction, you elaborate the instant.
+
+//is any LTI going to every possibly be more than either *direct address to I/O stuff*, *WMG path*, *temporal relation structure (like a rhythm)*, *compositions by explicitly relations between those*? (might end up with an ontogeny of ltis.)
+
+
+
+    /*for (cue_to_map_it = interval_match->best_bindings.begin(); cue_to_map_it != interval_match->best_bindings.end(); cue_to_map_it++)
+    {
+        cue_symbol = cue_to_map_it->first;
+        for (bindings_for_cue_it = cue_to_map_it->second->begin(); bindings_for_cue_it != cue_to_map_it->second->end(); bindings_for_cue_it++)
+        {
+            literal_for_binding = bindings_for_cue_it->first;
+            bound_ids = bindings_for_cue_it->second;
+
+        }
+    }*/
+    //the thing we didn't do before was construct *based on* the bindings. We simply indexed into a construction using the bindings to attach extra labeling. We still attach that labeling, but the actual construction here needs to be based on the actually-used epmem_node_ids.
+    //gonna try this first -- just collect all of the epmem_node_ids that need to be built, see if there's a way to only attempt to build the parts of the skeleton that already have a parent (start at root). could either deliberately order such that this is true or recurse from leaves on up..
+    //so, either there is sufficient information within the bindings, maybe as information in the literal structs, or I can manually track leaves and pass it too.
+    //cue_to_leaf_literals has pretty much what I need for the recursive version. gonna try it.
+    //recursive helper function will take the retrieval skeleton state root node and then also take the leaves and whatever collection of bound id pairs I create from the above double-for.
+    //it will start at each leaf, keep modifying the id_record, and use as the parent symbol the symbol returned from recurring on the parent. symbols will be created if they do not already exist in the id_record.
+    //this exists: (INDEX) epmem_wmes_identifier_parent_attribute_child ON epmem_wmes_identifier (parent_n_id,attribute_s_id,child_n_id)
+    //so does this: (INDEX) epmem_wmes_constant_parent_attribute_value ON epmem_wmes_constant (parent_n_id,attribute_s_id,value_s_id)
+    // find_epmem_wmes_constant = new soar_module::sqlite_statement(new_db, "SELECT wc_id FROM epmem_wmes_constant WHERE parent_n_id=? AND attribute_s_id=? AND value_s_id=?");
+    // find_epmem_wmes_identifier = new soar_module::sqlite_statement(new_db, "SELECT wi_id, child_n_id FROM epmem_wmes_identifier WHERE parent_n_id=? AND attribute_s_id=?");
+    // find_epmem_wmes_identifier_shared = new soar_module::sqlite_statement(new_db, "SELECT wi_id, child_n_id FROM epmem_wmes_identifier WHERE parent_n_id=? AND attribute_s_id=? AND child_n_id=?");
+
+    // I think the bindings really actually give me a lot. I should be able to construct from those. each bound literal is a wme (attr-val pair), so I can just loop through the bindings in something at least close to root->leaves order and be fine.
+
+
+    //here's some crazy: I could attach the smem lti for these retrieved intervals to each skeleton symbol.
+
+}
+
+
+//This function will build interval symbols, relations between interval symbols, and paths that specify those intervals' locations in the WMG. It is interval-first, because otherwise the paths may not be valid. Paths that may correspond to the same place are not shared across intervals.
+// It is as if each interval is a separate state root.
+void epmem_install_interval(agent* thisAgent, Symbol* state, epmem_time_id start, epmem_time_id end, epmem_ongoing_match* interval_match, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_id_mapping* id_record, std::map<Symbol*, epmem_literal_set*>& cue_to_leaf_literals, std::map<Symbol*,epmem_literal*>& cue_to_root_literal_map)//agent* thisAgent, Symbol* state, epmem_time_id start, epmem_time_id end, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, epmem_id_mapping* id_record = NULL)
+//agent* thisAgent
+//Symbol* state
+//epmem_time_id start
+//epmem_time_id end
+//epmem_ongoing_match* interval_match (the matching interval struct containing data about the match)
+//symbol_triple_list& meta_wmes
+//symbol_triple_list& retrieval_wmes
+//epmem_id_mapping* id_record
+//std::map<Symbol*, epmem_literal_set*>& cue_to_leaf_literals
+//std::map<Symbol*,epmem_literal*>& cue_to_root_literal_map)
+{//eventually, your parent, if you avoid already-visited parents, is going to end up being the state, hallowed be thy root.
+    //We have bindings to the actual cues used to find intervals. We don't need to actually reconstruct full episodes. We have a before/after boundary for the interval to be retrieved. SO, we can build the bindings, make the itnerval relations for those, then also look for other intervals between those retrieved, and report those with big surprise.
+    //"big" can mean bigger than smallest found by cues.
+    //can have a single shared skeleton for all.
+    //can't copy nearly as much as expected from install_memory, but don't have to support (at first) as a command available from the agent, and only treat as helper function.
+    //what I really need is the unified skeleton, spanning all the time of the interval. This is the union of the bindings for the matches, first.
+    //then, after those are present, you get the rest of the intervals between the start and end time above a threshold and include them as well.
+    //together, you end up with full event model.
+    //alternatively, can get the full skeleton including additional intervals in one big union. given two indices, how easy to identify intervals above thresh!??! ->let's see.
+    //"surprise" is really surprise of the *value-at-the-location-in-the-WMG*. means that the leaves matched in the original query are the w*_ids for which we want the initial surprise.
+    //so, to start, I need the bound times of the interval to retrieve, and the binding/surprise/w_id stuff for the actual matches, and really I just need the lowest surprise of those. but the big thing is knowing the w_id or w*_id for the matched leaf values.
+
+    //alright, the way the bindings work, I may as well write a bit more of this from scratch. basically, I have the cues, and all I really need to make things work is to have some w*_id for the value match used for a cue.
+
+    //arguments, then: need the start and end, need the bindings (just pass the whole ongoing match), need maybe some already-complete mapping stuff, but maybe not. (could do it here).
+    //the idea is that the bindings tell you what actual skeleton to build to index into for a given interval relation match.
+
+    // get the ^result header for this state
+    //Alright, I've built an agent where specific representation is now desired. This means returning symbols representing intervals whose augmentations are their path/match in the state. This also means then returning additional separate symbols of the temporal relations between those intervals.
+    //will only do the partial order (easy-to-compute) relations.
+    Symbol* result_header = state->id->epmem_info->result_wme->value;
+    // create a new ^retrieved header for this result
+    Symbol* retrieved_header;
+    retrieved_header = thisAgent->symbolManager->make_new_identifier('R', result_header->id->level);
+    if (id_record)
+    {
+        (*id_record)[ EPMEM_NODEID_ROOT ] = retrieved_header;
+    }
+
+    epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved, retrieved_header);
+    thisAgent->symbolManager->symbol_remove_ref(&retrieved_header);
+
+
+
+    //not ready for the full version:
+    assert(interval_match != NULL);
+    assert(id_record != NULL);
+    //incrementally build the skeleton
+    //for each cue, queue up the bindings.
+    //std::map<Symbol*,epmem_literal_node_pair_map*>::iterator cue_to_map_it;
+    //Symbol* cue_symbol;
+    //epmem_literal_node_pair_map::iterator bindings_for_cue_it;
+    //epmem_literal* literal_for_binding;
+    //epmem_node_pair bound_ids;
+    std::queue<epmem_literal*> literals_to_build;
+    std::map<Symbol*,epmem_literal*>::iterator root_literal_it;
+    for (root_literal_it = cue_to_root_literal_map.begin(); root_literal_it != cue_to_root_literal_map.begin(); root_literal_it++)
+    {//first, we just add the roots to the set.// scratch that. should make a fifo queue
+        literals_to_build.push(root_literal_it->second);
+
+    }
+
+    std::set<std::tuple<epmem_node_id,epmem_node_id,epmem_node_id>> visited_constants;//not really node_ids...
+
+    //need some kind of visiting tracking -- that's id_record.
+
+    //K.I.S.S.
+    std::set<std::tuple<epmem_node_id,epmem_node_id,epmem_node_id>> visited_identifiers;
+
+    /*
+     * so, given the parent,attr,val triple and type, we can find the w*_id. with that and the type, we can get the w_id. with the w_id and the time for the interval, we can get the surprise from epmem_intervals later once we have the ones we want.
+     * we get the "type" (beyond constant/identifier) through: thisAgent->EpMem->epmem_stmts_common->hash_get_type->bind_int(1, s_id_lookup);
+        soar_module::exec_result res = thisAgent->EpMem->epmem_stmts_common->hash_get_type->execute();
+        (void)res; // quells compiler warning
+        assert(res == soar_module::row);
+        sym_type = static_cast<byte>(thisAgent->EpMem->epmem_stmts_common->hash_get_type->column_int(0));
+        thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
+        and then a switch on string, int, float. when doing constants.
+        while we're already getting the surprise, can also get the start episode id and make sure to get all time_ids for matches to that interval-loc (not just *the* match) during the retrieved big-interval.
+     */
+
+    //two queries. the first joins and basically asks for all of the time_ids that could possibly work here that also are paired with eligible w_ids in the interval table. from that we have a minimum surprise.
+    //Then, we do another also using the same kind of "all time_ids that could work", but instead of constraining the w_ids driectly, we bound by surprise. means that we want indices by time_id then by w_id and time_id then by surprise on the interval table.
+    //so, in the below, I need to collect w_ids.
+    //can do so here in a set or by temp table.
+    std::set<int64_t> w_ids;
+
+    std::map< epmem_node_id, std::pair< Symbol*, bool > > ids;
+    ids[ EPMEM_NODEID_ROOT ] = std::make_pair(retrieved_header, true);
+    //now that the roots are in there, we can just loop over the set and keep adding things to the state.
+    while (!literals_to_build.empty())//doing it this way because of the possibility of literal re-use. probably inefficient. who cares.
+    {
+        epmem_literal* literal_to_build = literals_to_build.front();
+        literals_to_build.pop();
+        bool is_constant_wme = !literal_to_build->value_is_id;
+        epmem_node_id attr_id = literal_to_build->attribute_s_id;
+        epmem_node_id value_id = literal_to_build->child_n_id;//todo WHAT IS THIS DOING WHEN IT'S A CONSTANT. WHERE DOES IT COME FROM AND WHAT IS IT? (related to below todo)
+
+        epmem_node_pair* pair_for_bound_literal = interval_match->best_bindings[literal_to_build->cue][literal_to_build];
+        epmem_node_id parent_id = pair_for_bound_literal->first;
+        assert(id_record->find(parent_id)!=id_record->end());//for my own sanity
+        assert(value_id == pair_for_bound_literal->second);//I *think* these are the same.
+
+
+        // interpret according to literal_to_build->value_sym->symbol_type;
+        if (is_constant_wme)
+        {
+            byte sym_type;
+            thisAgent->EpMem->epmem_stmts_common->hash_get_type->bind_int(1, value_id);
+            soar_module::exec_result res = thisAgent->EpMem->epmem_stmts_common->hash_get_type->execute();
+            (void)res; // quells compiler warning
+            assert(res == soar_module::row);
+            sym_type = static_cast<byte>(thisAgent->EpMem->epmem_stmts_common->hash_get_type->column_int(0));
+            thisAgent->EpMem->epmem_stmts_common->hash_get_type->reinitialize();
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////
+            /////////////////////////////////////////////////////////////////////////////////////////////////////// -- also make sure to loop this differently, do the while within a loop over each root. don't want to share wmem construction for each cue.
+            //will, however, just keep adding up w_ids for later separate feature-interval and not necessarily cue-interval construction
+            //It's going to be a string or an int because i don't do floats.
+            //use find_epmem_wmes_constant = new soar_module::sqlite_statement(new_db, "SELECT wc_id FROM epmem_wmes_constant WHERE parent_n_id=? AND attribute_s_id=? AND value_s_id=?"); to get wc_id. symtype given above..
+            /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->bind_int(1,parent_id)
+//            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->bind_int(2,attr_id);
+//            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->bind_int(3,value_id);//literal_to_build->value_sym->symbol_type);
+//            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->execute();
+//            value_id = thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->column_int(0);
+//            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes_constant->reinitialize();
+            //alright, another problem -- floats. they are represented as sign of the direction of change right now for some parts, but only as a single constant in the archaic code.
+        }//////////////////////////////////////////////////// i do not allow floats as cues. done. they might get retrieved as surprising interval stuff, but they can't be cues./////////////////////////////////////////////////////////////////////////////////////////
+        //according to epmem_build_dnf, this is a s_id, something returned from epmem_temporal_hash, when a constant (literal->child_n_id = epmem_temporal_hash(thisAgent, value);)
+
+
+
+
+        bool already_visited = false;
+        if (is_constant_wme)
+        {
+            std::tuple<epmem_node_id,epmem_node_id,epmem_node_id> constant_triple = std::make_tuple(parent_id,attr_id,value_id);
+            if (visited_constants.find(constant_triple)!=visited_constants.end())
+            {
+                already_visited = true;
+            }
+        }
+        else
+        {
+            std::tuple<epmem_node_id,epmem_node_id,epmem_node_id> constant_triple = std::make_tuple(parent_id,attr_id,value_id);
+            if (visited_identifiers.find(constant_triple)!=visited_identifiers.end())
+            {
+                already_visited = true;
+            }
+        }
+
+        //if I've done this right the structures these need to attach to should already be on the state by the time these show up because of depth-based adding to a FIFO. The only weirdness is they could already be there, which has been checked.
+        //the w_id is accessible through the epmem_wmes_index table using type, w_type_based_id, w_id.
+        if (is_constant_wme && !already_visited)
+        {//add a constant
+            //this means finding the symbol for the parent that has already been added to the state and then attaching this attr/val pair.
+//            Symbol* parent_symbol = id_record[parent_id];
+//            Symbol* attr_symbol = epmem_reverse_hash(thisAgent, attr_id);
+ //           Symbol* val_symbol = epmem_reverse_hash(thisAgent,value_id);
+//            epmem_buffer_add_wme(thisAgent, retrieval_wmes, parent_symbol, attr_symbol, val_symbol);
+//            thisAgent->symbolManager->symbol_remove_ref(&attr_symbol);
+      //      thisAgent->symbolManager->symbol_remove_ref(&val_symbol);
+//            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(1,literal_to_build->value_sym->symbol_type);
+//            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->bind_int(2,value_id);//////////////////////#########################3 //todo //badbad //this is probably CHECK the value_s_id, and I really need the wc_id (of some type). point is, i think this is wrong.
+//            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->execute();
+//            w_ids.insert(thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->column_int(0));
+//            thisAgent->EpMem->epmem_stmts_graph->find_epmem_wmes->reinitialize();
+            //ALRIGHT, what this needs to find is the w*_id (float, int, str) specific id and the type. then we get a w_id (unviersal) from it. the wc_id (al;l constants together) is the archaic stuff.
+        }//find_epmem_wmes: "SELECT w_id FROM epmem_wmes_index WHERE type=? AND w_type_based_id=?"
         if (!is_constant_wme && !already_visited)
         {//add an identifier
             Symbol* parent_symbol = id_record[parent_id];
@@ -6069,7 +6777,7 @@ bool epmem_graph_match(epmem_literal_deque::iterator& dnf_iter, epmem_literal_de
 }
 
 void epmem_process_query(agent* thisAgent, Symbol* state, Symbol* pos_query, Symbol* neg_query, epmem_time_list& prohibits, epmem_time_id before, epmem_time_id after, wme_set& cue_wmes, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, int level = 3)
-{//the form of interval_query is a list of changes in order, expressed as partially-ordered allen's temporal interval relations.
+{//the form of interval_query is a list of changes in order, expressed as partially-ordered allen's temporal interval relations. DOES NOT SUPPORT GAPS IN TIME (before-overlap and before-meets are fine, not a general before.)
     //has to be a graph match, doing a match to the interval query basically in backwards order.
     // a query must contain a positive cue
     if (pos_query == NULL)
@@ -6872,10 +7580,10 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
         // 2 - Is this thing supposed to be after something? If so, take note. That thing better show up.
     // when something becomes unsatisfied
     //  // 1 - Is this supposed to be before something? If so, is that thing already unsatisfied? it better be.
-    // //  2 - Is this thing supposed to be after something? If so, that thing better already be here or show up next cycle.
+    // //  2 - Is this thing supposed to be after something? If so, that thing better already be here or show up next (previous in realtime) cycle.
     // // One thing to help math here -- keep a "last satisfying interval" data for each previous binding -- lets you know what to skip "can't have another before bind to this before/after until another after shows up"
     // When a query fails -- something that is supposed to have something just before it goes away and after the preceeding cycle is checked -- it still didn't show up.
-    // (A cue is not "really" satisfied until it also satisfies temporal relations that point to the same value_sym as the cue itself.)
+    // (An individual cue may be satisfied, but the full composition query is not "really" satisfied until it also satisfies temporal relations that point to the same value_sym as the cue itself.)
     /*
      * Problems:
      *  -- can have something show up multiple times, and only one of those times is the one that fits the temporal interval description -- don't want to invalidate the whole interval until you know it's for sure to-be-scrapped.
@@ -6883,7 +7591,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
      *
      *   easy way --> have falsification criterea for temporal interval literals where a given use of a satisfying graph match as the satisfaction of the temporal interval relation becomes invalidated -- like a before/after where there is a time gap and the before side wasn't filled -- means that the after side is wrong too.
      */
-    /* one algorithm, maybe not the right one, but to think about -- find the first match for each supplied cue. return the interval over which that match is true.
+    /* one algorithm, maybe not the right one, but to think about -- find the first match for each supplied cue. return the interval over which that match is true. -- might be a better way to go if we were going to make parallel epmem.
      * bind those interval to each interval relations, see what works.
      * For those that fail, query for previous instance of problematic intervals (for a before/after, occurs if instead it's a "contains", if there's a gap, or if the order is wrong.
      * only do one at a time, replacing the "recentmost" interval, defined as
@@ -6915,7 +7623,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
     int max_match_score = 0;//1 for every relation and 1 for cues that aren't involved in a relation.
             // each appearance of the same arbitrarily selected for this instance of process_interval_query rightmost interval spawns a new ongoing match.
 
-    //loop over the temporal interval relation constraints and create temporal literals for them. for those cues not touched, create dummy temporal intervals.
+    //loop over the temporal interval relation constraints and create temporal literals for them. for those cues not touched by an interval relation, create dummy temporal intervals.
     std::list<Symbol*>::iterator interval_relations_it;
     epmem_wme_list::iterator wme_it;
     epmem_wme_list* children;
@@ -6957,7 +7665,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                 case thisAgent->symbolManager->soarSymbols.epmem_sym_type:
                     //(*wme_it)->value;
                     temporal_literal->type = (*wme_it)->value->ic->value;//need to check to make this safe later. -- TODO basically there are a lot of bad things that will happen if i don't throw in some "bad_cmd" checks.
-                    assert(temporal_literal->type == BEFORE); //(before == 0 in enums.h, is actually "means" before-overlaps || before-meets, and I can't handle other types yet.)
+                    assert(temporal_literal->type == BEFORE); //(before == 0 in enums.h, it actually "means" before-overlaps || before-meets, and I can't handle other types yet.)
                     break;
             }
         }
@@ -7000,6 +7708,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
     max_match_score = temporal_literals.size();
 
     //There is now a base copy of the temporal literals that any new ongoing match can copy to make its own literals and that provides a temporal literal match score target.
+    //Basically, a successful matching interval in the agent's history/memory consists of satisfying all of these temporal literals.
 
 
 
@@ -7035,14 +7744,15 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
     //the real question is when to get rid of an overall ongoing match -- and that's when it has some "after" that can no longer be satisfied
 
 
-    //big simplifying assumption that makes this not horrible -- only one instance of a cue can exist at a given time (by defn)
+    //big simplifying assumption that makes this not horrible -- only one instance of a cue can exist at a given time (by defn) -- not really valid. An ambiguous cue could match multiple parts of the state simultaneously. (What if I outlaw multi-valued attributes?)
+    //todo wouldn't be horrible anyways, -- would just fork on that case and continue with each instance being a different potential satisfaction. see #3 below.
 
 //this means that, when scanning backwards, when a new instance shows up, its old one has already gone. since i'm only doing before/after in a specific way, that means
     /*
      * 1 - the new instance that just showed up could be a different after. if so, it should just plain be a new match. do we need to consider preexisting befores? no. they'd either actually be before this or they'd contain this.
      * this, if it's an after, it's just plain a new potential ongoing match. the other after has its own ongoing match structure that was created.
-     * 2 - the new instance that just showed up is just an exists. it can fork any and all existing matches, but also it's not very informative. one option -- i'll take an implicit semantics of "should be contained within the temporal specification" and thus if there isn't any appearance by the time the "real" interval relations are satisfied, consider it a failure
-     * 3 - the new instance that just showed up is a before. if so, should match to an existing after already in ongoing matches. can't take over the spot for some other before because that before can't still exist and if it's valid, that means its after also finished.
+     * 2 - the new instance that just showed up is just an exists. it can fork any and all existing matches, but also it's not very informative. one option -- i'll take an implicit semantics of "should be contained within the temporal relation specification" and thus if there isn't any appearance by the time the "real" interval relations are satisfied, consider it a failure
+     * 3 - the new instance that just showed up is a before. if so, should match to an existing after already in ongoing matches. can't take over the spot for some other before because that before can't still exist and if it's valid, that means its after also finished. -- revisit this.
      *
      * so, only "exists" and "afters" can potentially make new ongoing matches. specifically, befores cannot (so an instance that is both a before and an after cannot?
      * the weird case is when an exists show up multiple times during an interval. -- initially going to be arbitrary and just pick the temporally last (first found) (probably has least surprise anyways, naturally will retrieve the rest).
@@ -7057,7 +7767,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
     //epmem_literal_deque gm_ordering;
     // variables needed for building the DNF
     //epmem_literal_set leaf_literals;
-    std::map<Symbol*, epmem_literal_set*> cue_to_leaf_literals;
+    std::map<Symbol*, epmem_literal_set*> cue_to_leaf_literals;//It's kinda like we're doing an old-school epmem query for each cue.
     std::map<Symbol*, epmem_literal_deque*> cue_to_gm_ordering;
 
     if (level > 1)
@@ -7160,7 +7870,7 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                     //perfect_score += (*iter)->weight;
                     if (cues_to_perfect_cardinalities.find(*pos_queries_it) == cues_to_perfect_cardinalities.end())
                     {
-                        cues_to_perfect_cardinalities[*pos_queries_it] = 1;//pretty sure for my immediate purposes, i can through out one of these. just do cardinality probably.
+                        cues_to_perfect_cardinalities[*pos_queries_it] = 1;//pretty sure for my immediate purposes, i can throw out one of these. just do cardinality probably.
                     }
                     else
                     {
@@ -7935,14 +8645,14 @@ void epmem_process_interval_query(agent* thisAgent, Symbol* state, std::list<Sym
                     }
                     cues_that_just_went_away.clear();
 
-                    //perhaps the biggest thing to figure out is whether the "appearance" of episodic memory is because of architecture changes (literally growing) or because of knowledge changes (crossing a threshold of semantic knowledge of one's history, perhaps).
+                    //perhaps the biggest thing to figure out is whether the "appearance" of episodic memory is because of architecture changes (literally the human brain just growing) or because of knowledge changes (crossing a threshold of semantic knowledge of one's history, perhaps).
                     //any ongoing matches to trash will have been trashed by now. ready to loop for satisfaction from new matches.
 
 
-                    // we should graph match if the option is set and all leaf literals are satisfied
+                    // we should graph match when doing temporal interval queries.
 
                     //basically, this is where we graph match the thing that finally hit all of its leaves and make sure it actually is a graph match. then, if it is, we integrate it into an ongoing match if a suitable one exists or make one if this is a suitable candidate match for starting a new ongoing match.
-                    //then, we stop if this is the final interval for an ongoing match.
+                    // we stop if this is the final remaining unbound  interval for an ongoing match.
                     std::set<Symbol*>::iterator potential_cue_match_it;
                     for (potential_cue_match_it = cues_that_hit_perfect.begin(); potential_cue_match_it != cues_that_hit_perfect.end(); potential_cue_match_it++)
                     {

@@ -341,7 +341,12 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
         soar_module::sqlite_statement* delete_temp_w_id;
         soar_module::sqlite_statement* find_matched_intervals;
         soar_module::sqlite_statement* buffer_above_surprise_during_interval;
+        soar_module::sqlite_statement* buffer_throughout_interval;
+        soar_module::sqlite_statement* elaborate_identifiers_buffer_throughout_interval;
+        soar_module::sqlite_statement* elaborate_constants_buffer_throughout_interval;
         soar_module::sqlite_statement* find_befores_for_match;
+        soar_module::sqlite_statement* select_potential_intervals_to_retrieve;
+        soar_module::sqlite_statement* select_parents;
         soar_module::sqlite_statement* delete_epmem_temp_interval_relations;
 
         //
@@ -624,7 +629,7 @@ struct epmem_triple_struct
 };
 
 struct epmem_literal_struct
-{
+{//the problem with a lot of this code and a thing requiring future documentation -- overloading of terms like leaf, child, parent, etc. w.r.t. episodic memory's graph structure for memory's sake and w.r.t. actual state structures in WMem.
     Symbol* id_sym;
     Symbol* value_sym;//the symbol on the cue matching to this literal. (e.g. state root to the positive cue root, positive cue root is value_sym)
     int is_neg_q;
@@ -673,7 +678,7 @@ struct epmem_ongoing_match_struct
     std::multimap<Symbol*,epmem_temporal_literal*> cues_to_temporal_literals;
     std::set<Symbol*> unbound_cues;
     std::set<epmem_temporal_literal*> temporal_literals;
-};//maybe "episodic memory" is when we become able to conceive of and directly represent the passage of time declaratively as just another relation in semantic memory.
+};//maybe "episodic memory" is when we become able to conceive of and directly represent the passage of (egocentric?)time declaratively as just another relation in semantic memory.
 
 
 struct epmem_pedge_struct
