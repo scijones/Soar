@@ -1220,6 +1220,9 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     select_parents = new soar_module::sqlite_statement(new_db, "SELECT * FROM epmem_temp_parent_superset WHERE child_n_id=? AND start_episode_id<=? AND end_episode_id>=?");
     add(select_parents);
 
+    delete_specific_epmem_temp_interval_relations = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_temp_interval_relations WHERE interval_id=?");
+    add(delete_specific_epmem_temp_interval_relations);
+
     delete_epmem_temp_interval_relations = new soar_module::sqlite_statement(new_db, "DELETE FROM epmem_temp_interval_relations");
     add(delete_epmem_temp_interval_relations);
 
@@ -4707,41 +4710,6 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
     thisAgent->EpMem->epmem_stmts_graph->buffer_above_surprise_during_interval->execute(soar_module::op_reinit);
     //all of the intervals and their w_ids and their start and end times should now be in epmem_temp_interval_relations
 
-    //prune out any interval whose value is a parent of something else in the set. (no need to make a separate interval egospace path for parents that just plain temporally contain children.
-    //the comments here are the planning sort that need to be removed when I start doing things the right way:
-    /*
-     * another way to prune -- prune anything that's a parent of anything else. by looking up all parents. a somewhatlikeahaikuthing:
-     * cache the first level parents.
-     * recur until root.
-     * then, only the leaves remain.
-     *
-     * aha, if it's a parent of something in there, we'll need it anyways when constructing path to leaf, so it doesn't hurt to just go ahead and do that first. they'll be needed anyways.
-     * then, just do the actual path construction on wmem after. but, once all parents of everything have paths backward to root, easy to check "is this a parent" before construction.
-     * unless someone creates a deliberately deep wmem structure, should be fine.
-     *
-     * the first thing that's needed is "what is my parent?", given interval_id, w_id, start_episode_id, end_episode_id.
-     * a "parent" here is something that not only points within egospace to the child, but that also "contains" or "exacts" in time the child. only possible way this could correspond
-     * somehow to not just being a traditional space parent is if ... not sure how.
-     *
-     * Prune any interval whose value is a parent of anything else in the set. Note that multi-valued attributes can likely screw this all up.
-     *for all of the constants, find the w_ids of their identifier parents. remove those from epmem_temp_interval_relations if they exist. //"where exists" is ugly sqlite. could provide a flag and then delete where flag.
-     *  the parents' w_ids of all constants: suppose this is in a new temp table as the set of all identifier parents of constants: select c.parent_n_id from epmem_temp_interval_relations t INNER JOIN epmem_wmes_index w INNER JOIN epmem_wmes_constant c ON w.w_id=t.w_id AND c.wc_id=w.w_type_based_id WHERE w_type_based_id != " IDENTIFIER_SYMBOL_TYPE "
-     *      where there are wi_ids with child_n_ids matching those parent_n_ids and those wi_ids are in the buffer:
-     *
-     *for all of the identifiers, find the w_ids of their identifier parents, remove those from epmem_temp_interval_relations if they exist.
-     *SELECT w_id FROM epmem_wmes_index JOIN epmem_temp_interval_relations ON w_id
-     *
-     *Let's do the easy way first, twice, once for constants, once for identifiers: For every w_id, find the w*_id and get the triple: parent_n_id, attribute_s_id, child_n_id/value_s_id.
-     *that triple is the real thing that existed at that time corresponding to both the time and place the w_id represents. now, that parent_n_id is the child_n_id of many things perhaps,
-     *but only some wi_ids with that parent_n_id as the child_n_id that may have been the support during the time of the original w_id.
-     *means that the eligibility pool for parents is basically "anything that started before the end and didn't end before the start as well as anything that ended after the start and didn't start after the end.
-     *
-     *alright, can get a parent_n_id no matter what for each w_id in the temp buffer table.
-     *given a parent_n_id, can look for all intervals with that parent_n_id as child_n_id.
-     * for all wi_id triples (w_ids of i type) where that child_n_id exists, only want the ones where the start of the interval was before inclusive the end and the end was not strictlybeforeexclusive the start.
-     * for those wi_ids that meet this, what semantics do i want on the state? could have something like "as long as there exists some chain from the root to this through this structure."
-     * otherwise, could have different temporal representation for each path. alright, consider the example of an object within the left hand gripper and a locality-based scene graph. when the object changes hands, it's the same object, and any match through either the left hand path or the right hand path should still have the semantics of matching to the same object.
-     * */
 
 
     //to make this more efficient, buffer_throughout_interval doesn't threshold by surprise and allows a bigger pool to provide all possible parents while limiting the set of wi_ids considered during queries to epmem_wmes_identifier
@@ -4749,14 +4717,20 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
     thisAgent->EpMem->epmem_stmts_graph->buffer_throughout_interval->bind_int(2,start);
     thisAgent->EpMem->epmem_stmts_graph->buffer_throughout_interval->bind_int(3,end);
     thisAgent->EpMem->epmem_stmts_graph->buffer_throughout_interval->execute(soar_module::op_reinit);
+
+
     //now, we attach the parent_n_id, attribute_s_id, child_n_id/value_s_id information for every interval within the span of time.
     thisAgent->EpMem->epmem_stmts_graph->elaborate_identifiers_buffer_throughout_interval->execute(soar_module::op_reinit);
     thisAgent->EpMem->epmem_stmts_graph->elaborate_constants_buffer_throughout_interval->execute(soar_module::op_reinit);
     //for each interval_id in the epmem_temp_interval_relations table, use a map from interval_id to both path and w_id. record all w_ids of parents as they become path.
     //later, reconstruct only those interval_ids that did not end up as parents along paths
-    std::map<int64_t,std::set<std::list<std::pair<int64_t,int64_t>>*>*> interval_leaf_to_path;//don't need the value, having w_id will let us check for constant/identifier value later.
-    //basically, all of the paths to the leaf will be lists in a set associated with that leaf. can merge them later because symbol tracking will use the w_id/lti business.
+    //std::map<int64_t,std::set<std::list<std::pair<int64_t,int64_t>>*>*> interval_leaf_to_path;//don't need the value, having w_id will let us check for constant/identifier value later.
+    std::map<int64_t,std::set<int64_t>*> child_to_parents_interval_ids_map; //the question is whether I make those into something other than just interval_ids for the purpose of logging additional data with them.
+    //It may be the case that I want a complicated structure there with additional construction-utile metadata, but the real indexing and identity will basically remain interval_id.
+    //easy mode: just make a different map with interval_id to other info:
+    std::map<int64_t,int64_t> interval_w_id_info;
     std::set<int64_t> parental_intervals;
+    std::set<int64_t> maybe_leaves;
     //for each entry in the epmem_temp_interval_relation table  (those intervals within the relevant big interval that were above a threshold of surprise):
     while (thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->execute() == soar_module::row)
     {// interval_id, w_id, start_episode_id, end_episode_id, parent_n_id, attribute_s_id, value_s_id, child_n_id
@@ -4777,59 +4751,92 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
         {
             child_n_id = thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->column_int(7);
         }
-        std::list<std::pair<int64_t,int64_t>>* path_list = new std::list<std::pair<int64_t,int64_t>>();
-        path_list->emplace_front(std::make_pair(interval_path_w_id,attribute_s_id));
-        std::set<std::list<std::pair<int64_t,int64_t>>*>* path_lists_set = new std::set<std::list<std::pair<int64_t,int64_t>>*>();
-        path_lists_set->insert(path_list);//gotta figure this shit out, but basically, gonna selectively append and also gonna have multiple lists where branching happens. can merge later.
-        interval_leaf_to_path[leaf_interval_id] = path_lists_set;//crap, can potentially have multiple paths when defined this way...
-        //todo need a set of lists, will deep copy the list when needed for multiple paths to interval.
+        ///////////////////////////////All of the above in this loop is just boilerplate retrieval-of-the-row stuff.
+        interval_w_id_info[leaf_interval_id] = interval_path_w_id;
 
-        //This particular interval-to-potentially-retrieve needs a path.
-        //no matter what, this interval has some parent_n_id. No matter what, there will be an instance in the epmem_temp_parent_superset table where the parent_n_id here is a child.
-        //we want any and all of such instances whenin there is temporal overlap with this interval_id.
-        std::set<int64_t> visited_interval_ids;
-        std::queue<int64_t> parents_to_process;//todo
-        if (parent_n_id != EPMEM_NODEID_ROOT)
-        {
-            parents_to_process.push(parent_n_id);
+        std::set<int64_t>* parent_interval_ids = new std::set<int64_t>();
+        maybe_leaves.insert(leaf_interval_id);
+
+
+        //During when that parent_n_id was a child of something, retrieve specifically according to the whens that pertain to the current child.
+        thisAgent->EpMem->epmem_stmts_graph->select_parents->bind_int(1,parent_n_id);
+        thisAgent->EpMem->epmem_stmts_graph->select_parents->bind_int(2,interval_end);
+        thisAgent->EpMem->epmem_stmts_graph->select_parents->bind_int(3,interval_start);
+        while (thisAgent->EpMem->epmem_stmts_graph->select_parents->execute() == soar_module::row)
+        {//interval_id, w_id, start_episode_id, end_episode_id
+            int64_t valid_parent_interval_id = thisAgent->EpMem->epmem_stmts_graph->select_parents->column_int(0);
+            //don't need to recur because the outer while flattened structure -- will get there eventually.
+            parental_intervals.insert(valid_parent_interval_id);
+
+            int64_t w_id_for_parent_interval = thisAgent->EpMem->epmem_stmts_graph->select_parents->column_int(1);
+            interval_w_id_info[valid_parent_interval_id] = w_id_for_parent_interval;
         }
-        int64_t current_parent;
-        //need something that means something along the lines of "if the parent isn't the state root, then keep going, and that will also determine initial population of parents_to_process.
-        while(!parents_to_process.empty())//the processing here continues until state root.
-        {
-            current_parent = parents_to_process.front(); parents_to_process.pop();
-            thisAgent->EpMem->epmem_stmts_graph->select_parents->bind_int(1,current_parent);
-            thisAgent->EpMem->epmem_stmts_graph->select_parents->bind_int(2,interval_end);
-            thisAgent->EpMem->epmem_stmts_graph->select_parents->bind_int(3,interval_start);
-            while (thisAgent->EpMem->epmem_stmts_graph->select_parents->execute() == soar_module::row)
-            {
-                //check that the interval hasn't already been gotten to within this path somehow. NOT THE SAME AS parental_intervals. more like a subset of that just for this path routine
-
-                //add to the local visitation and the global vitation.
-
-                //all the parents that got this far create an append based on their attribute and w_id. //later, during construction, will only create new identifier symbols when the w_id's lti doesn't already have a symbol for that path.
-
-
-                //we also log the interval_ids of those path parents as parents. We will not actually end up constructing them.
-
-                //if the retrieved parent isn't the state root, we'll add it to the queue.
-                if ()
-                {
-
-                }
-            }
-            thisAgent->EpMem->epmem_stmts_graph->select_parents->reinitialize();
-        }
+        thisAgent->EpMem->epmem_stmts_graph->select_parents->reinitialize();
     }
+    thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->reinitialize();
+
+
+
+    std::set<int64_t>::iterator remove_these_it;
     //remove all of the parental_intervals from the epmem_temp_interval_relation_table.
-    //create intervals and paths for remaining intervals. this step and the below step can be ordered as convenient.
+    for (remove_these_it = parental_intervals.begin(); remove_these_it != parental_intervals.end(); ++remove_these_it)
+    {
+        if (maybe_leaves.find(*remove_these_it)!=maybe_leaves.end())
+        {
+            maybe_leaves.erase(*remove_these_it);
+            //to_remove_from_table.insert(*remove_these_it);
+            thisAgent->EpMem->epmem_stmts_graph->delete_specific_epmem_temp_interval_relations->bind_int(1,*remove_these_it);
+            thisAgent->EpMem->epmem_stmts_graph->delete_specific_epmem_temp_interval_relations->execute(soar_module::op_reinit);//maybe batch this later if it's slow.
+        }
+    }//Now, the maybe_leaves set is actually the set of things we want to do in-WMem reconstruction for.
+    //do construction for what remains in the table.
+    std::map<int64_t,Symbol*> interval_to_symbol;
+    int64_t left_interval;
+    int64_t right_interval;
+    int64_t left_w_id;
+    int64_t right_w_id;
     //create relations between those intervals.
+    while (thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->execute() == soar_module::row)
+    {//this is left interval, right interval, left w_id, right w_id for all before relations among intervals
+        left_interval = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(0);
+        right_interval = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(1);
+        left_w_id = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(2);
+        right_w_id = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(3);
+        Symbol* left_interval_symbol;
+        Symbol* right_interval_symbol;
+        //if statement that checks for whether it already exists. if not, it is constructed. if it does exist, we just refer to that symbol. (want multiple relations to same symbol)
+        if (interval_to_symbol.find(left_interval) == interval_to_symbol.end())
+        {//make it and include the path info. ltis for each created symbol correspond to w_id. exception is that the root of the path is the value's w_id. kinda weird. might change.
+            //actually going to use a recursive helper function with pass by reference tracking of w_ids -- should bottom out at state root which will actually do the real deal.
+//things to pass to helper function: path root, child. child_to_parents_interval_ids_map, interval_w_id_info, w_id_symbols_in_this_path.
+            //will have a root, will want to make some value, parent doesn't have a symbol yet within this particular path.
+            //decide to use as the parent whatever symbol is created when making the parent as a child of something.
+            //recursion that way ends at state root which will have a w_id equal to epmem_nodeid_root.
+        }
+        else
+        {//use the one that was found.
+            left_interval_symbol = interval_to_symbol[left_interval];
+        }
+        if (interval_to_symbol.find(right_interval) == interval_to_symbol.end())
+        {//make it and include the path info. ltis for each created symbol correspond to w_id. exception is that the root of the path is the value's w_id. kinda weird. might change.
+            //This is where I keep track of w_ids and do a while-style "recursion" constructing the path.
+
+        }
+        else
+        {//use the one that was found.
+            right_interval_symbol = interval_to_symbol[right_interval];
+        }
+
+        Symbol* relation = thisAgent->symbolManager->make_new_identifier('M', result_header->id->level);
+        epmem_buffer_add_wme(thisAgent, retrieval_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_interval_relation, relation);
+        thisAgent->symbolManager->symbol_remove_ref(&relation);
+        //an interval relation has a left interval, right interval, and type of relation.
+        epmem_buffer_add_wme(thisAgent, meta_wmes, relation, thisAgent->symbolManager->soarSymbols.epmem_sym_left, left_interval_symbol);
+        epmem_buffer_add_wme(thisAgent, meta_wmes, relation, thisAgent->symbolManager->soarSymbols.epmem_sym_right, right_interval_symbol);//the cue root.
+        epmem_buffer_add_wme(thisAgent, meta_wmes, relation, thisAgent->symbolManager->soarSymbols.epmem_sym_type, thisAgent->symbolManager->soarSymbols.epmem_sym_before);//the cue root.
+    }
 
 
-
-
-    //we only need to create a given interval's ego-space path once. it has a given underlying w_id that may occur over several time intervals. It's kinda like each time interval appearance is an instance and that the w_id is basically an lti, which is why we have a w_id<->lti_id table.
-    //std::set<int64_t> parental_intervals;//the thing that happens when there is more than one instance is just that there are additional temporal relations to the same path.
 
 }
 

@@ -347,6 +347,7 @@ class epmem_graph_statement_container: public soar_module::sqlite_statement_cont
         soar_module::sqlite_statement* find_befores_for_match;
         soar_module::sqlite_statement* select_potential_intervals_to_retrieve;
         soar_module::sqlite_statement* select_parents;
+        soar_module::sqlite_statement* delete_specific_epmem_temp_interval_relations;
         soar_module::sqlite_statement* delete_epmem_temp_interval_relations;
 
         //
