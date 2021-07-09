@@ -1331,6 +1331,8 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     find_epmem_wmes = new soar_module::sqlite_statement(new_db, "SELECT w_id FROM epmem_wmes_index WHERE type=? AND w_type_based_id=?");
     add(find_epmem_wmes);
 
+    find_w_id_info = new soar_module::sqlite_statement(new_db, "SELECT w_type_based_id,type FROM epmem_wmes_index WHERE w_id=?");
+    add(find_w_id_info);
 
     add_epmem_wmes_constant_now = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_wmes_constant_now (wc_id,start_episode_id) VALUES (?,?)");
     add(add_epmem_wmes_constant_now);
@@ -4599,6 +4601,65 @@ inline void _epmem_install_id_wme(agent* thisAgent, Symbol* parent, Symbol* attr
         }
 }
 
+inline Symbol* epmem_create_path(agent* thisAgent, Symbol* state, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, int64_t parent_n_id, Symbol*& dummy_for_state_root, int64_t interval_id,
+        std::map<int64_t,std::pair< Symbol*, bool >>* n_id_to_symbol, std::map<int64_t,std::set<int64_t>*>* child_interval_to_parents, std::map<int64_t,int64_t>* interval_to_w_id)
+{//this function looks up the parent_n_id passed to it and makes a symbol for it. sometimes it does that when it finds that the parent_n_id is the state root and it's done. Other times, it does that by
+    //std::map<int64_t,Symbol*>::iterator parent_sym_it = n_id_to_symbol->find(parent_n_id);
+    //if (parent_sym_it == n_id_to_symbol->end())
+    {
+        if (parent_n_id == EPMEM_NODEID_ROOT)
+        {
+            Symbol* result_header = state->id->epmem_info->result_wme->value;
+            Symbol* retrieved_header;//Make a new retrieved_header for this cue.
+            retrieved_header = thisAgent->symbolManager->make_new_identifier('R', result_header->id->level);
+            epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_retrieved_interval, retrieved_header);
+            thisAgent->symbolManager->symbol_remove_ref(&retrieved_header);
+            //epmem_buffer_add_wme(thisAgent, retrieval_wmes, retrieved_header, attr_to_attach, child_to_attach);
+            dummy_for_state_root=retrieved_header;
+            n_id_to_symbol->insert(std::make_pair(parent_n_id, std::make_pair(retrieved_header,true)));//->find(parent_n_id)->second.first = retrieved_header;
+            return retrieved_header;
+        }
+        else
+        {//haven't gotten to the state root yet means keep going.
+            int64_t new_parent_n_id;
+            int64_t new_interval_id;
+            int64_t new_parent_w_id;
+            std::set<int64_t>* parents_to_create_or_find child_interval_to_parents[interval_id];
+            std::set<int64_t>::iterator parent_it;
+            for (parent_it = parents_to_create_or_find->begin(); parent_it != parents_to_create_or_find->end(); ++parent_it)
+            {
+                new_interval_id = *parent_it;
+                new_parent_w_id = interval_to_w_id[new_interval_id];
+                //get the parent's additional information:
+                thisAgent->EpMem->epmem_stmts_graph->find_w_id_info->bind_int(1,new_parent_w_id);
+                thisAgent->EpMem->epmem_stmts_graph->find_w_id_info->execute();
+                int64_t new_parent_w_type_based_id = thisAgent->EpMem->epmem_stmts_graph->find_w_id_info->column_int(0);
+                thisAgent->EpMem->epmem_stmts_graph->find_w_id_info->reinitialize();
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->bind_int(1,new_parent_w_type_based_id);
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->execute();
+                new_parent_n_id = thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->column_int(0);
+                Symbol* new_attr_to_attach = epmem_reverse_hash(thisAgent, thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->column_int(1));
+                //child_symbol = epmem_reverse_hash(thisAgent, thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->column_int(2));
+                assert(parent_n_id == thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->column_int(2));
+                //the parent_n_id passed to here actually needs a symbol.
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->reinitialize();
+
+//use _epmem_install_id_wme(thisAgent, parent_symbol, attr_symbol, &(ids), value_id, NULL, id_record, retrieval_wmes); to automatically take care of the symbol reuse stuff and to also accomodate lti stuff.
+
+
+                Symbol* new_parent_sym = epmem_create_path(thisAgent,state,meta_wmes,retrieval_wmes,new_parent_n_id,dummy_for_state_root,new_interval_id,n_id_to_symbol,child_interval_to_parents,interval_to_w_id);
+                //epmem_buffer_add_wme(thisAgent, retrieval_wmes, new_parent_sym, new_attr_to_attach, child_to_attach);
+                //given the w_id, we can also attach lti:
+                _epmem_install_id_wme(thisAgent, new_parent_sym, new_attr_to_attach, n_id_to_symbol, parent_n_id, lti_id, NULL, retrieval_wmes);
+                Symbol* child_to_attach = n_id_to_symbol->find(parent_n_id)->second.first;//actually make the child here.
+                //remove_ref.
+                return child_to_attach;
+            }
+
+
+        }
+    }
+}
 
 void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbol_triple_list& meta_wmes, std::map<Symbol*,epmem_literal*>& cue_to_root_literal_map,
         epmem_ongoing_match* interval_match, symbol_triple_list& retrieval_wmes, epmem_time_id start, epmem_time_id end)
@@ -4756,6 +4817,7 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
 
         std::set<int64_t>* parent_interval_ids = new std::set<int64_t>();
         maybe_leaves.insert(leaf_interval_id);
+        //child_to_parents_interval_ids_map[leaf_interval_id]->insert()
 
 
         //During when that parent_n_id was a child of something, retrieve specifically according to the whens that pertain to the current child.
@@ -4767,11 +4829,12 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
             int64_t valid_parent_interval_id = thisAgent->EpMem->epmem_stmts_graph->select_parents->column_int(0);
             //don't need to recur because the outer while flattened structure -- will get there eventually.
             parental_intervals.insert(valid_parent_interval_id);
-
+            parent_interval_ids->insert(valid_parent_interval_id);
             int64_t w_id_for_parent_interval = thisAgent->EpMem->epmem_stmts_graph->select_parents->column_int(1);
             interval_w_id_info[valid_parent_interval_id] = w_id_for_parent_interval;
         }
         thisAgent->EpMem->epmem_stmts_graph->select_parents->reinitialize();
+        child_to_parents_interval_ids_map[leaf_interval_id] = parent_interval_ids;
     }
     thisAgent->EpMem->epmem_stmts_graph->select_potential_intervals_to_retrieve->reinitialize();
 
@@ -4791,6 +4854,7 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
     }//Now, the maybe_leaves set is actually the set of things we want to do in-WMem reconstruction for.
     //do construction for what remains in the table.
     std::map<int64_t,Symbol*> interval_to_symbol;
+    std::map<int64_t,std::pair<Symbol*,bool>> n_id_to_symbol;
     int64_t left_interval;
     int64_t right_interval;
     int64_t left_w_id;
@@ -4798,6 +4862,9 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
     //create relations between those intervals.
     while (thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->execute() == soar_module::row)
     {//this is left interval, right interval, left w_id, right w_id for all before relations among intervals
+
+        std::map< epmem_node_id, std::pair< Symbol*, bool > > ids;//this is so that reuse of a w_id leads to reuse of a symbol for this particular interval.
+
         left_interval = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(0);
         right_interval = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(1);
         left_w_id = thisAgent->EpMem->epmem_stmts_graph->find_befores_for_match->column_int(2);
@@ -4807,11 +4874,61 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
         //if statement that checks for whether it already exists. if not, it is constructed. if it does exist, we just refer to that symbol. (want multiple relations to same symbol)
         if (interval_to_symbol.find(left_interval) == interval_to_symbol.end())
         {//make it and include the path info. ltis for each created symbol correspond to w_id. exception is that the root of the path is the value's w_id. kinda weird. might change.
+            n_id_to_symbol.clear();//no sharing across intervals.
             //actually going to use a recursive helper function with pass by reference tracking of w_ids -- should bottom out at state root which will actually do the real deal.
 //things to pass to helper function: path root, child. child_to_parents_interval_ids_map, interval_w_id_info, w_id_symbols_in_this_path.
             //will have a root, will want to make some value, parent doesn't have a symbol yet within this particular path.
             //decide to use as the parent whatever symbol is created when making the parent as a child of something.
             //recursion that way ends at state root which will have a w_id equal to epmem_nodeid_root.
+            //look up the w_id info for the child at the current location (the leaf).
+            //look up the w*_id and type for the w_id:
+            thisAgent->EpMem->epmem_stmts_graph->find_w_id_info->bind_int(1,left_w_id);
+            thisAgent->EpMem->epmem_stmts_graph->find_w_id_info->execute();
+            int64_t w_type_based_id = thisAgent->EpMem->epmem_stmts_graph->find_w_id_info->column_int(0);
+            byte sym_type = thisAgent->EpMem->epmem_stmts_graph->find_w_id_info->column_int(1);
+            thisAgent->EpMem->epmem_stmts_graph->find_w_id_info->reinitialize();
+
+            bool is_constant = (sym_type != IDENTIFIER_SYMBOL_TYPE);
+
+            Symbol* child_symbol;
+            int64_t child_n_id;
+            Symbol* attribute_symbol;
+            int64_t parent_n_id;
+
+
+            //get the w*_id info for that w*id (the parent and attribute). (get_single_wcid_info and get_single_wiid_info)
+            if (is_constant)
+            {
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->bind_int(1,w_type_based_id);
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->execute();
+                parent_n_id = thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->column_int(0);
+                attribute_symbol = epmem_reverse_hash(thisAgent, thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->column_int(1));
+                child_symbol = epmem_reverse_hash(thisAgent, thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->column_int(2));
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wcid_info->reinitialize();
+            }
+            else
+            {
+                //todo: need to add a bunch of stuff here
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->bind_int(1,w_type_based_id);
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->execute();
+                parent_n_id = thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->column_int(0);
+                attribute_symbol = epmem_reverse_hash(thisAgent, thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->column_int(1));
+                child_n_id = thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->column_int(2);
+                thisAgent->EpMem->epmem_stmts_graph->get_single_wiid_info->reinitialize();
+                //n_id_to_symbol[child_n_id] = child_symbol;
+            }
+            //n_id_to_symbol[left_w_id] = child_symbol;
+
+            // when it bottoms out, it will modify the left_interval_symbol directly to be the state root and then return the child symbol attached by an attribute it.
+            //then, above it in the stack, that child is returned and used as the parent in epmem_buffer_add_wme(parent, attr, child). then, the child in that is returned and used as the parent in...
+            //agent* thisAgent, Symbol* dummy_for_state_root, int64_t interval_id, Symbol* attr_to_attach, Symbol* child_to_attach, std::map<int64_t,Symbol*>* n_id_to_symbol, std::map<int64_t,std::set<int64_t>*>* child_interval_to_parents, std::map<int64_t,int64_t>* interval_to_w_id
+            Symbol* parent_symbol = epmem_create_path(thisAgent, state, meta_wmes, retrieval_wmes, parent_n_id, left_interval_symbol, left_interval, &n_id_to_symbol, &child_to_parents_interval_ids_map, &interval_w_id_info);//fine to call when directly under state root, just makes that the easy case where it won't recur (instantly bottoms out).
+            //to finish, we just add the attribute and child of the leaf here:
+            _epmem_install_id_wme(thisAgent, parent_symbol, attribute_symbol, n_id_to_symbol, child_n_id, lti_id, NULL, retrieval_wmes);
+            //todo: symbolremoveref here
+
+            //left_interval_symbol is the root of all that.
+            interval_to_symbol[left_interval] = left_interval_symbol;
         }
         else
         {//use the one that was found.
@@ -4819,6 +4936,7 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
         }
         if (interval_to_symbol.find(right_interval) == interval_to_symbol.end())
         {//make it and include the path info. ltis for each created symbol correspond to w_id. exception is that the root of the path is the value's w_id. kinda weird. might change.
+            n_id_to_symbol.clear();//no sharing across intervals.
             //This is where I keep track of w_ids and do a while-style "recursion" constructing the path.
 
         }
@@ -4827,8 +4945,8 @@ void epmem_install_interval_one_more_time(agent* thisAgent, Symbol* state, symbo
             right_interval_symbol = interval_to_symbol[right_interval];
         }
 
-        Symbol* relation = thisAgent->symbolManager->make_new_identifier('M', result_header->id->level);
-        epmem_buffer_add_wme(thisAgent, retrieval_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_interval_relation, relation);
+        Symbol* relation = thisAgent->symbolManager->make_new_identifier('M', result_header->id->level);//todo check whether the below are meta_wmes or retrieval_wmes.
+        epmem_buffer_add_wme(thisAgent, meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.epmem_sym_interval_relation, relation);
         thisAgent->symbolManager->symbol_remove_ref(&relation);
         //an interval relation has a left interval, right interval, and type of relation.
         epmem_buffer_add_wme(thisAgent, meta_wmes, relation, thisAgent->symbolManager->soarSymbols.epmem_sym_left, left_interval_symbol);
