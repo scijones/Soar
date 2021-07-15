@@ -392,6 +392,36 @@ std::pair<bool, bool>* SMem_Manager::processMathQuery(Symbol* mathQuery, smem_pr
     return result;
 }
 
+int64_t SMem_Manager::process_spread_rank(Symbol* state, Symbol* target, symbol_list& candidates, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes)
+{
+    //given the lti that is the target, which of the candidates has the highest spread to that target?
+    int64_t highest_lti;
+
+    std::list<Symbol*>::iterator candidates_it;
+    int64_t candidate_lti;
+    std::map<int64_t,Symbol*> lti_to_candidate;
+    for (candidates_it = candidates.begin(); candidates_it != candidates.end(); ++candidates_it)
+    {
+        candidate_lti = (*candidates_it)->id->LTI_ID;
+        lti_to_candidate[candidate_lti] = *candidates_it;
+        SQL->insert_temp_candidate->bind_int(1,candidate_lti);
+        SQL->insert_temp_candidate->execute(soar_module::op_reinit);
+    }
+    SQL->rank_for_target->bind_int(1,target->id->LTI_ID);
+    SQL->rank_for_target->execute();
+    highest_lti = SQL->rank_for_target->column_int(0);
+    SQL->rank_for_target->reinitialize();// could optionally keep retrieving rows and return the top k perhaps thresholded.
+    SQL->clear_temp_candidate->execute(soar_module::op_reinit);
+
+    Symbol* winner = lti_to_candidate[highest_lti];
+
+    Symbol* result_header = state->id->smem_info->result_wme->value;
+    add_triple_to_recall_buffer(meta_wmes, result_header, thisAgent->symbolManager->soarSymbols.smem_sym_retrieved, winner);
+
+    return highest_lti;
+}
+
+
 uint64_t SMem_Manager::process_query(Symbol* state, std::list<Symbol*> query, Symbol* negquery, Symbol* mathQuery, id_set* prohibit, wme_set& cue_wmes, symbol_triple_list& meta_wmes, symbol_triple_list& retrieval_wmes, smem_query_levels query_level, uint64_t number_to_retrieve , std::list<uint64_t>* match_ids, uint64_t depth, smem_install_type install_type)
 {
     //Under the philosophy that activation only matters in the service of a query, we defer processing prohibits until now..

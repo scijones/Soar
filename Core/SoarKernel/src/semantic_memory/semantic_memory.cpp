@@ -130,8 +130,10 @@ void SMem_Manager::respond_to_cmd(bool store_only)
     bool link_to_ltm = true;
     symbol_list prohibit;
     symbol_list store;
+    symbol_list candidates;
+    Symbol* target;
 
-    enum path_type { blank_slate, cmd_bad, cmd_retrieve, cmd_query, cmd_store_new, cmd_store, cmd_prohibit } path;
+    enum path_type { blank_slate, cmd_bad, cmd_retrieve, cmd_query, cmd_store_new, cmd_store, cmd_prohibit, cmd_target } path;
 
     unsigned int time_slot = ((store_only) ? (1) : (0));
     uint64_t wme_count;
@@ -250,6 +252,8 @@ void SMem_Manager::respond_to_cmd(bool store_only)
             math = NIL;
             store.clear();
             prohibit.clear();
+            target = NIL;
+            candidates.clear();
             path = blank_slate;
             depth = 1;
 
@@ -412,6 +416,31 @@ void SMem_Manager::respond_to_cmd(bool store_only)
                             path = cmd_bad;
                         }
                     }
+                    else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.smem_sym_candidate)
+                    {
+                        if ((*w_p)->value->symbol_type == IDENTIFIER_SYMBOL_TYPE && (*w_p)->value->id->LTI_ID>0)
+                        {
+                            candidates.push_back((*w_p)->value);
+                            path = cmd_target;
+                        }
+                        else
+                        {
+                            path=cmd_bad;
+                        }
+
+                    }
+                    else if ((*w_p)->attr == thisAgent->symbolManager->soarSymbols.smem_sym_target)
+                    {
+                        if ((*w_p)->value->symbol_type == IDENTIFIER_SYMBOL_TYPE && (*w_p)->value->id->LTI_ID>0)
+                        {
+                            target = (*w_p)->value;
+                            path = cmd_target;
+                        }
+                        else
+                        {
+                            path=cmd_bad;
+                        }
+                    }
                     else
                     {
                         path = cmd_bad;
@@ -556,6 +585,10 @@ void SMem_Manager::respond_to_cmd(bool store_only)
     prohibit_check = new soar_module::sqlite_statement(new_db, "SELECT lti_id,dirty FROM smem_prohibited WHERE lti_id=? AND prohibited=1");
     add(prohibit_check);
                      */
+                }
+                else if (path == cmd_target)
+                {
+                    process_spread_rank(state, target, candidates, meta_wmes, retrieval_wmes);
                 }
                 else if (path == cmd_prohibit)
                 {

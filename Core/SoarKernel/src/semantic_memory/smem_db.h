@@ -121,6 +121,11 @@ class smem_statement_container: public soar_module::sqlite_statement_container
         soar_module::sqlite_statement* vis_value_const;
         soar_module::sqlite_statement* vis_value_lti;
 
+        //for weird epmem stuff right now:
+        soar_module::sqlite_statement* insert_temp_candidate;
+        soar_module::sqlite_statement* rank_for_target;
+        soar_module::sqlite_statement* clear_temp_candidate;
+
         //The below sqlite statements are for spreading:
         soar_module::sqlite_statement* web_val_child;
         soar_module::sqlite_statement* web_update_child_edge;

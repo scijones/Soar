@@ -43,6 +43,8 @@ void smem_statement_container::create_tables()
     add_structure("CREATE TABLE smem_current_spread_activations (lti_id INTEGER PRIMARY KEY, activation_base_level REAL, activation_spread REAL, activation_value REAL)");
     add_structure("CREATE TABLE smem_to_delete (lti_id INTEGER PRIMARY KEY)");
     add_structure("CREATE TABLE smem_invalid_parents (lti_id INTEGER PRIMARY KEY) WITHOUT ROWID");
+    add_structure("CREATE TABLE smem_temp_candidates (lti_id INTEGER PRIMARY KEY) WITHOUT ROWID");
+
     // adding an ascii table just to make lti queries easier when inspecting database
     {
         add_structure("INSERT OR IGNORE INTO smem_ascii (ascii_num, ascii_chr) VALUES (65,'A')");
@@ -615,6 +617,18 @@ smem_statement_container::smem_statement_container(agent* new_agent): soar_modul
 
     add_committed_fingerprint = new soar_module::sqlite_statement(new_db,"INSERT INTO smem_committed_spread (lti_id,num_appearances_i_j,num_appearances,lti_source) VALUES (?,?,?,?)");
     add(add_committed_fingerprint);
+
+    //these are just to find which of a set spreads most to a given target:
+
+    insert_temp_candidate = new soar_module::sqlite_statement(new_db, "INSERT INTO smem_temp_candidates (lti_id) VALUES (?)");
+    add(insert_temp_candidate);
+
+    rank_for_target = new soar_module::sqlite_statement(new_db, "SELECT c.lti_id, l.num_appearances_i_j/n.num_appearances AS spread FROM smem_temp_candidates c INNER JOIN smem_likelihoods l ON c.lti_id=l.lti_j INNER JOIN smem_trajectory_num n ON n.lti_id=c.lti_id WHERE l.lti_i=? ORDER BY spread DESC");
+    add(rank_for_target);
+
+    clear_temp_candidate = new soar_module::sqlite_statement(new_db, "DELETE FROM smem_temp_candidates");
+    add(clear_temp_candidate);
+
 }
 
 //////////////////////////////////////////////////////////

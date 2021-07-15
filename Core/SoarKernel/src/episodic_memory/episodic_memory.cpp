@@ -1038,14 +1038,14 @@ void epmem_graph_statement_container::create_graph_tables()
     add_structure("CREATE TABLE IF NOT EXISTS epmem_relations_just_added (w_id_left INTEGER, w_id_right INTEGER, relation INTEGER, weight REAL)");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_potential_interval_updates (w_id_left INTEGER, w_id_right INTEGER, time_id_left INTEGER, time_id_right INTEGER, relation INTEGER, finished_right BOOLEAN)");//Make this include some form of time data as well (to help provide update magnitude).
     add_structure("CREATE TABLE IF NOT EXISTS epmem_w_id_to_lti_id (w_id INTEGER, lti_id INTEGER, PRIMARY KEY(w_id,lti_id)) WITHOUT ROWID");//the lti identity for any interval associated with w_id.
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_w_id (w_id INTEGER PRIMARY KEY) WITHOUT ROWID)");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_w_id (w_id INTEGER PRIMARY KEY) WITHOUT ROWID");
     add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_interval_relations (interval_id INTEGER, w_id INTEGER, start_episode_id INTEGER, end_episode_id INTEGER, PRIMARY KEY(start_episode_id, end_episode_id, interval_id, w_id))");
-    add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_parent_superset (interval_id INTEGER, w_id INTEGER, start_episode_id INTEGER, end_episode_id INTEGER, PRIMARY KEY(start_episode_id, end_episode_id, interval_id, w_id))");
+    add_structure("CREATE TABLE IF NOT EXISTS epmem_temp_parent_superset (interval_id INTEGER, w_id INTEGER, start_episode_id INTEGER, end_episode_id INTEGER, parent_n_id INTEGER, attribute_s_id INTEGER, value_s_id INTEGER, child_n_id INTEGER, PRIMARY KEY(start_episode_id, end_episode_id, interval_id, w_id))");
 }
 
 void epmem_graph_statement_container::create_graph_indices()
 {//todo organize in two ways -- by the table(s) referenced and by the aspect of memory, the functionality they support
-    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_index_now_time_id ON epmem_wmes_index_now (start_episode_id DESC, interval_id)");
+    add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_wmes_index_now_time_id ON epmem_wmes_index_now (start_episode_id DESC, w_id)");
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_w_id_to_lti_index ON epmem_w_id_to_lti_id (lti_id,w_id)");
 
     add_structure("CREATE UNIQUE INDEX IF NOT EXISTS epmem_temp_interval_end_start ON epmem_temp_interval_relations (end_episode_id,start_episode_id,interval_id,w_id)");
@@ -1203,15 +1203,15 @@ epmem_graph_statement_container::epmem_graph_statement_container(agent* new_agen
     find_matched_intervals = new soar_module::sqlite_statement(new_db, "SELECT i.surprise FROM epmem_intervals i JOIN epmem_times t ON t.time_id=i.time_id JOIN epmem_temp_w_id w ON w.w_id=i.w_id WHERE (t.start_episode_id >= ? AND t.end_episode_id <= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) ORDER BY i.surprise DESC LIMIT 1");
     add(find_matched_intervals);
 
-    buffer_above_surprise_during_interval = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_temp_interval_relations (interval_id, w_id, start_episode_id, end_episode_id) SELECT i.interval_id, i.w_id, t.start_episode_id, t.end_episode_id FROM epmem_intervals i INNER JOIN epmem_times t ON i.time_id=t.time_id AND i.surprise >= ? WHERE (t.start_episode_id >= ? AND t.end_episode_id =< ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?)");
+    buffer_above_surprise_during_interval = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_temp_interval_relations (interval_id, w_id, start_episode_id, end_episode_id) SELECT i.interval_id, i.w_id, t.start_episode_id, t.end_episode_id FROM epmem_intervals i INNER JOIN epmem_times t ON i.time_id=t.time_id AND i.surprise >= ? WHERE (t.start_episode_id >= ? AND t.end_episode_id <= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id >= ?)");
     add(buffer_above_surprise_during_interval);
 
-    buffer_throughout_interval = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_temp_parent_superset (interval_id, w_id, start_episode_id, end_episode_id, parent_n_id, attribute_s_id, value_s_id, child_n_id) SELECT i.interval_id, i.w_id, t.start_episode_id, t.end_episode_id,0,0,0,0 FROM epmem_intervals i INNER JOIN epmem_times t ON i.w_id=t.w_id WHERE (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id = -1)");
+    buffer_throughout_interval = new soar_module::sqlite_statement(new_db, "INSERT INTO epmem_temp_parent_superset (interval_id, w_id, start_episode_id, end_episode_id, parent_n_id, attribute_s_id, value_s_id, child_n_id) SELECT i.interval_id, i.w_id, t.start_episode_id, t.end_episode_id,0,0,0,0 FROM epmem_intervals i INNER JOIN epmem_times t ON i.time_id=t.time_id WHERE (t.start_episode_id <= ? AND t.end_episode_id >= ?) OR (t.start_episode_id <= ? AND t.end_episode_id = -1)");
     add(buffer_throughout_interval);
 
     elaborate_identifiers_buffer_throughout_interval = new soar_module::sqlite_statement(new_db, "UPDATE epmem_temp_parent_superset SET parent_n_id=info.parent_n_id,attribute_s_id=info.parent_n_id,value_s_id=-1,child_n_id=info.child_n_id FROM (SELECT parent_n_id,attribute_s_id,child_n_id,w_id FROM epmem_wmes_identifier i INNER JOIN epmem_wmes_index d ON i.wi_id=d.w_type_based_id WHERE d.type=1) AS info WHERE info.w_id=epmem_temp_parent_superset.w_id");
     add(elaborate_identifiers_buffer_throughout_interval);
-    elaborate_constants_buffer_throughout_interval = new soar_module::sqlite_statement(new_db, "UPDATE epmem_temp_parent_superset SET parent_n_id=info.parent_n_id,attribute_s_id=info.parent_n_id,value_s_id=info.value_s_id,child_n_id=-1 FROM (SELECT parent_n_id,attribute_s_id,value_s_id,w_id FROM epmem_wmes_constant c INNER JOIN epmem_wmes_index d ON c.wi_id=d.w_type_based_id WHERE d.type!=1) AS info WHERE info.w_id=epmem_temp_parent_superset.w_id");
+    elaborate_constants_buffer_throughout_interval = new soar_module::sqlite_statement(new_db, "UPDATE epmem_temp_parent_superset SET parent_n_id=info.parent_n_id,attribute_s_id=info.parent_n_id,value_s_id=info.value_s_id,child_n_id=-1 FROM (SELECT parent_n_id,attribute_s_id,value_s_id,w_id FROM epmem_wmes_constant c INNER JOIN epmem_wmes_index d ON c.wc_id=d.w_type_based_id WHERE d.type!=1) AS info WHERE info.w_id=epmem_temp_parent_superset.w_id");
     add(elaborate_constants_buffer_throughout_interval);
 
     select_potential_intervals_to_retrieve = new soar_module::sqlite_statement(new_db, "SELECT tir.interval_id, tir.w_id, tir.start_episode_id, tir.end_episode_id, tps.parent_n_id, tps.attribute_s_id, tps.value_s_id, tps.child_n_id FROM epmem_temp_interval_relations tir INNER JOIN epmem_temp_parent_superset tps ON tir.interval_id=tps.interval_id");
