@@ -893,8 +893,9 @@ void SMem_Manager::init_db()
 
         // If the database is on file, make sure the database contents use the current schema
         // If it does not, switch to memory-based database
-        if (strcmp(db_path, "file:smem_db?mode=memory&cache=shared")) // Check if database mode is to a file
+        if (strcmp(db_path, filename_string.c_str()))//"file:smem_db?mode=memory&cache=shared")) // Check if database mode is to a file
         {
+            assert(false);
             bool switch_to_memory, sql_is_new;
             std::string schema_version, version_error_message;
 

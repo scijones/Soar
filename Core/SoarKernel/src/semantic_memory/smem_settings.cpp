@@ -200,8 +200,14 @@ void smem_path_param::set_value(const char* new_value)
 
         // If the database is on file, make sure the database contents use the current schema
         // If it does not, switch to memory-based database
+        std::string filename_string;
+        filename_string.append("file:smem_");
+        filename_string.append(thisAgent->name);
+        filename_string.append("_db?mode=memory&cache=shared");
 
-        if (strcmp(db_path, "file:smem_db?mode=memory&cache=shared")) // Only worry about database version if writing to disk
+
+
+        if (strcmp(db_path, filename_string.c_str())) // Only worry about database version if writing to disk
         {
             bool sql_is_new;
             std::string schema_version;

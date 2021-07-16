@@ -2246,21 +2246,22 @@ void epmem_attach_smem(agent* thisAgent)
             std::string sql_to_execute;
             std::string path_str;
             const char* smem_db_path;
-            if (thisAgent->SMem->settings->database->get_value() == smem_param_container::memory)
+            bool in_memory = thisAgent->SMem->settings->database->get_value() == smem_param_container::memory;
+            if (in_memory)
             {
-                path_str = "smem_";
+                path_str = "file:smem_";
                 path_str.append(thisAgent->name);
-                path_str.append("_db");
+                path_str.append("_db?mode=memory&cache=shared");
                 smem_db_path = path_str.c_str();
             }
             else
             {
                 smem_db_path = thisAgent->SMem->settings->path->get_value();
             }
+
             sql_to_execute = "ATTACH DATABASE '";
             sql_to_execute+= smem_db_path;
             sql_to_execute+= "' AS smem_db";
-            //bool result = thisAgent->EpMem->epmem_db->sql_execute(sql_to_execute.c_str());
             soar_module::sqlite_statement* test_attach = new soar_module::sqlite_statement(thisAgent->EpMem->epmem_db,sql_to_execute.c_str());
             test_attach->prepare();
             test_attach->execute();
@@ -2342,7 +2343,7 @@ void epmem_init_db(agent* thisAgent, bool readonly)
     }
 
     // attempt connection
-    thisAgent->EpMem->epmem_db->connect(db_path,SQLITE_OPEN_URI | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+    thisAgent->EpMem->epmem_db->connect(db_path, SQLITE_OPEN_URI | SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
 
     if (thisAgent->EpMem->epmem_db->get_status() == soar_module::problem)
     {
@@ -2363,7 +2364,7 @@ void epmem_init_db(agent* thisAgent, bool readonly)
         // If the database is on file, make sure the database contents use the current schema
         // If it does not, switch to memory-based database
 
-        if (strcmp(db_path, "file:epmem_db?mode=memory&cache=shared")) // Only worry about database version if writing to disk
+        if (strcmp(db_path, filename_string.c_str()))//"file:epmem_db?mode=memory&cache=shared")) // Only worry about database version if writing to disk
         {
             bool switch_to_memory, sql_is_new;
             std::string schema_version, version_error_message;
@@ -5005,7 +5006,7 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, symbol_triple_list&
             // when it bottoms out, it will modify the left_interval_symbol directly to be the state root and then return the child symbol attached by an attribute it.
             //then, above it in the stack, that child is returned and used as the parent in epmem_buffer_add_wme(parent, attr, child). then, the child in that is returned and used as the parent in...
             //agent* thisAgent, Symbol* dummy_for_state_root, int64_t interval_id, Symbol* attr_to_attach, Symbol* child_to_attach, std::map<int64_t,Symbol*>* n_id_to_symbol, std::map<int64_t,std::set<int64_t>*>* child_interval_to_parents, std::map<int64_t,int64_t>* interval_to_w_id
-            Symbol* parent_symbol = epmem_create_path(thisAgent, state, meta_wmes, retrieval_wmes, parent_n_id, right_interval_symbol, left_interval, &n_id_to_symbol, &child_to_parents_interval_ids_map, &interval_w_id_info, lti_id);//fine to call when directly under state root, just makes that the easy case where it won't recur (instantly bottoms out).
+            Symbol* parent_symbol = epmem_create_path(thisAgent, state, meta_wmes, retrieval_wmes, parent_n_id, right_interval_symbol, right_interval, &n_id_to_symbol, &child_to_parents_interval_ids_map, &interval_w_id_info, lti_id);//fine to call when directly under state root, just makes that the easy case where it won't recur (instantly bottoms out).
             //to finish, we just add the attribute and child of the leaf here:
             if (is_constant)
             {
@@ -5019,7 +5020,7 @@ void epmem_install_interval(agent* thisAgent, Symbol* state, symbol_triple_list&
                 _epmem_install_id_wme(thisAgent, parent_symbol, attribute_symbol, &n_id_to_symbol, child_n_id, 0, NULL, retrieval_wmes);
                 thisAgent->symbolManager->symbol_remove_ref(&attribute_symbol);
             }
-            //left_interval_symbol is the root of all that.
+            //right_interval_symbol is the root of all that.
             interval_to_symbol[right_interval] = right_interval_symbol;
         }
         else
